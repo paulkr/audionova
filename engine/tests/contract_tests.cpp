@@ -38,6 +38,7 @@
 #include "anv/nodes/MonoToStereo.h"
 #include "anv/nodes/Pan.h"
 #include "anv/nodes/Polarity.h"
+#include "anv/nodes/StereoWidth.h"
 #include "anv/nodes/Gain.h"
 #include "anv/nodes/ParametricEQ.h"
 #include "anv/nodes/ReferenceDelay.h"
@@ -209,6 +210,14 @@ std::vector<NodeSpec> registry() {
     ParamSet p;
     p.setStr("mode", "encode");
     v.push_back({"mid_side", [] { return std::make_unique<MidSide>(); }, p});
+  }
+  {
+    // Crossover active, so the node exercises its FIR path and declares a
+    // non-zero latency for the PDC tests to compensate.
+    ParamSet p;
+    p.set("width_percent", 130.0).set("bass_mono_below_hz", 120.0)
+        .set("bass_width_percent", 0.0).set("crossover_stopband_db", 80.0);
+    v.push_back({"stereo_width", [] { return std::make_unique<StereoWidth>(); }, p});
   }
   {
     // Short time and modest feedback keep the declared tail small enough that
@@ -2676,6 +2685,151 @@ void testUtilityNodes() {
   }
 }
 
+// 19. Stereo width correctness.
+
+ParamSet widthParams(double widthPct, double bassMonoHz, double bassWidthPct) {
+  ParamSet p;
+  p.set("width_percent", widthPct).set("bass_mono_below_hz", bassMonoHz)
+      .set("bass_width_percent", bassWidthPct)
+      .set("crossover_stopband_db", 80.0);
+  return p;
+}
+
+AudioBuffer runWidth(const ParamSet& p, const AudioBuffer& in) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "sw";
+  chain.add(std::unique_ptr<Node>(new StereoWidth()), p, cfg);
+  chain.prepare(makeSpec(in.channels(), 1024, in.frames()));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+  return out;
+}
+
+void testStereoWidth() {
+  const int64_t n = 65536;
+  AudioBuffer in(2, n);
+  CounterRng rng(808);
+  for (int64_t i = 0; i < n; ++i) {
+    in.channel(0)[i] = 0.4 * rng.bipolar(0, i);
+    in.channel(1)[i] = 0.4 * rng.bipolar(1, i); // genuinely decorrelated
+  }
+
+  // --- (a) the crossover reconstructs perfectly ---------------------------
+  //
+  // The claim that justifies a linear-phase FIR over a cheap IIR crossover:
+  // with every band at unity width the node must null against its own input.
+  // A Linkwitz-Riley split sums to an allpass and cannot do this — it would
+  // leave a phase signature on a mix that asked for nothing to be changed.
+  {
+    const AudioBuffer out = runWidth(widthParams(100.0, 120.0, 100.0), in);
+    const double diff = maxAbsDiff(in, out, n);
+    const double nullDb = 20.0 * std::log10(std::max(diff, 1e-300));
+    std::printf("       stereo width: unity through the crossover nulls at "
+                "%.1f dB\n", nullDb);
+    check(nullDb < -180.0,
+          "complementary crossover reconstructs exactly (null " +
+              std::to_string(nullDb) + " dB)");
+  }
+
+  // --- (b) width 0 collapses to mono --------------------------------------
+  {
+    const AudioBuffer out = runWidth(widthParams(0.0, 0.0, 0.0), in);
+    double worst = 0.0;
+    for (int64_t i = 0; i < n; ++i)
+      worst = std::max(worst, std::abs(out.channel(0)[i] - out.channel(1)[i]));
+    check(worst == 0.0, "width 0 gives identical channels (exact mono)");
+  }
+
+  // --- (c) width scales the side signal linearly --------------------------
+  {
+    auto sideEnergy = [&](double widthPct) {
+      const AudioBuffer out = runWidth(widthParams(widthPct, 0.0, 0.0), in);
+      double e = 0.0;
+      for (int64_t i = 0; i < n; ++i) {
+        const double s = 0.5 * (out.channel(0)[i] - out.channel(1)[i]);
+        e += s * s;
+      }
+      return e;
+    };
+    const double e100 = sideEnergy(100.0);
+    const double e200 = sideEnergy(200.0);
+    const double e50 = sideEnergy(50.0);
+    checkNear(e200 / e100, 4.0, 0.01, "width 200% doubles side amplitude");
+    checkNear(e50 / e100, 0.25, 0.01, "width 50% halves side amplitude");
+  }
+
+  // --- (d) bass mono removes low side content and only low side content ---
+  //
+  // The reason the crossover exists. Low-frequency side content costs
+  // headroom, cuts badly, and partially cancels on single-speaker playback.
+  {
+    constexpr size_t kN = 32768;
+    constexpr int64_t kSettle = 32768;
+    const int64_t total = kSettle + static_cast<int64_t>(kN);
+
+    auto binOf = [](double hz) {
+      return static_cast<size_t>(std::round(hz * static_cast<double>(kN) /
+                                            kCanonicalSampleRate));
+    };
+    const size_t lowBin = binOf(50.0), highBin = binOf(2000.0);
+    const double lowHz =
+        static_cast<double>(lowBin) * kCanonicalSampleRate / static_cast<double>(kN);
+    const double highHz =
+        static_cast<double>(highBin) * kCanonicalSampleRate / static_cast<double>(kN);
+
+    // Side-only content at both frequencies: equal and opposite in L and R.
+    AudioBuffer tones(2, total);
+    for (int64_t i = 0; i < total; ++i) {
+      const double t = static_cast<double>(i) / kCanonicalSampleRate;
+      const double lo = 0.3 * std::sin(2.0 * M_PI * lowHz * t);
+      const double hi = 0.3 * std::sin(2.0 * M_PI * highHz * t);
+      tones.channel(0)[i] = lo + hi;
+      tones.channel(1)[i] = -lo - hi;
+    }
+
+    auto sideBinDb = [&](const ParamSet& p, size_t bin) {
+      const AudioBuffer out = runWidth(p, tones);
+      std::vector<double> side(kN);
+      for (size_t i = 0; i < kN; ++i)
+        side[i] = 0.5 * (out.channel(0)[kSettle + static_cast<int64_t>(i)] -
+                         out.channel(1)[kSettle + static_cast<int64_t>(i)]);
+      const auto pw = powerSpectrum(side.data(), kN);
+      return 10.0 * std::log10(std::max(pw[bin], 1e-300));
+    };
+
+    const ParamSet passthrough = widthParams(100.0, 120.0, 100.0);
+    const ParamSet bassMono = widthParams(100.0, 120.0, 0.0);
+
+    const double lowRef = sideBinDb(passthrough, lowBin);
+    const double lowMono = sideBinDb(bassMono, lowBin);
+    const double highRef = sideBinDb(passthrough, highBin);
+    const double highMono = sideBinDb(bassMono, highBin);
+
+    std::printf("       bass mono: 50 Hz side %+.1f -> %+.1f dB, "
+                "2 kHz side %+.1f -> %+.1f dB\n",
+                lowRef, lowMono, highRef, highMono);
+
+    check(lowMono < lowRef - 50.0,
+          "bass mono removes low-frequency side content (" +
+              std::to_string(lowMono - lowRef) + " dB)");
+    checkNear(highMono, highRef, 0.1,
+              "and leaves side content above the crossover untouched");
+  }
+
+  // --- (e) with no crossover the node is latency-free ---------------------
+  {
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "sw0";
+    chain.add(std::unique_ptr<Node>(new StereoWidth()),
+              widthParams(150.0, 0.0, 0.0), cfg);
+    chain.prepare(makeSpec(2, 1024, 4096));
+    check(chain.totalLatencyFrames() == 0,
+          "with the crossover off the node declares no latency");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -2719,6 +2873,7 @@ int main() {
   std::printf("[16] convolution reverb\n");  { TIMED("convolution reverb"); testConvolutionReverb(); }
   std::printf("[17] delay correctness\n");   { TIMED("delay"); testDelay(); }
   std::printf("[18] utility nodes\n");        { TIMED("utility"); testUtilityNodes(); }
+  std::printf("[19] stereo width\n");         { TIMED("stereo width"); testStereoWidth(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
