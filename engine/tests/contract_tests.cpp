@@ -27,6 +27,7 @@
 #include "anv/graph/Chain.h"
 #include "anv/dsp/Fft.h"
 #include "anv/dsp/Oversampler.h"
+#include "anv/nodes/Chorus.h"
 #include "anv/nodes/Compressor.h"
 #include "anv/nodes/DCBlock.h"
 #include "anv/nodes/ConvolutionReverb.h"
@@ -86,6 +87,11 @@ struct NodeSpec {
   ParamSet params;
   LatencyProbe latencyProbe = LatencyProbe::Peak;
   int64_t onsetOffsetFrames = 0;
+  // Some nodes have an inherent delay that is not an exact integer — a chorus
+  // reads its line at a continuously moving fractional position, so its
+  // response lands within a sample or two of the base delay rather than
+  // exactly on it. Zero (exact) for everything else.
+  int64_t latencyToleranceFrames = 0;
 };
 
 // The registry. Every node ships with the parameter set it should be exercised
@@ -210,6 +216,16 @@ std::vector<NodeSpec> registry() {
     ParamSet p;
     p.setStr("mode", "encode");
     v.push_back({"mid_side", [] { return std::make_unique<MidSide>(); }, p});
+  }
+  {
+    // One voice with a deterministic start phase and a very slow, shallow
+    // sweep, so the base delay dominates and the latency probe can pin the
+    // response position. Multi-voice behaviour is exercised in test 20.
+    ParamSet p;
+    p.set("voices", 1.0).set("rate_hz", 0.1).set("depth_ms", 0.5)
+        .set("base_delay_ms", 12.0).set("randomize_phase", 0.0);
+    v.push_back({"chorus", [] { return std::make_unique<Chorus>(); }, p,
+                 LatencyProbe::Peak, 1152, 3});
   }
   {
     // Crossover active, so the node exercises its FIR path and declares a
@@ -423,6 +439,11 @@ void testLatency(const std::vector<NodeSpec>& all) {
     AudioBuffer out;
     c->render(in, out, 512);
 
+    // The inherent-delay offset applies to BOTH probe kinds: a chorus has a
+    // base delay just as a reverb has a pre-delay, and neither is latency.
+    const int64_t expectedPos = impulseAt + ns.onsetOffsetFrames;
+    const int64_t tol = ns.latencyToleranceFrames;
+
     if (ns.latencyProbe == LatencyProbe::Peak) {
       int64_t peakAt = -1;
       double peakVal = 0.0;
@@ -430,9 +451,9 @@ void testLatency(const std::vector<NodeSpec>& all) {
         const double v = std::abs(out.channel(0)[i]);
         if (v > peakVal) { peakVal = v; peakAt = i; }
       }
-      check(peakAt == impulseAt,
+      check(std::llabs(peakAt - expectedPos) <= tol,
             "latency: " + ns.name + " impulse peak at " + std::to_string(peakAt) +
-                ", expected " + std::to_string(impulseAt));
+                ", expected " + std::to_string(expectedPos));
 
       // Energy centroid as a second, independent estimator. It catches an
       // asymmetric response whose peak happens to land in the right place.
@@ -443,9 +464,10 @@ void testLatency(const std::vector<NodeSpec>& all) {
         den += e;
       }
       const double centroid = den > 0.0 ? num / den : -1.0;
-      check(std::abs(centroid - static_cast<double>(impulseAt)) < 2.0,
+      check(std::abs(centroid - static_cast<double>(expectedPos)) <
+                2.0 + static_cast<double>(tol),
             "latency: " + ns.name + " energy centroid at " +
-                std::to_string(centroid) + ", expected ~" + std::to_string(impulseAt));
+                std::to_string(centroid) + ", expected ~" + std::to_string(expectedPos));
     } else {
       // Nothing may emerge before the compensated position (that would be
       // non-causal), and something must emerge exactly at it (later would
@@ -464,11 +486,11 @@ void testLatency(const std::vector<NodeSpec>& all) {
             "latency: " + ns.name + " emits nothing before the impulse (got " +
                 std::to_string(before) + ")");
 
-      const int64_t expectedOnset = impulseAt + ns.onsetOffsetFrames;
       int64_t onset = -1;
       for (int64_t i = 0; i < out.frames(); ++i)
         if (std::abs(out.channel(0)[i]) > eps) { onset = i; break; }
-      check(onset == expectedOnset,
+      const int64_t expectedOnset = expectedPos;
+      check(std::llabs(onset - expectedOnset) <= tol,
             "latency: " + ns.name + " response begins at " + std::to_string(onset) +
                 ", expected " + std::to_string(expectedOnset));
     }
@@ -2830,6 +2852,155 @@ void testStereoWidth() {
   }
 }
 
+// 20. Chorus correctness.
+
+ParamSet chorusParams(int voices, double rateHz, double depthMs,
+                      double baseDelayMs, double stereoPhaseDeg) {
+  ParamSet p;
+  p.set("voices", voices).set("rate_hz", rateHz).set("depth_ms", depthMs)
+      .set("base_delay_ms", baseDelayMs).set("stereo_phase_deg", stereoPhaseDeg)
+      .set("randomize_phase", 0.0);
+  return p;
+}
+
+AudioBuffer runChorus(const ParamSet& p, const AudioBuffer& in) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "ch";
+  chain.add(std::unique_ptr<Node>(new Chorus()), p, cfg);
+  chain.prepare(makeSpec(in.channels(), 1024, in.frames()));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+  return out;
+}
+
+void testChorus() {
+  // --- (a) zero depth is a bit-exact delay --------------------------------
+  //
+  // Lagrange coefficients at a zero fraction collapse to (0, 1, 0, 0), so an
+  // unmodulated chorus at a whole-sample base delay must reproduce its input
+  // exactly. That pins the interpolator's alignment: an off-by-one in the tap
+  // indexing would show up here and nowhere else.
+  {
+    const int64_t n = 8192;
+    const AudioBuffer in = testSignal(1, n);
+    const double baseMs = 1000.0 * 960.0 / kCanonicalSampleRate; // exactly 960
+    const AudioBuffer out = runChorus(chorusParams(1, 1.0, 0.0, baseMs, 0.0), in);
+
+    double worst = 0.0;
+    for (int64_t i = 960; i < n; ++i)
+      worst = std::max(worst, std::abs(out.channel(0)[i] - in.channel(0)[i - 960]));
+    check(worst == 0.0,
+          "an unmodulated chorus is a bit-exact delay (worst " +
+              std::to_string(worst) + ")");
+  }
+
+  // --- (b) modulation actually modulates ----------------------------------
+  //
+  // A swept delay is frequency modulation: the output of a pure tone spreads
+  // into sidebands. If the LFO were stuck the spectrum would stay a single
+  // line, and the node would be an expensive delay.
+  {
+    constexpr size_t kN = 32768;
+    constexpr int64_t kSettle = 32768;
+    const int64_t total = kSettle + static_cast<int64_t>(kN);
+    const size_t carrierBin = 400; // ~1172 Hz on the coherent grid
+    const double carrierHz =
+        static_cast<double>(carrierBin) * kCanonicalSampleRate / static_cast<double>(kN);
+
+    AudioBuffer in(1, total);
+    for (int64_t i = 0; i < total; ++i)
+      in.channel(0)[i] = 0.5 * std::sin(2.0 * M_PI * carrierHz *
+                                        static_cast<double>(i) / kCanonicalSampleRate);
+
+    auto carrierFraction = [&](double depthMs) {
+      const AudioBuffer out =
+          runChorus(chorusParams(1, 20.0, depthMs, 12.0, 0.0), in);
+      const auto pw = powerSpectrum(out.channel(0) + kSettle, kN);
+      double total_ = 0.0;
+      for (size_t b = 1; b < pw.size(); ++b) total_ += pw[b];
+      return total_ > 0.0 ? pw[carrierBin] / total_ : 0.0;
+    };
+
+    const double still = carrierFraction(0.0);
+    const double swept = carrierFraction(2.0);
+    std::printf("       chorus modulation: carrier holds %.3f of the energy "
+                "unmodulated, %.3f when swept\n", still, swept);
+
+    check(still > 0.99, "an unmodulated chorus leaves the tone as a single line");
+    check(swept < 0.5,
+          "sweeping the delay spreads the tone into sidebands (carrier now " +
+              std::to_string(swept) + ")");
+  }
+
+  // --- (c) opposed stereo phase decorrelates ------------------------------
+  //
+  // Width here comes from the two channels being modulated in opposition, not
+  // from any Haas-style offset — so it survives a mono sum instead of
+  // partially cancelling.
+  {
+    const int64_t n = 65536;
+    AudioBuffer in(2, n);
+    CounterRng rng(1234);
+    for (int64_t i = 0; i < n; ++i) {
+      const double v = 0.4 * rng.bipolar(0, i);
+      in.channel(0)[i] = v; // identical: a centred mono source
+      in.channel(1)[i] = v;
+    }
+
+    auto correlation = [&](double phaseDeg) {
+      const AudioBuffer out =
+          runChorus(chorusParams(3, 0.8, 4.0, 14.0, phaseDeg), in);
+      double sLL = 0.0, sRR = 0.0, sLR = 0.0;
+      for (int64_t i = 0; i < out.frames(); ++i) {
+        const double l = out.channel(0)[i], r = out.channel(1)[i];
+        sLL += l * l; sRR += r * r; sLR += l * r;
+      }
+      return sLR / std::sqrt(std::max(sLL * sRR, 1e-300));
+    };
+
+    const double locked = correlation(0.0);
+    const double opposed = correlation(180.0);
+    std::printf("       chorus stereo: phase 0 -> correlation %.3f, "
+                "phase 180 -> %.3f\n", locked, opposed);
+
+    checkNear(locked, 1.0, 1e-9,
+              "with no stereo phase offset both channels are identical");
+    check(opposed < 0.9,
+          "opposed modulation decorrelates the channels (" +
+              std::to_string(opposed) + ")");
+  }
+
+  // --- (d) more voices, denser result -------------------------------------
+  //
+  // Voices are spread evenly around the LFO cycle, so adding them should
+  // smooth the summed modulation rather than just making it louder.
+  {
+    const int64_t n = 32768;
+    AudioBuffer in(1, n);
+    for (int64_t i = 0; i < n; ++i)
+      in.channel(0)[i] = 0.5 * std::sin(2.0 * M_PI * 1000.0 *
+                                        static_cast<double>(i) / kCanonicalSampleRate);
+
+    auto peakOf = [&](int voices) {
+      const AudioBuffer out =
+          runChorus(chorusParams(voices, 1.0, 3.0, 14.0, 0.0), in);
+      double pk = 0.0;
+      for (int64_t i = n / 2; i < n; ++i)
+        pk = std::max(pk, std::abs(out.channel(0)[i]));
+      return pk;
+    };
+
+    // Normalised by voice count, so more voices must not simply mean louder.
+    const double one = peakOf(1);
+    const double four = peakOf(4);
+    check(four < one * 1.2,
+          "voice summing is normalised, not additive (1 voice " +
+              std::to_string(one) + ", 4 voices " + std::to_string(four) + ")");
+    check(four > 0.05, "and four voices still produce real output");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -2874,6 +3045,7 @@ int main() {
   std::printf("[17] delay correctness\n");   { TIMED("delay"); testDelay(); }
   std::printf("[18] utility nodes\n");        { TIMED("utility"); testUtilityNodes(); }
   std::printf("[19] stereo width\n");         { TIMED("stereo width"); testStereoWidth(); }
+  std::printf("[20] chorus\n");               { TIMED("chorus"); testChorus(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

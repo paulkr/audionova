@@ -92,4 +92,68 @@ private:
   int size_ = 0, writePos_ = 0, intDelay_ = 0;
 };
 
+// Modulated fractional delay, read with 4-point Lagrange interpolation.
+//
+// THE OPPOSITE CHOICE FROM ThiranAllpass1, for the opposite reason. An
+// allpass has exactly flat magnitude, which is what a feedback delay needs
+// because its interpolator runs on every repeat. But an allpass carries
+// state, and changing its delay mid-render makes that state briefly wrong —
+// it produces an audible transient every time the delay moves. In a chorus,
+// the delay is moving on every single sample.
+//
+// Lagrange interpolation is a plain FIR: no state, no transient, and its
+// coefficients can change per sample with no discontinuity at all. Its cost
+// is a gentle high-frequency rolloff — which is harmless here, because a
+// modulated delay is heard once rather than recirculated.
+class ModulatedDelayLine {
+public:
+  void prepare(int maxDelaySamples) {
+    size_ = std::max(8, maxDelaySamples + 8);
+    buf_.assign(static_cast<size_t>(size_), 0.0);
+    writePos_ = 0;
+  }
+
+  void reset() {
+    std::fill(buf_.begin(), buf_.end(), 0.0);
+    writePos_ = 0;
+  }
+
+  inline void write(Sample x) noexcept {
+    buf_[static_cast<size_t>(writePos_)] = x;
+    if (++writePos_ >= size_) writePos_ = 0;
+  }
+
+  // Read at an arbitrary fractional delay. Needs one sample either side of the
+  // interpolation interval, so the delay is clamped away from both ends.
+  inline Sample read(double delaySamples) const noexcept {
+    const double clamped =
+        std::min(std::max(delaySamples, 1.0), static_cast<double>(size_ - 3));
+    const int i0 = static_cast<int>(clamped);
+    const double d = clamped - static_cast<double>(i0);
+
+    const Sample xm1 = at(i0 - 1);
+    const Sample x0 = at(i0);
+    const Sample x1 = at(i0 + 1);
+    const Sample x2 = at(i0 + 2);
+
+    // Standard 4-point Lagrange, interpolating between x0 and x1 by d.
+    const double c_m1 = -d * (d - 1.0) * (d - 2.0) / 6.0;
+    const double c_0 = (d + 1.0) * (d - 1.0) * (d - 2.0) / 2.0;
+    const double c_1 = -(d + 1.0) * d * (d - 2.0) / 2.0;
+    const double c_2 = (d + 1.0) * d * (d - 1.0) / 6.0;
+
+    return c_m1 * xm1 + c_0 * x0 + c_1 * x1 + c_2 * x2;
+  }
+
+private:
+  inline Sample at(int delay) const noexcept {
+    int r = writePos_ - 1 - delay;
+    while (r < 0) r += size_;
+    return buf_[static_cast<size_t>(r)];
+  }
+
+  std::vector<Sample> buf_;
+  int size_ = 0, writePos_ = 0;
+};
+
 } // namespace anv
