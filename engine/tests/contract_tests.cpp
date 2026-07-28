@@ -32,12 +32,14 @@
 #include "anv/nodes/DCBlock.h"
 #include "anv/nodes/ConvolutionReverb.h"
 #include "anv/nodes/Delay.h"
+#include "anv/nodes/Dither.h"
 #include "anv/nodes/Drive.h"
 #include "anv/nodes/DynamicEQ.h"
 #include "anv/nodes/GateExpander.h"
 #include "anv/nodes/MidSide.h"
 #include "anv/nodes/MonoToStereo.h"
 #include "anv/nodes/Pan.h"
+#include "anv/nodes/PlateReverb.h"
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
 #include "anv/nodes/Gain.h"
@@ -54,11 +56,16 @@ namespace {
 int g_failures = 0;
 int g_checks = 0;
 
+// The leading newline is not cosmetic. Several tests print progress
+// incrementally without a trailing newline, so a failure message would
+// otherwise be appended mid-line — where any tool scanning for failures at the
+// start of a line silently misses it. That is exactly how three real mutations
+// were recorded as "not caught" when they had in fact been detected.
 void check(bool ok, const std::string& what) {
   ++g_checks;
   if (!ok) {
     ++g_failures;
-    std::printf("  FAIL  %s\n", what.c_str());
+    std::printf("\n  FAIL  %s\n", what.c_str());
   }
 }
 
@@ -92,6 +99,26 @@ struct NodeSpec {
   // response lands within a sample or two of the base delay rather than
   // exactly on it. Zero (exact) for everything else.
   int64_t latencyToleranceFrames = 0;
+  // ONE fact about the node, not one flag per failing test: dither adds
+  // signal-independent broadband noise, and that single property is why two
+  // different contract tests do not apply to it.
+  //
+  //   - silence in / silence out: violated by definition; adding noise to
+  //     digital silence IS the mechanism.
+  //   - the latency energy centroid: it assumes every joule in the buffer
+  //     belongs to the impulse response. Against a 0.01 probe, a 16-bit
+  //     noise floor carries ~1% of the total energy spread uniformly over
+  //     4096 frames, which drags the centroid ~10 frames toward the middle.
+  //     The measured 1009.5 is arithmetically correct and says nothing at
+  //     all about latency.
+  //
+  // The peak probe still runs and is still strict: the impulse sits 80 dB
+  // above the noise, so a real latency error would still be caught.
+  //
+  // Exempting explicitly, per node and with the reason stated, keeps both
+  // rules strict for the other twenty nodes rather than quietly loosening a
+  // contract everyone else must still meet.
+  bool addsBroadbandNoise = false;
 };
 
 // The registry. Every node ships with the parameter set it should be exercised
@@ -216,6 +243,26 @@ std::vector<NodeSpec> registry() {
     ParamSet p;
     p.setStr("mode", "encode");
     v.push_back({"mid_side", [] { return std::make_unique<MidSide>(); }, p});
+  }
+  {
+    ParamSet p;
+    p.set("bit_depth", 16.0).set("amount_lsb", 2.0);
+    p.setStr("noise_shaping", "none");
+    v.push_back({"dither", [] { return std::make_unique<Dither>(); }, p,
+                 LatencyProbe::Peak, 0, 0, /*addsBroadbandNoise=*/true});
+  }
+  {
+    // Short decay so the declared tail keeps the contract renders small.
+    ParamSet p;
+    p.set("decay_s", 0.4).set("pre_delay_ms", 0.0).set("damping_hz", 6000.0)
+        .set("bandwidth_hz", 12000.0).set("size", 1.0)
+        .set("modulation_depth", 0.6);
+    // The first sound out of the tank arrives via the shortest output tap,
+    // Dattorro's 187 samples scaled to the working rate = 603. That is the
+    // plate's own structure, not latency: it is how long the sheet takes to
+    // respond, and compensating it away would be wrong.
+    v.push_back({"plate_reverb", [] { return std::make_unique<PlateReverb>(); }, p,
+                 LatencyProbe::Onset, 603, 2});
   }
   {
     // One voice with a deterministic start phase and a very slow, shallow
@@ -457,6 +504,9 @@ void testLatency(const std::vector<NodeSpec>& all) {
 
       // Energy centroid as a second, independent estimator. It catches an
       // asymmetric response whose peak happens to land in the right place.
+      // Meaningless for a node that adds its own noise floor — see the
+      // NodeSpec field for the arithmetic.
+      if (ns.addsBroadbandNoise) continue;
       double num = 0.0, den = 0.0;
       for (int64_t i = 0; i < out.frames(); ++i) {
         const double e = out.channel(0)[i] * out.channel(0)[i];
@@ -505,6 +555,7 @@ void testSilence(const std::vector<NodeSpec>& all) {
   const AudioBuffer in(2, frames); // zero-filled
 
   for (const auto& ns : all) {
+    if (ns.addsBroadbandNoise) continue;
     auto c = buildChain({ns}, false, 2, 512, frames);
     AudioBuffer out;
     c->render(in, out, 512);
@@ -3001,6 +3052,433 @@ void testChorus() {
   }
 }
 
+// 21. Plate reverb correctness.
+
+ParamSet plateParams(double decayS, double dampingHz) {
+  ParamSet p;
+  p.set("decay_s", decayS).set("pre_delay_ms", 0.0)
+      .set("damping_hz", dampingHz).set("bandwidth_hz", 14000.0)
+      .set("size", 1.0).set("modulation_depth", 0.6);
+  return p;
+}
+
+AudioBuffer plateIr(const ParamSet& p, int channels) {
+  const int64_t n = 64;
+  AudioBuffer in(channels, n);
+  for (int c = 0; c < channels; ++c) in.channel(c)[0] = 1.0;
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "plate";
+  chain.add(std::unique_ptr<Node>(new PlateReverb()), p, cfg);
+  chain.prepare(makeSpec(channels, 1024, n));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+  return out;
+}
+
+double measureT30(const AudioBuffer& ir, int channel) {
+  const int64_t n = ir.frames();
+  std::vector<double> edc(static_cast<size_t>(n), 0.0);
+  double acc = 0.0;
+  for (int64_t i = n - 1; i >= 0; --i) {
+    acc += ir.channel(channel)[i] * ir.channel(channel)[i];
+    edc[static_cast<size_t>(i)] = acc;
+  }
+  auto crossing = [&](double db) {
+    const double target = edc[0] * std::pow(10.0, db / 10.0);
+    for (int64_t i = 0; i < n; ++i)
+      if (edc[static_cast<size_t>(i)] <= target)
+        return static_cast<double>(i) / kCanonicalSampleRate;
+    return -1.0;
+  };
+  const double t5 = crossing(-5.0), t35 = crossing(-35.0);
+  return (t5 >= 0.0 && t35 > t5) ? 2.0 * (t35 - t5) : -1.0;
+}
+
+void testPlateReverb() {
+  // --- (a) the decay time is the one requested ----------------------------
+  //
+  // The tank applies its decay gain twice per circuit, so the mapping from
+  // RT60 to that gain has to account for the full loop length. Getting the
+  // exponent wrong gives a reverb that is plausible but never the length it
+  // was asked for.
+  {
+    // Probed with damping wide open and well above the tank's ~0.52 s loop
+    // period, so the measurement isolates the decay mapping from both the
+    // damping-induced shortening and the topology's own RT60 floor.
+    std::printf("       plate decay:");
+    for (double decay : {1.0, 2.0, 4.0}) {
+      const AudioBuffer ir = plateIr(plateParams(decay, 19000.0), 2);
+      const double t30 = measureT30(ir, 0);
+      std::printf("  requested %.1fs -> T30 %.2fs", decay, t30);
+      check(t30 > 0.0, "plate energy decay curve spans -5 to -35 dB");
+      checkNear(t30, decay, decay * 0.15,
+                "plate T30 matches the requested decay time");
+    }
+    std::printf("\n");
+  }
+
+  // --- (b) the two outputs are decorrelated -------------------------------
+  //
+  // A plate is one sheet, so both outputs come from the same tank — the image
+  // comes from where the pickups sit. Correlated outputs would collapse the
+  // reverb to the centre and waste the whole point of a stereo return.
+  {
+    const int64_t n = 65536;
+    AudioBuffer in(2, n);
+    CounterRng rng(606);
+    for (int64_t i = 0; i < n; ++i) {
+      const double v = 0.4 * rng.bipolar(0, i);
+      in.channel(0)[i] = v;
+      in.channel(1)[i] = v;
+    }
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "plate";
+    chain.add(std::unique_ptr<Node>(new PlateReverb()), plateParams(1.5, 8000.0), cfg);
+    chain.prepare(makeSpec(2, 1024, n));
+    AudioBuffer out;
+    chain.render(in, out, 1024);
+
+    double sLL = 0.0, sRR = 0.0, sLR = 0.0;
+    for (int64_t i = 0; i < out.frames(); ++i) {
+      const double l = out.channel(0)[i], r = out.channel(1)[i];
+      sLL += l * l; sRR += r * r; sLR += l * r;
+    }
+    const double corr = sLR / std::sqrt(std::max(sLL * sRR, 1e-300));
+    std::printf("       plate stereo correlation: %.3f\n", corr);
+    check(std::abs(corr) < 0.5,
+          "the two plate outputs are decorrelated (" + std::to_string(corr) + ")");
+  }
+
+  // --- (c) damping shortens the top end -----------------------------------
+  {
+    const double open = measureT30(plateIr(plateParams(2.0, 18000.0), 2), 0);
+    const double damped = measureT30(plateIr(plateParams(2.0, 1500.0), 2), 0);
+    std::printf("       plate damping: 18 kHz -> T30 %.2fs, 1.5 kHz -> %.2fs\n",
+                open, damped);
+    check(damped < open,
+          "heavier damping gives a shorter tail (open " + std::to_string(open) +
+              "s, damped " + std::to_string(damped) + "s)");
+  }
+
+  // --- (d) a long decay stays stable --------------------------------------
+  //
+  // A recirculating network with too much loop gain does not sound wrong, it
+  // diverges. The decay gain is clamped below unity for exactly this reason.
+  {
+    const int64_t n = static_cast<int64_t>(6.0 * kCanonicalSampleRate);
+    AudioBuffer in(2, n);
+    for (int64_t i = 0; i < 4800; ++i) {
+      in.channel(0)[i] = std::sin(2.0 * M_PI * 220.0 *
+                                  static_cast<double>(i) / kCanonicalSampleRate);
+      in.channel(1)[i] = in.channel(0)[i];
+    }
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "plate";
+    chain.add(std::unique_ptr<Node>(new PlateReverb()), plateParams(20.0, 10000.0), cfg);
+    chain.prepare(makeSpec(2, 1024, n));
+    AudioBuffer out;
+    chain.render(in, out, 1024);
+
+    check(allFinite(out), "a 20 second decay stays finite");
+
+    // Energy must be falling, not growing.
+    auto windowEnergy = [&](int64_t from, int64_t len) {
+      double e = 0.0;
+      for (int64_t i = from; i < from + len && i < out.frames(); ++i)
+        for (int c = 0; c < 2; ++c) e += out.channel(c)[i] * out.channel(c)[i];
+      return e;
+    };
+    const double early = windowEnergy(static_cast<int64_t>(1.0 * kCanonicalSampleRate), 48000);
+    const double late = windowEnergy(static_cast<int64_t>(5.0 * kCanonicalSampleRate), 48000);
+    check(late < early,
+          "the tank decays rather than diverging (early " + std::to_string(early) +
+              ", late " + std::to_string(late) + ")");
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// 22. Dither correctness.
+//
+// The whole justification for dither is a claim about the STATISTICS of the
+// quantisation error, so that is what gets measured. "It sounds smoother" is
+// not testable; "the error's mean is independent of the input" is.
+
+// One LSB of a signed word of `bits`, in full-scale units.
+double lsbStep(int bits) { return 1.0 / std::pow(2.0, static_cast<double>(bits - 1)); }
+
+std::vector<double> ditherRender(const ParamSet& p, const std::vector<double>& sig) {
+  const int64_t n = static_cast<int64_t>(sig.size());
+  AudioBuffer in(1, n);
+  std::copy(sig.begin(), sig.end(), in.channel(0));
+
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "dither";
+  chain.add(std::unique_ptr<Node>(new Dither()), p, cfg);
+  chain.prepare(makeSpec(1, 512, n));
+
+  AudioBuffer out;
+  chain.render(in, out, 512);
+  return std::vector<double>(out.channel(0), out.channel(0) + n);
+}
+
+ParamSet ditherParams(double bits, double amountLsb, const char* shaping) {
+  ParamSet p;
+  p.set("bit_depth", bits).set("amount_lsb", amountLsb);
+  p.setStr("noise_shaping", shaping);
+  return p;
+}
+
+void testDither() {
+  const int kBits = 16;
+  const double step = lsbStep(kBits);
+
+  // --- (a) the output really is on the quantisation lattice ---------------
+  //
+  // Everything below is a statement about quantisation error, and all of it
+  // would be vacuous if the node were not quantising at all.
+  {
+    std::vector<double> sig(4096);
+    for (size_t i = 0; i < sig.size(); ++i)
+      sig[i] = 0.7 * std::sin(2.0 * M_PI * 11.0 * static_cast<double>(i) / 4096.0);
+
+    const auto out = ditherRender(ditherParams(kBits, 2.0, "none"), sig);
+    double worstOffLattice = 0.0;
+    for (double v : out) {
+      const double k = v / step;
+      worstOffLattice = std::max(worstOffLattice, std::abs(k - std::round(k)));
+    }
+    check(worstOffLattice < 1e-9,
+          "dither: output on the 16-bit lattice, worst offset " +
+              std::to_string(worstOffLattice) + " LSB");
+  }
+
+  // --- (b) THE CENTRAL CLAIM: error mean stops tracking the input ---------
+  //
+  // Hold the input at a constant level part-way between two codes and look at
+  // the average error. Undithered, the quantiser rounds every single sample
+  // the same way, so the mean error is exactly minus the fractional offset —
+  // the error IS the input, negated. That is not noise; it is a signal-
+  // dependent DC term, and on a real signal it becomes harmonic distortion
+  // that follows the music down into a fade.
+  //
+  // With TPDF dither the mean error is zero at every offset. That is the
+  // entire point of the node, stated as a number.
+  //
+  // The variance is the second half of the claim and the specific reason for
+  // TRIANGULAR rather than rectangular dither: RPDF removes the mean but
+  // leaves the error's variance modulated by the input, which is audible as
+  // a noise floor that breathes with the signal. TPDF removes both.
+  {
+    const int64_t n = 65536;
+    const std::vector<double> offsets = {0.0, 0.1, 0.2, 0.3, 0.4,
+                                         0.5, 0.6, 0.7, 0.8, 0.9};
+
+    double worstDitheredMean = 0.0, biggestUnditheredMean = 0.0;
+    double minVar = 1e300, maxVar = 0.0;
+
+    for (double f : offsets) {
+      std::vector<double> sig(static_cast<size_t>(n), f * step);
+
+      const auto dry = ditherRender(ditherParams(kBits, 0.0, "none"), sig);
+      const auto wet = ditherRender(ditherParams(kBits, 2.0, "none"), sig);
+
+      double sumDry = 0.0, sumWet = 0.0, sumSqWet = 0.0;
+      for (int64_t i = 0; i < n; ++i) {
+        sumDry += dry[static_cast<size_t>(i)] - f * step;
+        const double e = wet[static_cast<size_t>(i)] - f * step;
+        sumWet += e;
+        sumSqWet += e * e;
+      }
+      const double meanDry = sumDry / static_cast<double>(n);
+      const double meanWet = sumWet / static_cast<double>(n);
+      const double varWet = sumSqWet / static_cast<double>(n) - meanWet * meanWet;
+
+      worstDitheredMean = std::max(worstDitheredMean, std::abs(meanWet) / step);
+      biggestUnditheredMean = std::max(biggestUnditheredMean, std::abs(meanDry) / step);
+      minVar = std::min(minVar, varWet);
+      maxVar = std::max(maxVar, varWet);
+    }
+
+    // Sanity: the disease has to be present before the cure means anything.
+    check(biggestUnditheredMean > 0.3,
+          "dither: undithered error tracks the input, worst mean " +
+              std::to_string(biggestUnditheredMean) + " LSB (expect ~0.5)");
+
+    // 65536 samples at variance step^2/4 puts the standard error of the mean
+    // at step/512, so 0.02 LSB is roughly ten sigma — tight, and not flaky.
+    check(worstDitheredMean < 0.02,
+          "dither: dithered error mean independent of input, worst " +
+              std::to_string(worstDitheredMean) + " LSB");
+
+    // No noise modulation: same variance at every position within the code.
+    const double spread = (maxVar - minVar) / maxVar;
+    check(spread < 0.05,
+          "dither: error variance independent of input, spread " +
+              std::to_string(spread * 100.0) + "%");
+
+    // And that variance is the textbook value. Quantisation contributes
+    // step^2/12 and 2-LSB TPDF contributes step^2/6, totalling step^2/4.
+    const double expectedVar = step * step / 4.0;
+    const double ratioDb = 10.0 * std::log10(maxVar / expectedVar);
+    check(std::abs(ratioDb) < 0.2,
+          "dither: noise power is step^2/4, off by " + std::to_string(ratioDb) + " dB");
+  }
+
+  // --- (c) on a real signal, nothing correlated survives ------------------
+  //
+  // The DC test proves the mechanism; this proves it matters on a waveform.
+  //
+  // MEASURED BY PERIOD-FOLDING, not by reading harmonic bins. Quantising a
+  // sine only a few LSBs tall throws energy into harmonics of every order,
+  // and the ones above Nyquist fold back and land wherever they like — so
+  // summing a handful of named bins measures an arbitrary fraction of the
+  // distortion and misses the rest. Folding sidesteps that entirely: whatever
+  // is correlated with the signal repeats with the signal's period and
+  // survives averaging, while anything uncorrelated averages down as
+  // 1/sqrt(K). It measures the actual claim rather than a proxy for it.
+  {
+    const size_t kPeriod = 128;   // 750 Hz at 96 kHz
+    const size_t kCycles = 1024;
+    const size_t kN = kPeriod * kCycles;
+    const double amp = 4.0 * step;
+
+    std::vector<double> sig(kN);
+    for (size_t i = 0; i < kN; ++i)
+      sig[i] = amp * std::sin(2.0 * M_PI * static_cast<double>(i % kPeriod) /
+                              static_cast<double>(kPeriod));
+
+    auto foldedRms = [&](const std::vector<double>& out) {
+      std::vector<double> fold(kPeriod, 0.0);
+      for (size_t i = 0; i < kN; ++i) fold[i % kPeriod] += out[i] - sig[i];
+      double acc = 0.0;
+      for (double v : fold) {
+        const double mean = v / static_cast<double>(kCycles);
+        acc += mean * mean;
+      }
+      return std::sqrt(acc / static_cast<double>(kPeriod));
+    };
+
+    const double dryRms = foldedRms(ditherRender(ditherParams(kBits, 0.0, "none"), sig));
+    const double wetRms = foldedRms(ditherRender(ditherParams(kBits, 2.0, "none"), sig));
+
+    const double improvementDb = 20.0 * std::log10(dryRms / std::max(wetRms, 1e-300));
+    check(improvementDb > 20.0,
+          "dither: signal-correlated error drops by " +
+              std::to_string(improvementDb) + " dB (expect >20)");
+
+    // The stronger statement, and the one worth making: what is left is not
+    // merely smaller, it is indistinguishable from noise. Averaging K cycles
+    // of an uncorrelated floor of RMS step/2 leaves step/(2*sqrt(K)); if the
+    // dithered residual sits at that level then there is no correlated
+    // component left to find, only the averaging floor itself.
+    const double noiseLimited = (step * 0.5) / std::sqrt(static_cast<double>(kCycles));
+    check(wetRms < 1.3 * noiseLimited,
+          "dither: residual is noise-limited, " +
+              std::to_string(wetRms / noiseLimited) + "x the averaging floor");
+  }
+
+  // --- (d) noise shaping trades total power for spectral placement --------
+  //
+  // First-order shaping has error transfer function (1 - z^-1). Its magnitude
+  // is 2*sin(w/2): below zero at DC, above unity past a third of Nyquist, and
+  // integrating to exactly twice the flat noise power. So shaping must make
+  // the TOTAL noise louder while making the LOW-FREQUENCY noise quieter. If a
+  // test only checked total power it would read the improvement as a
+  // regression, which is why both halves are asserted.
+  {
+    const size_t kN = 32768;
+    const std::vector<double> silence(kN, 0.0);
+
+    const auto flat = ditherRender(ditherParams(kBits, 2.0, "none"), silence);
+    const auto shaped = ditherRender(ditherParams(kBits, 2.0, "first_order"), silence);
+
+    auto totalPower = [](const std::vector<double>& v) {
+      double acc = 0.0;
+      for (double x : v) acc += x * x;
+      return acc / static_cast<double>(v.size());
+    };
+
+    const double totalDb =
+        10.0 * std::log10(totalPower(shaped) / totalPower(flat));
+    check(totalDb > 2.0 && totalDb < 4.0,
+          "dither: shaping raises total noise by " + std::to_string(totalDb) +
+              " dB (expect ~3)");
+
+    // Low band: DC to Nyquist/16, which at 96 kHz is DC to 3 kHz.
+    const auto pFlat = powerSpectrum(flat.data(), kN);
+    const auto pShaped = powerSpectrum(shaped.data(), kN);
+    double loFlat = 0.0, loShaped = 0.0;
+    for (size_t b = 1; b < pFlat.size() / 16; ++b) {
+      loFlat += pFlat[b];
+      loShaped += pShaped[b];
+    }
+    const double loDb = 10.0 * std::log10(loShaped / loFlat);
+    check(loDb < -8.0,
+          "dither: shaping lowers sub-3 kHz noise by " + std::to_string(-loDb) +
+              " dB (expect >8)");
+  }
+
+  // --- (e) float export is left strictly alone ----------------------------
+  //
+  // A 32-bit float file has no fixed code spacing to decorrelate, so dither
+  // there is pure added noise. Bit-exact pass-through, not "close enough":
+  // anything else means the export path degrades a format it cannot improve.
+  {
+    std::vector<double> sig(2048);
+    for (size_t i = 0; i < sig.size(); ++i)
+      sig[i] = 0.31 * std::sin(0.017 * static_cast<double>(i)) +
+               1e-9 * std::sin(0.4 * static_cast<double>(i));
+
+    for (double bits : {0.0, 32.0}) {
+      const auto out = ditherRender(ditherParams(bits, 2.0, "none"), sig);
+      double worst = 0.0;
+      for (size_t i = 0; i < sig.size(); ++i)
+        worst = std::max(worst, std::abs(out[i] - sig[i]));
+      check(worst == 0.0,
+            "dither: bit_depth " + std::to_string(static_cast<int>(bits)) +
+                " is bit-exact pass-through, worst diff " + std::to_string(worst));
+    }
+  }
+
+  // --- (f) the word length is actually respected --------------------------
+  //
+  // Each bit removed doubles the code spacing, so the noise floor must rise
+  // by exactly 6.02 dB per bit. This catches an off-by-one in the exponent,
+  // which is otherwise invisible: a node quantising to 15 bits when asked for
+  // 16 passes every other test in this section.
+  {
+    const size_t kN = 32768;
+    const std::vector<double> silence(kN, 0.0);
+
+    auto floorDb = [&](double bits) {
+      const auto out = ditherRender(ditherParams(bits, 2.0, "none"), silence);
+      double acc = 0.0;
+      for (double x : out) acc += x * x;
+      return 10.0 * std::log10(acc / static_cast<double>(out.size()));
+    };
+
+    const double f8 = floorDb(8.0), f16 = floorDb(16.0), f24 = floorDb(24.0);
+
+    check(std::abs((f8 - f16) - 8.0 * 6.0206) < 0.2,
+          "dither: 8 vs 16 bit floor differs by " + std::to_string(f8 - f16) +
+              " dB (expect 48.2)");
+    check(std::abs((f16 - f24) - 8.0 * 6.0206) < 0.2,
+          "dither: 16 vs 24 bit floor differs by " + std::to_string(f16 - f24) +
+              " dB (expect 48.2)");
+
+    // Absolute anchor, so a consistent scaling error cannot hide behind two
+    // ratios that both look right. RMS is step/2 = 2^-16 at 16 bits.
+    check(std::abs(f16 - (-96.33)) < 0.2,
+          "dither: 16-bit noise floor at " + std::to_string(f16) +
+              " dBFS (expect -96.33)");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -3046,6 +3524,8 @@ int main() {
   std::printf("[18] utility nodes\n");        { TIMED("utility"); testUtilityNodes(); }
   std::printf("[19] stereo width\n");         { TIMED("stereo width"); testStereoWidth(); }
   std::printf("[20] chorus\n");               { TIMED("chorus"); testChorus(); }
+  std::printf("[21] plate reverb\n");         { TIMED("plate"); testPlateReverb(); }
+  std::printf("[22] dither\n");               { TIMED("dither"); testDither(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
