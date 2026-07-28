@@ -1,26 +1,599 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------
+   Audionova — visual system
+   Reference: monopo saigon (styles.refero.design) — "shifting gradient
+   depths on frosted glass". Palette rotated off the original sage/amber/
+   bronze into crimson + blue-violet. UI stays strictly monochrome; all
+   chroma lives in the hero media.
+------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces & text */
+  --color-midnight-canvas: #000000;
+  --color-frost-white: #ffffff;
+  --color-deep-shadow: #181818;
+  --color-whisper-gray: #6d6d6d;
+  --color-misty-gray: #636363;
+  --color-hairline: rgba(255, 255, 255, 0.3);
+
+  /* Hero media chroma — media only, never UI */
+  --flux-violet: #4832c8;
+  --flux-indigo: #1b1050;
+  --flux-plum: #5e2166;
+  --flux-crimson: #b81f36;
+  --flux-ember: #ff7355;
+  --flux-abyss: #07030f;
+
+  /* Shape & rhythm */
+  --radius-pill: 75.024px;
+  --radius-card: 10px;
+  --page-max-width: 1078px;
+  --section-gap: 46px;
+  --element-gap: 14px;
+
+  /* Patient motion — the house easing */
+  --ease-glide: cubic-bezier(0.19, 1, 0.22, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-canvas: var(--color-midnight-canvas);
+  --color-frost: var(--color-frost-white);
+  --color-shadowed: var(--color-deep-shadow);
+  --color-whisper: var(--color-whisper-gray);
+  --color-misty: var(--color-misty-gray);
+
+  --font-sans: var(--font-figtree);
+  --font-display: var(--font-raleway);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background-color: var(--color-midnight-canvas);
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-midnight-canvas);
+  color: var(--color-frost-white);
+  font-family: var(--font-figtree), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==================================================================
+   1. Flux field — the liquid marbled backdrop
+   Colour bands warped by an SVG turbulence displacement, then blurred
+   into silk. The bands drift inside the warp so the marbling folds and
+   flows; the stage, the displacement scale, and the unwarped grading passes
+   each move on their own tempo on top of that.
+   ================================================================== */
+
+.flux {
+  position: absolute;
+  inset: -28%;
+  will-change: transform;
+}
+
+.flux--near {
+  filter: url(#flux-warp) blur(15px) saturate(1.18) contrast(1.08)
+    brightness(0.97);
+  animation: flux-stage-near 39s linear infinite;
+}
+
+/* Unfiltered grading passes — scale/rotate here is compositor-cheap, and
+   these carry most of the visible "the field is alive" motion. */
+.flux-pass {
+  position: absolute;
+  inset: -28%;
+  background-repeat: no-repeat;
+  will-change: transform;
+  animation: flux-grade-drift 46s linear infinite;
+}
+
+.flux-pass.flux__band--shade {
+  animation-duration: 61s;
+  animation-direction: reverse;
+}
+
+@keyframes flux-grade-drift {
+  0% {
+    transform: translate3d(3%, 0, 0) scale(1.1) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(0, 2.5%, 0) scale(1.1) rotate(1.5deg);
+  }
+  50% {
+    transform: translate3d(-3%, 0, 0) scale(1.1) rotate(0deg);
+  }
+  75% {
+    transform: translate3d(0, -2.5%, 0) scale(1.1) rotate(-1.5deg);
+  }
+  100% {
+    transform: translate3d(3%, 0, 0) scale(1.1) rotate(0deg);
+  }
+}
+
+/* The stage itself only translates: animating scale on the filtered layer
+   would change its raster scale, which is a separate and more expensive
+   re-raster than the band motion happening inside it. */
+@keyframes flux-stage-near {
+  0% {
+    transform: translate3d(-3.5%, 0, 0);
+  }
+  25% {
+    transform: translate3d(0, 2.5%, 0);
+  }
+  50% {
+    transform: translate3d(3.5%, 0, 0);
+  }
+  75% {
+    transform: translate3d(0, -2.5%, 0);
+  }
+  100% {
+    transform: translate3d(-3.5%, 0, 0);
+  }
+}
+
+.flux__band {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  transform-origin: 50% 50%;
+}
+
+/* Bands move INSIDE the warp, so colour and ribbon geometry flow through the
+   distortion field — folds travel and reshape instead of the sheet sliding.
+
+   All of these are CLOSED LOOPS on `linear` timing, never `alternate` with
+   `ease-in-out`: an easing pair spends half its cycle decelerating through a
+   turnaround, which reads as stillness. A closed loop holds constant velocity
+   and never visibly reverses. */
+.flux__band--a {
+  animation: band-orbit-a 27s linear infinite;
+}
+
+.flux__band--b {
+  animation: band-orbit-b 34s linear infinite;
+}
+
+/* Ribbon and gleam describe the same fold geometry, so they must share a
+   tempo exactly — otherwise the highlight slides off the fold it belongs to.
+   Scale stays >= 1.45 so the rotating box always covers the stage corners. */
+.flux__band--ribbon,
+.flux__band--gleam {
+  animation: band-swirl 58s linear infinite;
+}
+
+.flux__band--ribbon-fine {
+  animation: band-swirl-reverse 43s linear infinite;
+}
+
+@keyframes band-orbit-a {
+  0% {
+    transform: translate3d(6%, 0, 0) scale(1.14);
+  }
+  25% {
+    transform: translate3d(0, 4.5%, 0) scale(1.14);
+  }
+  50% {
+    transform: translate3d(-6%, 0, 0) scale(1.14);
+  }
+  75% {
+    transform: translate3d(0, -4.5%, 0) scale(1.14);
+  }
+  100% {
+    transform: translate3d(6%, 0, 0) scale(1.14);
+  }
+}
+
+@keyframes band-orbit-b {
+  0% {
+    transform: translate3d(-5%, 0, 0) scale(1.1);
+  }
+  25% {
+    transform: translate3d(0, -5.5%, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(5%, 0, 0) scale(1.1);
+  }
+  75% {
+    transform: translate3d(0, 5.5%, 0) scale(1.1);
+  }
+  100% {
+    transform: translate3d(-5%, 0, 0) scale(1.1);
+  }
+}
+
+@keyframes band-swirl {
+  from {
+    transform: rotate(0deg) scale(1.5);
+  }
+  to {
+    transform: rotate(360deg) scale(1.5);
+  }
+}
+
+@keyframes band-swirl-reverse {
+  from {
+    transform: rotate(360deg) scale(1.45);
+  }
+  to {
+    transform: rotate(0deg) scale(1.45);
+  }
+}
+
+/* Colour wash — decides where in the frame each hue lives */
+.flux__band--a {
+  background-image:
+    radial-gradient(
+      54% 40% at 20% 34%,
+      var(--flux-ember) 0%,
+      var(--flux-crimson) 30%,
+      rgba(216, 37, 63, 0) 70%
+    ),
+    radial-gradient(
+      62% 48% at 82% 22%,
+      var(--flux-violet) 0%,
+      rgba(72, 50, 200, 0) 74%
+    ),
+    radial-gradient(
+      64% 46% at 60% 86%,
+      var(--flux-plum) 0%,
+      rgba(124, 42, 134, 0) 70%
+    ),
+    radial-gradient(
+      44% 30% at 8% 78%,
+      var(--flux-indigo) 0%,
+      rgba(42, 22, 112, 0) 72%
+    );
+}
+
+.flux__band--b {
+  background-image:
+    radial-gradient(
+      50% 30% at 88% 64%,
+      var(--flux-crimson) 0%,
+      rgba(184, 31, 54, 0) 66%
+    ),
+    radial-gradient(
+      44% 58% at 68% 8%,
+      var(--flux-violet) 0%,
+      rgba(72, 50, 200, 0) 74%
+    ),
+    radial-gradient(
+      40% 34% at 96% 40%,
+      var(--flux-violet) 0%,
+      rgba(72, 50, 200, 0) 70%
+    );
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+
+/* Ribbon structure — straight luminance bands that the turbulence
+   displacement folds into marbled silk. This is the signature gesture. */
+.flux__band--ribbon {
+  background-image: repeating-linear-gradient(
+    112deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 226, 208, 0.42) 2.6%,
+    rgba(255, 255, 255, 0) 5.4%,
+    rgba(0, 0, 0, 0.88) 8.6%,
+    rgba(0, 0, 0, 0.42) 11%,
+    rgba(255, 255, 255, 0) 14%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.92;
+}
+
+.flux__band--ribbon-fine {
+  background-image: repeating-linear-gradient(
+    68deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 190, 170, 0.32) 1.6%,
+    rgba(255, 255, 255, 0) 3.8%,
+    rgba(0, 0, 0, 0.62) 6.4%,
+    rgba(255, 255, 255, 0) 9.5%
+  );
+  mix-blend-mode: soft-light;
+  opacity: 0.75;
+}
+
+/* Hot edges — thin ember lines screened over the ribbon folds, the glint
+   the reference gets where a silk fold catches the light. */
+.flux__band--gleam {
+  background-image: repeating-linear-gradient(
+    112deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 132, 96, 0.3) 2.2%,
+    rgba(255, 196, 150, 0.16) 3%,
+    rgba(255, 255, 255, 0) 4.6%,
+    rgba(255, 255, 255, 0) 14%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.7;
+}
+
+/* Hue lock — overlay ribbons desaturate toward gray; this pushes every
+   pixel's hue back onto the crimson / blue-violet axis while keeping the
+   ribbon luminance underneath. */
+.flux__band--tint {
+  background-image:
+    radial-gradient(
+      70% 56% at 16% 30%,
+      var(--flux-ember) 0%,
+      var(--flux-crimson) 46%,
+      rgba(216, 37, 63, 0) 82%
+    ),
+    radial-gradient(
+      66% 52% at 84% 22%,
+      var(--flux-violet) 0%,
+      rgba(91, 61, 240, 0) 78%
+    ),
+    radial-gradient(
+      74% 60% at 62% 92%,
+      var(--flux-plum) 0%,
+      rgba(124, 42, 134, 0) 80%
+    ),
+    linear-gradient(
+      116deg,
+      var(--flux-crimson) 0%,
+      var(--flux-plum) 42%,
+      var(--flux-violet) 74%,
+      var(--flux-indigo) 100%
+    );
+  mix-blend-mode: color;
+  opacity: 0.58;
+}
+
+/* Pools of true black — the reference is black-dominant, colour is the
+   exception rather than the field. */
+.flux__band--shade {
+  background-image:
+    radial-gradient(
+      46% 38% at 78% 46%,
+      rgba(0, 0, 0, 0.92) 0%,
+      rgba(0, 0, 0, 0) 72%
+    ),
+    radial-gradient(
+      52% 34% at 30% 88%,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0) 70%
+    ),
+    radial-gradient(
+      38% 46% at 6% 12%,
+      rgba(0, 0, 0, 0.9) 0%,
+      rgba(0, 0, 0, 0) 74%
+    ),
+    radial-gradient(
+      40% 30% at 92% 8%,
+      rgba(0, 0, 0, 0.85) 0%,
+      rgba(0, 0, 0, 0) 70%
+    );
+  mix-blend-mode: multiply;
+}
+
+/* ==================================================================
+   2. The orb — a glass sphere whose rim arcs through the composition
+   ================================================================== */
+
+.orb {
+  position: absolute;
+  width: 104vw;
+  height: 104vw;
+  top: -34vw;
+  left: 36vw;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  backdrop-filter: saturate(1.55) contrast(1.16) brightness(1.06)
+    hue-rotate(-16deg) blur(2px);
+  -webkit-backdrop-filter: saturate(1.55) contrast(1.16) brightness(1.06)
+    hue-rotate(-16deg) blur(2px);
+  animation: orb-breathe 31s ease-in-out infinite alternate;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .orb {
+    width: 150vh;
+    height: 150vh;
+    top: -52vh;
+    left: 30vw;
+  }
+}
+
+.orb__sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      68% 68% at 30% 26%,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0) 58%
+    ),
+    radial-gradient(
+      100% 100% at 78% 84%,
+      rgba(7, 3, 15, 0.72) 0%,
+      rgba(7, 3, 15, 0) 55%
+    );
+}
+
+.orb__terminator {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 180px 40px rgba(7, 3, 15, 0.55);
+}
+
+@keyframes orb-breathe {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-2.5%, 1.8%, 0) scale(1.045);
+  }
+}
+
+/* ==================================================================
+   3. Atmosphere — vignette + film grain
+   ================================================================== */
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      112% 88% at 50% 48%,
+      rgba(0, 0, 0, 0) 18%,
+      rgba(0, 0, 0, 0.42) 52%,
+      rgba(0, 0, 0, 0.86) 82%,
+      #000 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.6) 0%,
+      rgba(0, 0, 0, 0) 22%,
+      rgba(0, 0, 0, 0) 66%,
+      rgba(0, 0, 0, 0.82) 100%
+    ),
+    radial-gradient(
+      60% 50% at 50% 50%,
+      rgba(0, 0, 0, 0.34) 0%,
+      rgba(0, 0, 0, 0) 100%
+    );
+}
+
+.grain {
+  position: absolute;
+  inset: -60px;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain-shift 900ms steps(4) infinite;
+}
+
+@keyframes grain-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(-24px, 14px, 0);
+  }
+  50% {
+    transform: translate3d(18px, -22px, 0);
+  }
+  75% {
+    transform: translate3d(-14px, -10px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* ==================================================================
+   4. Chrome — editorial, monochrome, 1px hairlines only
+   ================================================================== */
+
+.nav-link {
+  font-size: 11px;
+  line-height: 1.58;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  transition: color 0.4s var(--ease-glide);
+}
+
+.nav-link:hover {
+  color: var(--color-frost-white);
+}
+
+.pill-ghost {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-frost-white);
+  background: rgba(0, 0, 0, 0);
+  transition:
+    background-color 0.6s var(--ease-glide),
+    border-color 0.6s var(--ease-glide);
+}
+
+.pill-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.pill-filled {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-frost-white);
+  background: rgba(55, 55, 55, 0.78);
+  color: var(--color-frost-white);
+  transition:
+    background-color 0.6s var(--ease-glide),
+    opacity 0.6s var(--ease-glide);
+}
+
+.pill-filled:hover:not(:disabled) {
+  background: rgba(85, 85, 85, 0.86);
+}
+
+.pill-filled:disabled {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(55, 55, 55, 0.4);
+  color: rgba(255, 255, 255, 0.42);
+  cursor: not-allowed;
+}
+
+/* Drop well — 1px hairline, no elevation */
+.drop-well {
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  transition:
+    border-color 0.6s var(--ease-glide),
+    background-color 0.6s var(--ease-glide);
+}
+
+.drop-well[data-dragging="true"] {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Scroll badge — patient continuous rotation */
+.badge-rotate {
+  animation: badge-spin 22s linear infinite;
+}
+
+@keyframes badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Entrance */
+.rise {
+  animation: rise 1.25s var(--ease-glide) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flux--near,
+  .flux__band,
+  .flux-pass,
+  .orb,
+  .grain,
+  .badge-rotate,
+  .rise {
+    animation: none !important;
+  }
 }
