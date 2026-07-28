@@ -22,10 +22,12 @@ CXXFLAGS := -std=c++20 -O2 -g \
 BUILD    := build
 TESTBIN  := $(BUILD)/contract_tests
 SANBIN   := $(BUILD)/contract_tests_san
+RENDERBIN := $(BUILD)/anv_render
+IOTESTBIN := $(BUILD)/io_tests
 
-.PHONY: all test san check clean
+.PHONY: all test iotest san check render clean
 
-all: $(TESTBIN)
+all: $(TESTBIN) $(IOTESTBIN) $(RENDERBIN)
 
 # Header dependencies come from the compiler (-MMD -MP), not from a `find`
 # glob. A glob evaluated at parse time can miss an edit and hand `make test` a
@@ -40,6 +42,20 @@ $(TESTBIN): tests/contract_tests.cpp
 
 test: $(TESTBIN)
 	@./$(TESTBIN)
+
+# WAV, JSON, resampling and recipe validation. A separate binary from the node
+# contract suite because none of it is a node, and parameterizing the node
+# registry over these checks would make every future node walk past twenty
+# assertions that do not apply to it.
+$(IOTESTBIN): tests/io_tests.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/io_tests.d \
+	    tests/io_tests.cpp -o $@
+
+-include $(BUILD)/io_tests.d
+
+iotest: $(IOTESTBIN)
+	@./$(IOTESTBIN)
 
 # Address + UB sanitizers. Not optional discipline: mutation testing found a
 # partition-indexing bug that read out of bounds, produced benign-looking
@@ -60,8 +76,20 @@ $(SANBIN): tests/contract_tests.cpp
 san: $(SANBIN)
 	@./$(SANBIN)
 
+# The render CLI. Same flags as the tests, deliberately: the binary that ships
+# audio must be built exactly like the binary that validates it, or the tests
+# are validating a different program.
+$(RENDERBIN): src/anv_render.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/anv_render.d \
+	    src/anv_render.cpp -o $@
+
+-include $(BUILD)/anv_render.d
+
+render: $(RENDERBIN)
+
 # What CI should run.
-check: test san
+check: test iotest san $(RENDERBIN)
 
 clean:
 	@rm -rf $(BUILD)
