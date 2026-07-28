@@ -28,11 +28,16 @@
 #include "anv/dsp/Fft.h"
 #include "anv/dsp/Oversampler.h"
 #include "anv/nodes/Compressor.h"
+#include "anv/nodes/DCBlock.h"
 #include "anv/nodes/ConvolutionReverb.h"
 #include "anv/nodes/Delay.h"
 #include "anv/nodes/Drive.h"
 #include "anv/nodes/DynamicEQ.h"
 #include "anv/nodes/GateExpander.h"
+#include "anv/nodes/MidSide.h"
+#include "anv/nodes/MonoToStereo.h"
+#include "anv/nodes/Pan.h"
+#include "anv/nodes/Polarity.h"
 #include "anv/nodes/Gain.h"
 #include "anv/nodes/ParametricEQ.h"
 #include "anv/nodes/ReferenceDelay.h"
@@ -179,6 +184,31 @@ std::vector<NodeSpec> registry() {
     v.push_back({"convolution_reverb",
                  [] { return std::make_unique<ConvolutionReverb>(); }, p,
                  LatencyProbe::Onset});
+  }
+  {
+    ParamSet p;
+    p.set("pan_position", -0.4);
+    v.push_back({"pan", [] { return std::make_unique<Pan>(); }, p});
+  }
+  {
+    ParamSet p;
+    p.set("inverted", 1.0);
+    v.push_back({"polarity", [] { return std::make_unique<Polarity>(); }, p});
+  }
+  {
+    ParamSet p;
+    p.set("cutoff_hz", 10.0);
+    v.push_back({"dc_block", [] { return std::make_unique<DCBlock>(); }, p});
+  }
+  {
+    ParamSet p;
+    p.set("source_channel", 0.0);
+    v.push_back({"mono_to_stereo", [] { return std::make_unique<MonoToStereo>(); }, p});
+  }
+  {
+    ParamSet p;
+    p.setStr("mode", "encode");
+    v.push_back({"mid_side", [] { return std::make_unique<MidSide>(); }, p});
   }
   {
     // Short time and modest feedback keep the declared tail small enough that
@@ -2417,6 +2447,235 @@ void testDelay() {
   }
 }
 
+// 18. Utility node correctness.
+//
+//     Small nodes, but the ones every chain leans on. A pan law that dips in
+//     the middle, or a mid/side bracket that does not close, is the kind of
+//     error that is invisible per-node and obvious across a whole mix.
+
+// Generic single-node steady-state gain at one frequency, coherently sampled.
+double measureNodeGainDb(const std::function<std::unique_ptr<Node>()>& make,
+                         const ParamSet& params, double probeHz, int channel = 0,
+                         int channels = 1, double* snappedHzOut = nullptr) {
+  constexpr int64_t kSettle = 32768;
+  constexpr int64_t kWindow = 16384;
+  const int64_t total = kSettle + kWindow;
+  const double k = std::round(probeHz * static_cast<double>(kWindow) / kCanonicalSampleRate);
+  const double f = k * kCanonicalSampleRate / static_cast<double>(kWindow);
+  if (snappedHzOut) *snappedHzOut = f;
+
+  AudioBuffer in(channels, total);
+  for (int c = 0; c < channels; ++c)
+    for (int64_t i = 0; i < total; ++i)
+      in.channel(c)[i] = 0.25 * std::sin(2.0 * M_PI * f *
+                                         static_cast<double>(i) / kCanonicalSampleRate);
+
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "u";
+  chain.add(make(), params, cfg);
+  chain.prepare(makeSpec(channels, 1024, total));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+
+  double sIn = 0.0, sOut = 0.0;
+  for (int64_t i = kSettle; i < total; ++i) {
+    sIn += in.channel(channel)[i] * in.channel(channel)[i];
+    sOut += out.channel(channel)[i] * out.channel(channel)[i];
+  }
+  return 20.0 * std::log10(std::sqrt(sOut) / std::sqrt(std::max(sIn, 1e-300)));
+}
+
+void testUtilityNodes() {
+  // --- Pan: constant power across the whole sweep -------------------------
+  {
+    auto make = [] { return std::unique_ptr<Node>(new Pan()); };
+    for (double pos : {-1.0, -0.5, 0.0, 0.5, 1.0}) {
+      ParamSet p;
+      p.set("pan_position", pos);
+      const double gl = dbToLin(measureNodeGainDb(make, p, 1000.0, 0, 2));
+      const double gr = dbToLin(measureNodeGainDb(make, p, 1000.0, 1, 2));
+      checkNear(gl * gl + gr * gr, 1.0, 1e-6,
+                "pan holds constant power at position " + std::to_string(pos));
+    }
+
+    // Centre is -3.01 dB per side. That is the law working, not a defect: it
+    // is exactly what makes a centred source sum to unity in mono.
+    ParamSet centre;
+    centre.set("pan_position", 0.0);
+    checkNear(measureNodeGainDb(make, centre, 1000.0, 0, 2), -3.0103, 0.01,
+              "pan centre is -3.01 dB on the left");
+    checkNear(measureNodeGainDb(make, centre, 1000.0, 1, 2), -3.0103, 0.01,
+              "pan centre is -3.01 dB on the right");
+
+    ParamSet hardLeft;
+    hardLeft.set("pan_position", -1.0);
+    checkNear(measureNodeGainDb(make, hardLeft, 1000.0, 0, 2), 0.0, 0.01,
+              "hard left passes the left channel at unity");
+    check(dbToLin(measureNodeGainDb(make, hardLeft, 1000.0, 1, 2)) < 1e-9,
+          "hard left silences the right channel");
+  }
+
+  // --- Polarity: exact negation, bit for bit ------------------------------
+  {
+    const int64_t n = 4096;
+    const AudioBuffer in = testSignal(2, n);
+    ParamSet p;
+    p.set("inverted", 1.0);
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "pol";
+    chain.add(std::unique_ptr<Node>(new Polarity()), p, cfg);
+    chain.prepare(makeSpec(2, 512, n));
+    AudioBuffer out;
+    chain.render(in, out, 512);
+
+    double worst = 0.0;
+    for (int c = 0; c < 2; ++c)
+      for (int64_t i = 0; i < n; ++i)
+        worst = std::max(worst, std::abs(out.channel(c)[i] + in.channel(c)[i]));
+    check(worst == 0.0, "polarity inversion is exact negation (bit for bit)");
+  }
+
+  // --- DC block: kills DC, leaves the programme alone ---------------------
+  {
+    auto make = [] { return std::unique_ptr<Node>(new DCBlock()); };
+    ParamSet p;
+    p.set("cutoff_hz", 10.0);
+
+    // The probe frequency has to be the one actually used. At 10 Hz the
+    // coherent grid is 5.9 Hz wide, so a request for 10 Hz lands on 11.7 Hz —
+    // where a 10 Hz second-order Butterworth is legitimately -1.85 dB, not
+    // -3.01 dB. Comparing the two was a test bug that looked like a filter bug.
+    //
+    // The expected magnitude is restated here from the analytic Butterworth
+    // response, with the frequency ratio prewarped through tan() because the
+    // filter is bilinear-transformed.
+    auto butterworthHpDb = [](double f, double fc) {
+      const double r = std::tan(M_PI * f / kCanonicalSampleRate) /
+                       std::tan(M_PI * fc / kCanonicalSampleRate);
+      const double r4 = r * r * r * r;
+      return 10.0 * std::log10(r4 / (1.0 + r4));
+    };
+
+    double snapped = 0.0;
+    const double atCorner = measureNodeGainDb(make, p, 10.0, 0, 1, &snapped);
+    checkNear(atCorner, butterworthHpDb(snapped, 10.0), 0.05,
+              "DC blocker matches the analytic Butterworth response near its corner");
+
+    // And check the -3 dB point itself, probed high enough that the grid is
+    // fine relative to the frequency.
+    ParamSet p200;
+    p200.set("cutoff_hz", 200.0);
+    double snapped200 = 0.0;
+    const double at200 = measureNodeGainDb(make, p200, 200.0, 0, 1, &snapped200);
+    checkNear(at200, -3.0103, 0.1,
+              "a second-order Butterworth high-pass is -3.01 dB at its corner");
+    checkNear(measureNodeGainDb(make, p, 1000.0, 0, 1), 0.0, 0.01,
+              "DC blocker is transparent at 1 kHz");
+    checkNear(measureNodeGainDb(make, p, 40.0, 0, 1), 0.0, 0.2,
+              "DC blocker is essentially transparent two octaves up");
+
+    // Actual DC must decay away.
+    const int64_t n = 96000;
+    AudioBuffer dc(1, n);
+    for (int64_t i = 0; i < n; ++i) dc.channel(0)[i] = 1.0;
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "dcb";
+    chain.add(make(), p, cfg);
+    chain.prepare(makeSpec(1, 1024, n));
+    AudioBuffer out;
+    chain.render(dc, out, 1024);
+    double residual = 0.0;
+    for (int64_t i = n - 4096; i < n; ++i)
+      residual = std::max(residual, std::abs(out.channel(0)[i]));
+    check(residual < 1e-6,
+          "a full-scale DC input decays to nothing (residual " +
+              std::to_string(residual) + ")");
+  }
+
+  // --- Mono to stereo: every channel carries the source -------------------
+  {
+    const int64_t n = 4096;
+    AudioBuffer in(2, n);
+    CounterRng rng(4);
+    for (int64_t i = 0; i < n; ++i) {
+      in.channel(0)[i] = 0.4 * rng.bipolar(0, i);
+      in.channel(1)[i] = 0.0; // right deliberately silent
+    }
+    ParamSet p;
+    p.set("source_channel", 0.0);
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "m2s";
+    chain.add(std::unique_ptr<Node>(new MonoToStereo()), p, cfg);
+    chain.prepare(makeSpec(2, 512, n));
+    AudioBuffer out;
+    chain.render(in, out, 512);
+
+    double worst = 0.0, energy = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+      worst = std::max(worst, std::abs(out.channel(1)[i] - in.channel(0)[i]));
+      energy += out.channel(1)[i] * out.channel(1)[i];
+    }
+    check(worst == 0.0, "the silent channel now carries the source exactly");
+    check(energy > 0.0, "and it is not still silent");
+  }
+
+  // --- Mid/side: the bracket closes ---------------------------------------
+  {
+    const int64_t n = 4096;
+    const AudioBuffer in = testSignal(2, n);
+
+    ParamSet enc, dec;
+    enc.setStr("mode", "encode");
+    dec.setStr("mode", "decode");
+
+    Chain chain;
+    Chain::SlotConfig c1, c2;
+    c1.nodeId = "ms_enc";
+    c2.nodeId = "ms_dec";
+    chain.add(std::unique_ptr<Node>(new MidSide()), enc, c1);
+    chain.add(std::unique_ptr<Node>(new MidSide()), dec, c2);
+    chain.prepare(makeSpec(2, 512, n));
+    AudioBuffer out;
+    chain.render(in, out, 512);
+
+    // NOT linToDb here: its -240 dB floor exists to keep audio level maths
+    // finite, and using it to report a null silently clamps the answer. The
+    // first version of this check read exactly -240.0 dB and failed a -280 dB
+    // assertion that the node was in fact meeting comfortably.
+    const double diff = maxAbsDiff(in, out, n);
+    const double nullDb = 20.0 * std::log10(std::max(diff, 1e-300));
+    std::printf("       mid/side encode->decode round trip: null at %.1f dB\n",
+                nullDb);
+    check(nullDb < -280.0,
+          "encode followed by decode returns the input (null " +
+              std::to_string(nullDb) + " dB)");
+
+    // A perfectly centred source has no side content at all.
+    AudioBuffer mono(2, n);
+    CounterRng rng(11);
+    for (int64_t i = 0; i < n; ++i) {
+      const double v = 0.5 * rng.bipolar(0, i);
+      mono.channel(0)[i] = v;
+      mono.channel(1)[i] = v;
+    }
+    Chain encChain;
+    encChain.add(std::unique_ptr<Node>(new MidSide()), enc, c1);
+    encChain.prepare(makeSpec(2, 512, n));
+    AudioBuffer encoded;
+    encChain.render(mono, encoded, 512);
+
+    double sidePeak = 0.0;
+    for (int64_t i = 0; i < n; ++i)
+      sidePeak = std::max(sidePeak, std::abs(encoded.channel(1)[i]));
+    check(sidePeak == 0.0,
+          "a centred source encodes to exactly zero side content");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -2459,6 +2718,7 @@ int main() {
   std::printf("[15] true-peak limiter\n");    { TIMED("true-peak limiter"); testTruePeakLimiter(); }
   std::printf("[16] convolution reverb\n");  { TIMED("convolution reverb"); testConvolutionReverb(); }
   std::printf("[17] delay correctness\n");   { TIMED("delay"); testDelay(); }
+  std::printf("[18] utility nodes\n");        { TIMED("utility"); testUtilityNodes(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

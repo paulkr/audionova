@@ -112,4 +112,61 @@ inline HalfbandDesign designHalfband(double transitionWidth, double stopbandDb,
   return d;
 }
 
+// General linear-phase windowed-sinc low-pass.
+//
+// Used to build COMPLEMENTARY crossovers. Given a linear-phase low-pass with
+// group delay M, the matching high-pass is (delta delayed by M) minus the
+// low-pass output — so low + high reconstructs the input as a pure delay,
+// EXACTLY, with no magnitude or phase error at any frequency.
+//
+// That is the property an IIR crossover cannot give. A Linkwitz-Riley pair
+// sums to an allpass: magnitude-flat, but phase-shifted, so it cannot null
+// against its own input and any band-split processing leaves a signature even
+// when every band is set to unity.
+//
+// Frequencies are normalised to cycles/sample (Nyquist = 0.5).
+struct FirLowpass {
+  std::vector<double> h;
+  int groupDelay = 0;
+  int taps() const { return static_cast<int>(h.size()); }
+};
+
+inline FirLowpass designLowpass(double cutoffNorm, double transitionNorm,
+                                double stopbandDb) {
+  cutoffNorm = std::min(std::max(cutoffNorm, 1e-5), 0.499);
+  transitionNorm = std::max(transitionNorm, 1e-5);
+
+  const double dw = 2.0 * M_PI * transitionNorm;
+  int estimated =
+      static_cast<int>(std::ceil((stopbandDb - 8.0) / (2.285 * dw))) + 1;
+  if (estimated < 3) estimated = 3;
+
+  // Odd length, so the filter is Type I and its group delay is an integer.
+  const int M = (estimated + 1) / 2;
+  const int N = 2 * M + 1;
+
+  const double beta = kaiserBeta(stopbandDb);
+  const double denom = besselI0(beta);
+
+  FirLowpass f;
+  f.h.assign(static_cast<size_t>(N), 0.0);
+  f.groupDelay = M;
+
+  for (int n = 0; n < N; ++n) {
+    const double k = static_cast<double>(n - M);
+    const double ideal = 2.0 * cutoffNorm * sincPi(2.0 * cutoffNorm * k);
+    const double ratio = (2.0 * static_cast<double>(n) / (N - 1)) - 1.0;
+    const double w =
+        besselI0(beta * std::sqrt(std::max(0.0, 1.0 - ratio * ratio))) / denom;
+    f.h[static_cast<size_t>(n)] = ideal * w;
+  }
+
+  double sum = 0.0;
+  for (double v : f.h) sum += v;
+  if (sum != 0.0)
+    for (double& v : f.h) v /= sum;
+
+  return f;
+}
+
 } // namespace anv
