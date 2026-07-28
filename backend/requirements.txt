@@ -1,0 +1,17 @@
+# Deliberately minimal, and every entry is licence-checked.
+#
+# numpy      BSD-3-Clause
+# scipy      BSD-3-Clause
+#
+# NOT soundfile / librosa: both pull in libsndfile, which is LGPL — the exact
+# dependency the C++ engine was written to avoid. WAV reading lives in
+# backend/audio/wavio.py and mirrors engine/include/anv/io/WavFile.h.
+#
+# NOT pyloudnorm: MIT and correct for BS.1770, but it does not implement true
+# peak, and the meter it does expose is sample peak under a name that reads
+# like true peak. See backend/measure/loudness.py.
+#
+# NOT essentia (AGPL-3.0, and its network clause fires for SaaS), NOT madmom
+# (models are CC-BY-NC-SA).
+numpy>=2.0
+scipy>=1.13

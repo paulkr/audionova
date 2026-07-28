@@ -6,3 +6,8 @@ out/
 
 # Engine build products
 engine/build/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
