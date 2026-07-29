@@ -144,6 +144,7 @@ def measure(samples: np.ndarray, sample_rate: float, *, bit_depth: int = 24,
     erb_spec_centres, erb_levels = spectrum.erb_levels_db(freqs, power, sample_rate)
     tilt, tilt_residual = spectrum.spectral_tilt_db_per_octave(third_centres, third_levels)
     limit_hz, limit_confidence = spectrum.bandwidth_limit_hz(freqs, power, sample_rate)
+    hf_rolloff = spectrum.hf_rolloff_db_per_octave(third_centres, third_levels)
 
     report.spectrum = {
         # A band with no measurable energy reads as null, not as -120 dB. A
@@ -169,8 +170,14 @@ def measure(samples: np.ndarray, sample_rate: float, *, bit_depth: int = 24,
         # r-squared, which degenerates to zero on exactly the flat spectra that
         # are best described by a line.
         "tilt_residual_db": _round(tilt_residual),
-        "bandwidth_limit_hz": _round(limit_hz, 0),
+        # None unless there is a genuine codec wall. A dark source is not a
+        # bandwidth-limited one, and the difference decides whether brightening
+        # is possible or pointless.
+        "bandwidth_limit_hz": _round(limit_hz, 0) if limit_hz is not None else None,
         "bandwidth_limit_confidence": _round(limit_confidence),
+        # Reported separately and always: how dark the top end is, which is a
+        # tonal characteristic the planner may well want to act on.
+        "hf_rolloff_db_per_octave": _round(hf_rolloff),
     }
 
     # --- stereo -------------------------------------------------------------
@@ -247,7 +254,7 @@ def _build_warnings(report: MeasurementReport) -> list[dict[str, str]]:
 
     limit = spec.get("bandwidth_limit_hz")
     limit_confidence = spec.get("bandwidth_limit_confidence") or 0.0
-    if limit is not None and limit < 16000.0 and limit_confidence >= 0.4:
+    if limit is not None and limit_confidence >= 0.4:
         warn("bandwidth_limited", "high",
              f"Content stops at about {limit:.0f} Hz (confidence {limit_confidence:.2f}), "
              "which indicates lossy encoding. Any shelf or boost above that frequency "
@@ -291,11 +298,14 @@ def _build_warnings(report: MeasurementReport) -> list[dict[str, str]]:
              "and dynamics figures as less certain than usual.")
 
     residual = spec.get("tilt_residual_db")
-    if residual is not None and residual > 4.0:
-        warn("tilt_unreliable", "low",
-             f"Band levels deviate from the fitted tilt by {residual:.1f} dB RMS, so "
-             "the source is not well described by a single slope. Use the band levels "
-             "directly rather than the tilt figure.")
+    if residual is not None and residual > 6.0:
+        # Common on single stems rather than exceptional — a bass or a vocal
+        # genuinely is not a straight line — so this is phrased as the tilt
+        # being incomplete rather than wrong, and kept at low severity.
+        warn("tilt_incomplete", "low",
+             f"Band levels deviate from the fitted tilt by {residual:.1f} dB RMS. The "
+             "source has strong spectral structure that a single slope does not "
+             "capture; read the band levels directly.")
 
     if report.loudness.get("integrated_lufs") is None:
         warn("no_programme_material", "critical",

@@ -11,3 +11,7 @@ engine/build/
 .venv/
 __pycache__/
 *.pyc
+
+# Source audio. Kept out of git deliberately: large, and its licence status
+# is the user's to decide rather than something a commit should assume.
+audio/stems/

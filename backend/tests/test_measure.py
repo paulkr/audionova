@@ -116,8 +116,9 @@ def test_spectrum() -> None:
     # A scooped spectrum must report a poor fit, so the tilt is not mistaken
     # for a description of it. Without this, "tilt 0.0" is ambiguous between
     # neutral and violently scooped.
-    scooped = pink_noise(n)
     from scipy import signal as _signal
+
+    scooped = pink_noise(n)
 
     notch = _signal.butter(2, [400.0, 2000.0], btype="bandstop", fs=SR, output="sos")
     scooped = _signal.sosfilt(notch, scooped)
@@ -128,22 +129,57 @@ def test_spectrum() -> None:
             f"a scooped spectrum deviates from its fitted line, residual "
             f"{scooped_residual:.2f} dB")
 
-    # Bandwidth limit: the codec-cliff case it exists to catch.
-    lopped = _signal.sosfilt(
-        _signal.butter(16, 15000.0, btype="low", fs=SR, output="sos"), pink_noise(n)
-    )
-    freqs, power = spectrum.gated_ltas(lopped[None, :], SR)
-    limit, confidence = spectrum.bandwidth_limit_hz(freqs, power, SR)
-    R.near(limit, 15500.0, 1500.0, "a 15 kHz brick wall is detected")
-    R.check(confidence >= 0.4, f"and detected confidently, {confidence:.2f}")
+    # BANDWIDTH LIMIT MEANS A CODEC WALL, NOT A DARK SOURCE, and the two must
+    # not be confused: one makes brightening pointless, the other makes it the
+    # right move. Measured on real stems, the separation is an order of
+    # magnitude — acoustic sources roll off at 3 to 37 dB/octave, while MP3 at
+    # 128, 96 and 64 kbps all show 425 to 443 dB/octave.
+    #
+    # The wall is built in the frequency domain here because that is how a
+    # codec builds one. A steep IIR lowpass is only about 120 dB/octave even at
+    # 20th order, which is deliberately BELOW the threshold: a mastering
+    # engineer's brickwall filter is not evidence of lossy encoding.
+    spec = np.fft.rfft(pink_noise(n))
+    bins = np.fft.rfftfreq(n, 1.0 / SR)
+    spec[bins > 15000.0] = 0.0
+    walled = np.fft.irfft(spec, n=n)
+    walled += RNG.normal(0.0, 1e-6, walled.size)  # the dither a codec leaves
 
-    # Full-band material must NOT be reported as limited, or every unprocessed
-    # file gets a spurious "do not boost air" instruction.
-    freqs, power = spectrum.gated_ltas(pink_noise(n)[None, :], SR)
+    freqs, power = spectrum.gated_ltas(walled[None, :], SR)
     limit, confidence = spectrum.bandwidth_limit_hz(freqs, power, SR)
-    R.check(limit > 16000.0 or confidence < 0.4,
-            f"full-band material is not flagged as limited (limit {limit:.0f}, "
-            f"confidence {confidence:.2f})")
+    R.check(limit is not None and abs(limit - 15000.0) < 1500.0,
+            f"a frequency-domain brickwall at 15 kHz is found, got {limit}")
+    R.check(confidence >= 0.4, f"and found confidently, {confidence:.2f}")
+
+    # Full-band material must NOT be flagged, or every unprocessed file gets a
+    # spurious "do not boost air" instruction.
+    freqs, power = spectrum.gated_ltas(pink_noise(n)[None, :], SR)
+    limit, _ = spectrum.bandwidth_limit_hz(freqs, power, SR)
+    R.check(limit is None, f"full-band material has no wall, got {limit}")
+
+    # THE FALSE POSITIVE THAT PROMPTED THE REWRITE. A dark source — a bass, a
+    # close-mic'd vocal — falls far below its midrange up top without being
+    # bandwidth-limited at all. The first detector flagged a real vocal at
+    # 10.5 kHz and told the planner its air band was unreachable.
+    dark = _signal.sosfilt(
+        _signal.butter(6, 5000.0, btype="low", fs=SR, output="sos"), pink_noise(n)
+    )
+    freqs, power = spectrum.gated_ltas(dark[None, :], SR)
+    limit, _ = spectrum.bandwidth_limit_hz(freqs, power, SR)
+    R.check(limit is None, f"a steeply rolled-off but unencoded source has no wall, got {limit}")
+
+    # The rolloff itself is still reported, because "this source is dark" is a
+    # tonal fact the planner should act on even though it is not a limit.
+    centres, levels = spectrum.third_octave_levels_db(freqs, power, SR)
+    rolloff = spectrum.hf_rolloff_db_per_octave(centres, levels)
+    R.check(rolloff < -20.0,
+            f"a dark source reports a steep HF rolloff, {rolloff:.1f} dB/octave")
+
+    bright_centres, bright_levels = spectrum.third_octave_levels_db(
+        *spectrum.gated_ltas(pink_noise(n)[None, :], SR), SR
+    )
+    R.near(spectrum.hf_rolloff_db_per_octave(bright_centres, bright_levels), 0.0, 1.5,
+           "pink noise reports a flat HF rolloff")
 
     # ERB spacing must be narrow at the bottom and wide at the top; that is the
     # entire reason for using it.
@@ -248,8 +284,13 @@ def test_stereo() -> None:
     # channels lose 3 dB on summing, and that 3 dB is arithmetic rather than a
     # defect. Reporting it as a loss would flag every normally-wide mix as
     # broken, so the measurement must read zero here.
+    # Tolerance is 0.15 rather than 0.05 because pink noise has far fewer
+    # effective degrees of freedom than it has samples — its energy is
+    # concentrated at low frequencies, so two independent realisations show
+    # noticeably more sample correlation than white noise of the same length.
+    # Tightening this would make the test flaky rather than strict.
     independent = np.vstack([pink_noise(n), pink_noise(n)])
-    R.near(stereo.broadband_correlation(independent), 0.0, 0.05,
+    R.near(stereo.broadband_correlation(independent), 0.0, 0.15,
            "independent channels correlate at 0")
     R.near(stereo.mono_compatibility_loss_db(independent), 0.0, 0.5,
            "independent channels lose nothing BEYOND the arithmetic 3 dB")
@@ -516,11 +557,20 @@ def test_report() -> None:
 
     from scipy import signal as _signal
 
-    lopped = _signal.sosfilt(
-        _signal.butter(16, 15000.0, btype="low", fs=SR, output="sos"), clean
-    )
+    spec_c = np.fft.rfft(clean)
+    spec_c[np.fft.rfftfreq(n, 1.0 / SR) > 15000.0] = 0.0
+    lopped = np.fft.irfft(spec_c, n=n) + RNG.normal(0.0, 1e-6, n)
     R.check("bandwidth_limited" in codes(report_mod.measure(lopped[None, :], SR).to_dict()),
-            "a bandwidth-limited source is warned about")
+            "a genuinely bandwidth-limited source is warned about")
+
+    # And the false positive stays fixed at the report level, not just in the
+    # detector: a dark source must reach the planner without an instruction
+    # telling it not to brighten.
+    dark_source = _signal.sosfilt(
+        _signal.butter(6, 5000.0, btype="low", fs=SR, output="sos"), clean
+    )
+    R.check("bandwidth_limited" not in codes(report_mod.measure(dark_source[None, :], SR).to_dict()),
+            "a dark but unencoded source is NOT warned as bandwidth-limited")
 
     silent = report_mod.measure(np.zeros((1, n)), SR).to_dict()
     R.check("no_programme_material" in codes(silent),

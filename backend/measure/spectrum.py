@@ -213,60 +213,113 @@ def spectral_tilt_db_per_octave(
     return float(slope), residual_db
 
 
+def hf_rolloff_db_per_octave(
+    centres: np.ndarray, levels_db: np.ndarray, low_hz: float = 6300.0
+) -> float:
+    """Slope of the top end, which is a tonal fact rather than a defect.
+
+    Separated from ``bandwidth_limit_hz`` because the two answer different
+    questions and conflating them produces exactly the wrong instruction. A
+    dark source has a steep rolloff and CAN be brightened; a codec-limited
+    source has a wall and cannot. Reporting the first as the second tells a
+    planner not to touch the air band on a vocal that would respond to it.
+    """
+    usable = (centres >= low_hz) & np.isfinite(levels_db)
+    if np.count_nonzero(usable) < 3:
+        return 0.0
+    x = np.log2(centres[usable])
+    slope, _ = np.polyfit(x, levels_db[usable], 1)
+    return float(slope)
+
+
 def bandwidth_limit_hz(
-    freqs: np.ndarray, power: np.ndarray, sample_rate: float, drop_db: float = 30.0
-) -> tuple[float, float]:
-    """Highest frequency carrying real energy, and how confident we are.
+    freqs: np.ndarray,
+    power: np.ndarray,
+    sample_rate: float,
+    min_slope_db_per_octave: float = 150.0,
+    min_drop_db: float = 20.0,
+    max_depth_db: float = 60.0,
+) -> tuple[float | None, float]:
+    """The frequency of a CODEC WALL, or ``None`` if there is not one.
 
-    THIS IS WHY IT MATTERS. A file that has been through a low-bitrate MP3 is
-    lopped at 15 or 16 kHz with a brick wall. Prescribing an "air" shelf at
-    12 kHz for such a file does nothing audible at all — the planner will have
-    spent a band, and the user will hear no change and conclude the tool does
-    not work. The validator uses this to reject air-band moves outright.
+    THIS RETURNS None FOR MOST REAL AUDIO. The first version looked for the
+    point where the level fell 30 dB below the midrange, which every dark
+    source crosses eventually: measured on real stems it put a bass at 4 kHz,
+    a vocal at 10.5 kHz and an acoustic guitar at 15 kHz, and warned that two
+    of the three were lossily encoded. All three had continuous energy to
+    20 kHz. The instruction it produced — "any shelf above that frequency will
+    be inaudible; do not spend a band on air" — was wrong, high-severity, and
+    aimed at exactly the material an engineer would most want to brighten.
 
-    Detected as a cliff rather than a threshold crossing: real music rolls off
-    gently, and a codec's lowpass is a wall. Confidence reflects how wall-like
-    the drop actually is.
+    What distinguishes a codec is not how far the level falls but HOW FAST.
+    Measured on a 1/12-octave grid over real material, the separation is not
+    marginal:
+
+        acoustic guitar, bass, vocal    steepest 3 to 37 dB/octave
+        MP3 at 128, 96 and 64 kbps      steepest 425 to 443 dB/octave
+
+    An order of magnitude, with nothing in between, because one is a source
+    running out of energy and the other is a brickwall filter. The threshold
+    sits at 150 dB/octave, far above anything acoustic and far below anything
+    encoded.
+
+    The fine grid matters as much as the threshold. Third-octave bands give
+    only three points above 10 kHz, which cannot localise a wall at all — the
+    64 kbps cutoff at 15.9 kHz falls between the 16 k and 20 k bands and
+    vanishes into a single unremarkable step.
+
+    A cliff is also only considered where there is still something to cut off.
+    Once the level is 60 dB below the midrange the content is inaudible, and a
+    source with no noise floor — anything heavily filtered, or produced in
+    float and never dithered — keeps falling toward numerical zero, which on
+    any log scale looks arbitrarily steep. Without this guard a steeply
+    low-passed signal reports a wall at 21 kHz, in a region that contributes
+    nothing either way.
     """
     if freqs.size == 0:
-        return float(sample_rate / 2.0), 0.0
+        return None, 0.0
 
-    with np.errstate(divide="ignore"):
-        levels = 10.0 * np.log10(np.maximum(power, 1e-300))
+    top_hz = sample_rate / 2.0 * 0.96
+    if top_hz <= 5000.0:
+        return None, 0.0
 
-    reference_band = (freqs >= 500.0) & (freqs <= 4000.0)
-    if not np.any(reference_band):
-        return float(sample_rate / 2.0), 0.0
-    reference = float(np.mean(levels[reference_band]))
+    # 1/12-octave grid: fine enough to localise a wall, coarse enough that a
+    # single noisy bin cannot look like one.
+    grid = np.exp(np.linspace(np.log(2000.0), np.log(top_hz), 120))
+    levels = np.empty(grid.size)
+    edge = 2.0 ** (1.0 / 24.0)
+    for i, centre in enumerate(grid):
+        inside = (freqs >= centre / edge) & (freqs < centre * edge)
+        mean_power = float(np.mean(power[inside])) if np.any(inside) else 0.0
+        levels[i] = 10.0 * np.log10(mean_power) if mean_power > 0.0 else -np.inf
 
-    # Smooth over a third of an octave so a single deep bin does not read as a
-    # cliff. Log-spaced, so the smoothing is uniform in the domain the cliff
-    # lives in.
-    search = (freqs >= 4000.0) & (freqs < sample_rate / 2.0 * 0.999)
-    if not np.any(search):
-        return float(sample_rate / 2.0), 0.0
+    usable = np.isfinite(levels)
+    if np.count_nonzero(usable) < 20:
+        return None, 0.0
+    grid, levels = grid[usable], levels[usable]
 
-    search_freqs = freqs[search]
-    search_levels = levels[search]
-    smoothed = np.array([
-        float(np.mean(search_levels[(search_freqs >= f / 1.12) & (search_freqs <= f * 1.12)]))
-        for f in search_freqs
-    ])
+    # Slope measured over a third of an octave, which is wide enough to be
+    # robust and narrow enough not to average the cliff away.
+    span = 4
+    if grid.size <= span:
+        return None, 0.0
+    drops = levels[:-span] - levels[span:]
+    slopes = drops / np.log2(grid[span:] / grid[:-span])
 
-    below = np.nonzero(smoothed < reference - drop_db)[0]
-    if below.size == 0:
-        return float(search_freqs[-1]), 0.2
+    # Only look above 5 kHz: musical structure lower down can be steep without
+    # being a bandwidth limit. And only where the level is still meaningful,
+    # for the reason in the docstring.
+    reference_band = (grid >= 2000.0) & (grid <= 4000.0)
+    reference = float(np.mean(levels[reference_band])) if np.any(reference_band) else float(np.max(levels))
+    candidates = (grid[:-span] >= 5000.0) & (levels[:-span] > reference - max_depth_db)
+    if not np.any(candidates):
+        return None, 0.0
 
-    limit = float(search_freqs[below[0]])
+    masked = np.where(candidates, slopes, -np.inf)
+    best = int(np.argmax(masked))
+    if masked[best] < min_slope_db_per_octave or drops[best] < min_drop_db:
+        return None, 0.0
 
-    # Confidence from the steepness of the drop: a codec wall loses 30 dB in
-    # well under a third of an octave, whereas a dark performance takes
-    # octaves to do the same thing and should not be reported as a limit.
-    window = (search_freqs >= limit / 1.26) & (search_freqs <= limit * 1.26)
-    if np.count_nonzero(window) >= 3:
-        span_db = float(np.max(smoothed[window]) - np.min(smoothed[window]))
-        confidence = float(np.clip(span_db / 40.0, 0.0, 1.0))
-    else:
-        confidence = 0.3
-
+    limit = float(grid[best])
+    confidence = float(np.clip((masked[best] - min_slope_db_per_octave) / 200.0, 0.0, 1.0))
     return limit, confidence
