@@ -7,10 +7,15 @@ PY ?= ../.venv/bin/python
 
 .PHONY: test loudness measure
 
-test: loudness measure
+test: loudness measure bridge
 
 loudness:
 	@$(PY) tests/test_loudness.py
 
 measure:
 	@$(PY) tests/test_measure.py
+
+# Cross-validation against the C++ engine. Needs engine/build/anv_render, so
+# it is the one suite with a build dependency outside this directory.
+bridge:
+	@$(PY) tests/test_engine_bridge.py

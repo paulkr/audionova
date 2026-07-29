@@ -94,6 +94,16 @@ inline std::unique_ptr<Node> makeNode(const std::string& type) {
   return nullptr;
 }
 
+// Filter shapes ParametricEQ understands. Spelled here as well as in the node
+// because an unrecognised name there falls back to a bell, silently — and a
+// planner that writes "high_shelf" instead of "highshelf" would get a bell,
+// a plausible-sounding result, and no indication anything went wrong. That is
+// the same failure the closed node-type set exists to prevent, one level down.
+inline bool isKnownFilterShape(const std::string& shape) {
+  return shape == "bell" || shape == "lowshelf" || shape == "highshelf" ||
+         shape == "notch" || shape == "lowpass" || shape == "highpass";
+}
+
 // Node types that are only correct after the output sample-rate conversion.
 inline bool isMasterOnly(const std::string& type) {
   return type == "true_peak_limiter" || type == "dither";
@@ -253,6 +263,22 @@ inline void validateRecipe(const Recipe& r) {
                             "\" — ids must be unique so a refinement can "
                             "name exactly one node");
       ids.push_back(n.id);
+
+      // Band-level parameters are checked here rather than in the node, so a
+      // typo fails before anything is rendered rather than producing audio
+      // that is quietly not what was asked for.
+      if (n.type == "parametric_eq" || n.type == "dynamic_eq") {
+        const auto& bands = n.params.items();
+        for (size_t b = 0; b < bands.size(); ++b) {
+          const std::string shape = bands[b].str("filter_type", "bell");
+          if (!isKnownFilterShape(shape))
+            throw RecipeError(here + ": band " + std::to_string(b) +
+                              " has unknown filter_type \"" + shape +
+                              "\" (expected bell, lowshelf, highshelf, notch, "
+                              "lowpass or highpass) — an unrecognised name "
+                              "would silently become a bell");
+        }
+      }
 
       if (isMasterOnly(n.type) && !isMaster)
         throw RecipeError(here + ": \"" + n.type +
