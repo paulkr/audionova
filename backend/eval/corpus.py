@@ -21,17 +21,18 @@ harness is a NECESSARY condition, not a sufficient one, and it never replaces
 the listening panel — it makes the listening panel affordable by catching
 everything that fails objectively first.
 
-A KNOWN GAP, FOUND BY THIS HARNESS AND WORTH STATING PLAINLY: the measurement
-report cannot see nonlinearity directly. Drive is detected only through its
-side effects on dynamics — crest factor and peak-to-loudness ratio — because
-there is no THD, harmonic-structure or clean-versus-driven measurement in the
-report at all. For a product whose headline request is "make this sound like
-that record's guitar tone", distortion CHARACTER is exactly what a planner most
-needs to reason about, and it is currently invisible.
+A KNOWN GAP, NARROWER THAN IT FIRST APPEARED: the report has no direct measure
+of nonlinearity — no THD, no harmonic structure, no clean-versus-driven
+judgement. Drive is nonetheless detectable, through the harmonics it adds to
+the band levels and through its effect on dynamics, so the planner is not blind
+to it.
 
-That is not a defect in this harness; it is the harness doing its job. The plan
-already schedules a clean-versus-driven classifier in the Classify stage, and
-this is the evidence for prioritising it.
+What remains invisible is CHARACTER. The report can say a source has energy at
+8 kHz that a clean version would not; it cannot say whether that came from a
+valve, a transistor or a fuzz pedal, and for "make this sound like that
+record's guitar tone" the difference is the whole request. The plan schedules a
+clean-versus-driven classifier in the Classify stage; this is the evidence for
+prioritising it.
 
 EXCERPTS, NOT WHOLE FILES. Twenty-five seconds by default, matching the plan's
 excerpt-first rendering. A four-minute stem takes seventeen seconds to measure
@@ -156,7 +157,16 @@ PERTURBATIONS: tuple[Perturbation, ...] = (
         name="mid_bell", node_type="parametric_eq", parameter="gain_db", unit="dB",
         values=(-9.0, -5.0, 5.0, 9.0),
         build=lambda v, ctx: _eq("bell", 1000.0, v, q=1.4),
-        expected_fields=("spectrum.tilt_residual_db",),
+        # The BAND ITSELF, not a summary statistic. Predicting the tilt
+        # residual was a mistake that survived four mono stems and failed once
+        # the corpus grew: a narrow bell barely moves a whole-spectrum summary,
+        # so the residual hovered around the threshold and passed or failed
+        # depending on which stems were included.
+        #
+        # The band level is the honest evidence and it is unambiguous — the
+        # 1 kHz third-octave band tracks the bell at +0.98 dB per dB, r = 1.00,
+        # and the surrounding ERB bands trace out the bell's actual skirt.
+        expected_fields=("spectrum.third_octave_db.1000hz.level_db",),
     ),
     Perturbation(
         name="highpass", node_type="parametric_eq", parameter="center_freq_hz", unit="Hz",
@@ -202,19 +212,26 @@ PERTURBATIONS: tuple[Perturbation, ...] = (
         values=(6.0, 12.0, 18.0),
         build=lambda v, ctx: [{"type": "drive", "params": {"drive_db": v,
                                                           "output_trim_db": -v * 0.5}}],
-        # NOT the HF rolloff, and the reason is a compliment to the engine.
-        # Predicting that saturation would brighten the top end looked obvious
-        # and is wrong: measured across 0 to 24 dB of drive, the rolloff moves
-        # from -0.59 to -0.43 dB/octave, while every third-octave band rises
-        # near-uniformly. The added harmonics are spread proportionally rather
-        # than piling up at the top, which is exactly what ADAA plus
-        # oversampling is for. A drive stage that visibly reshaped the top
-        # octave would be one that was aliasing.
+        # DRIVE BRIGHTENS, and an earlier version of this comment said it did
+        # not. That claim came from measuring on full-band pink noise with the
+        # HF ROLLOFF SUMMARY, and both halves of that were wrong.
         #
-        # What drive DOES move is dynamics: it flattens peaks and lifts the
-        # quiet end. See the module note on the gap this leaves.
+        # Measured on real stems with the band levels visible, 12 dB of drive
+        # moves the 8 kHz third-octave band by +33.5 dB on a bass and +6.6 dB
+        # on an already-bright acoustic guitar. Saturation generates harmonics
+        # of the fundamentals, so a source with nothing above 5 kHz gains an
+        # enormous amount up top while a source that is already full-band gains
+        # little in relative terms.
+        #
+        # That also explains why the rolloff summary missed it: on full-band
+        # material every band rises together, so the SHAPE barely changes even
+        # though the content does. And it explains why pink noise misled —
+        # it already has energy everywhere, which masks exactly the effect
+        # being measured. Second time synthetic material has given a different
+        # answer than real audio; the first was the codec detector.
         expected_fields=("dynamics.crest_factor_db",
-                         "dynamics.peak_to_loudness_ratio_db"),
+                         "dynamics.peak_to_loudness_ratio_db",
+                         "spectrum.third_octave_db.8000hz.level_db"),
     ),
     Perturbation(
         name="plate_reverb", node_type="plate_reverb", parameter="mix", unit="fraction",

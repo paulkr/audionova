@@ -80,11 +80,11 @@ def main(argv: list[str]) -> int:
 
         header = f"{perturbation.name}  ({perturbation.node_type}.{perturbation.parameter})"
         print(f"\n{header}\n{'-' * len(header)}")
-        print(f"  {'field':44s} {'slope':>10s} {'r':>6s} {'r|v|':>6s}  kind")
+        print(f"  {'field':44s} {'slope':>10s} {'r':>6s} {'r|v|':>6s} {'span':>8s}  kind")
         for effect in effects[: args.top]:
             mark = "*" if effect.field in perturbation.expected_fields else " "
             print(f" {mark}{effect.field:44s} {effect.slope:+10.4f} "
-                  f"{effect.r:+6.2f} {effect.r_abs:+6.2f}  {effect.kind}")
+                  f"{effect.r:+6.2f} {effect.r_abs:+6.2f} {effect.span:8.3f}  {effect.kind}")
         if missing:
             print(f"  PREDICTED BUT NOT DETECTED: {', '.join(missing)}")
 

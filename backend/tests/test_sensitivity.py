@@ -121,6 +121,26 @@ def test_flatten() -> None:
     R.check(flat == {"a": 1.0, "b.c": 2.0},
             f"flatten keeps finite scalars and drops the rest, got {flat}")
 
+    # BAND LISTS ARE EXPANDED, keyed by centre frequency. Dropping them made a
+    # 1 kHz bell look undetectable except through summary statistics that a
+    # plain gain change moves identically — and the conclusion would have been
+    # that the report cannot localise mid-band EQ, which is most of mixing.
+    # The bands were in the report the whole time.
+    bands = sensitivity.flatten({
+        "spectrum": {"third_octave_db": [
+            {"centre_hz": 1000.0, "level_db": -20.0},
+            {"centre_hz": 2000.0, "level_db": -24.0},
+            {"centre_hz": 4000.0, "level_db": None},
+        ]},
+    })
+    R.check(bands == {"spectrum.third_octave_db.1000hz.level_db": -20.0,
+                      "spectrum.third_octave_db.2000hz.level_db": -24.0},
+            f"band lists expand keyed by frequency, got {bands}")
+
+    # Keyed by frequency rather than index, so the names survive a change to
+    # the band layout.
+    R.check(all("hz." in k for k in bands), "band keys carry their frequency")
+
     # Booleans are integers in Python and would otherwise arrive as 1.0 and be
     # averaged, which is meaningless for a flag.
     R.check("b.e" not in flat, "flatten excludes booleans")
@@ -170,6 +190,17 @@ def test_effect_size() -> None:
     flat = sensitivity.analyse(P(), sweep(
         [(-6.0, 0.0), (-3.0, 0.0), (3.0, 0.0), (6.0, 0.0)]))[0]
     R.check(not flat.diagnostic, f"a field that never moves is not, r={flat.r:+.2f}")
+
+    # CORRELATION IS NOT ENOUGH. A 1 kHz bell moves the HF rolloff at r = -1.00
+    # with a slope of 0.0085 dB/octave per dB — a flawless relationship whose
+    # entire swing is under a tenth of a dB. The report rounds to two decimals,
+    # so a field that small is not weak evidence, it is absent from the
+    # document the planner is handed.
+    tiny = sensitivity.analyse(P(), sweep(
+        [(-9.0, -0.008), (-5.0, -0.004), (5.0, 0.004), (9.0, 0.008)]))[0]
+    R.check(tiny.monotonic, f"a tiny effect can still correlate, r={tiny.r:+.2f}")
+    R.check(not tiny.visible and not tiny.diagnostic,
+            f"but it is not diagnostic, span {tiny.span:.4f}")
 
 
 def test_excerpt_selection() -> None:

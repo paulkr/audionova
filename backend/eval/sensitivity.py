@@ -56,13 +56,31 @@ from backend.measure import report as report_mod
 # rather than a coincidence. Neither is tuned to make a particular field pass.
 MIN_CORRELATION = 0.7
 
+# The report rounds every number to two decimals, so a field whose whole swing
+# across the parameter range is smaller than a few rounding quanta is not
+# merely weak — it is INVISIBLE in the document the planner is handed.
+#
+# This exists because correlation alone is not enough. A 1 kHz bell moves the
+# high-frequency rolloff at r = -1.00, a flawless correlation, with a slope of
+# 0.0085 dB/octave per dB of bell gain: the entire sweep moves it by less than
+# a tenth of a dB. Reporting that as "read the bell gain off the HF rolloff" is
+# true and useless.
+MIN_SPAN = 0.05
+
 
 def flatten(report: dict[str, Any], prefix: str = "") -> dict[str, float]:
-    """Report to ``{dotted.path: number}``, skipping anything not scalar.
+    """Report to ``{dotted.path: number}``, including per-band entries.
 
-    Lists of bands are summarised rather than expanded. A planner does not
-    reason about "third_octave_db[17]" and neither should a sensitivity table;
-    whether the shape moved is what tilt, residual and rolloff already express.
+    BAND LISTS ARE EXPANDED, keyed by their centre frequency. Dropping them was
+    a flaw in the analysis rather than a simplification: the report genuinely
+    contains ``third_octave_db`` and ``erb_db``, so the planner genuinely sees
+    them, and an analysis that discards them measures a report nobody is given.
+
+    It mattered immediately. A 1 kHz bell appeared undetectable except through
+    summary statistics that a plain gain change moves identically — the
+    conclusion would have been "the report cannot localise mid-band EQ", which
+    is the bread and butter of mixing. The band levels were there the whole
+    time.
     """
     out: dict[str, float] = {}
     for key, value in report.items():
@@ -74,6 +92,21 @@ def flatten(report: dict[str, Any], prefix: str = "") -> dict[str, float]:
                 out[path] = float(value)
         elif isinstance(value, dict):
             out.update(flatten(value, path))
+        elif isinstance(value, list):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                centre = item.get("centre_hz")
+                if centre is None:
+                    continue
+                # Keyed by frequency rather than index, so the field name stays
+                # stable if the band layout ever changes.
+                for name, entry in item.items():
+                    if name == "centre_hz" or not isinstance(entry, (int, float)):
+                        continue
+                    if isinstance(entry, bool) or not math.isfinite(float(entry)):
+                        continue
+                    out[f"{path}.{int(round(float(centre)))}hz.{name}"] = float(entry)
     return out
 
 
@@ -94,11 +127,18 @@ class FieldEffect:
         return abs(self.r_abs) >= MIN_CORRELATION
 
     @property
+    def visible(self) -> bool:
+        """Does it move enough to survive the report's own rounding?"""
+        return self.span >= MIN_SPAN
+
+    @property
     def diagnostic(self) -> bool:
-        return self.monotonic or self.magnitude
+        return (self.monotonic or self.magnitude) and self.visible
 
     @property
     def kind(self) -> str:
+        if not self.visible:
+            return "too small"
         if self.monotonic:
             return "monotonic"
         if self.magnitude:
@@ -212,7 +252,9 @@ def analyse(
             span=float(np.mean(spans)) if spans else 0.0,
         ))
 
-    effects.sort(key=lambda e: max(abs(e.r), abs(e.r_abs)), reverse=True)
+    # Sorted by correlation, but anything too small to appear in the report is
+    # pushed below everything that is visible.
+    effects.sort(key=lambda e: (e.visible, max(abs(e.r), abs(e.r_abs))), reverse=True)
     return effects
 
 
