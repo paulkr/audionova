@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure
+.PHONY: test loudness measure bridge sensitivity sweep
 
-test: loudness measure bridge
+test: loudness measure bridge sensitivity
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -19,3 +19,12 @@ measure:
 # it is the one suite with a build dependency outside this directory.
 bridge:
 	@$(PY) tests/test_engine_bridge.py
+
+# Can the measurement report see what the engine does? Runs on synthetic
+# sources so it is hermetic; `make sweep` runs the same analysis over real
+# stems and prints the table.
+sensitivity:
+	@$(PY) tests/test_sensitivity.py
+
+sweep:
+	@$(PY) -m backend.eval.run_sensitivity $(STEMS)
