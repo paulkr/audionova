@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity sweep
+.PHONY: test loudness measure bridge sensitivity recovery sweep recover
 
-test: loudness measure bridge sensitivity
+test: loudness measure bridge sensitivity recovery
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -28,3 +28,12 @@ sensitivity:
 
 sweep:
 	@$(PY) -m backend.eval.run_sensitivity $(STEMS)
+
+# Chain recovery: which node types and what order can be read off the deltas.
+# The hermetic half asserts the scoring; `recover` prints the real floor that
+# any future planner has to beat.
+recovery:
+	@$(PY) tests/test_recovery.py
+
+recover:
+	@$(PY) -m backend.eval.run_recovery $(STEMS)
