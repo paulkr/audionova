@@ -19,11 +19,16 @@ Everything in these documents optimises for that.
 | [planner.md](planner.md) | The graph contract, validators, prompt cache, ladder, glossary |
 | [evaluation.md](evaluation.md) | The four test harnesses and how to read their numbers |
 | [findings.md](findings.md) | Every bug found and lesson learned, with the evidence |
+| [open-questions.md](open-questions.md) | Everything currently flagged: risks, gaps, unverified claims |
 | [licensing.md](licensing.md) | What we may and may not depend on, and why |
 
 `findings.md` is the one to read if you are wondering why something is written
 the way it is. Most of the odd-looking decisions in this codebase are there
 because the obvious version was measured and found wrong.
+
+`open-questions.md` is the one to read before planning work. It is a living
+document — anything raised as a concern gets an entry there rather than living
+only in a commit message.
 
 ## Current state
 

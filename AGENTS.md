@@ -17,6 +17,12 @@ Two documents are load-bearing when changing anything:
 - **`docs/architecture.md`** — why the pipeline has the shape it does, and which
   stages are deliberately deterministic rather than model-driven.
 
+When you flag a concern, put it in `docs/open-questions.md`. A risk that lives
+only in a commit message or a conversation is a risk nobody will act on. Entries
+say what the concern is, what would resolve it, and what it costs to be wrong.
+Move things to the Resolved table rather than deleting them, so the reasoning is
+not re-litigated later.
+
 Non-negotiables when adding code:
 
 - Every new node enrols in the contract tests automatically via the registry in
