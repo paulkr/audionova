@@ -16,7 +16,7 @@ Everything in these documents optimises for that.
 | [engine.md](engine.md) | The C++ render core: node contract, invariants, every node |
 | [recipe-format.md](recipe-format.md) | The JSON that describes a render |
 | [measurement.md](measurement.md) | Every field of the measurement report and what it means |
-| [planner.md](planner.md) | The effect graph contract and its seven validators |
+| [planner.md](planner.md) | The graph contract, validators, prompt cache, ladder, glossary |
 | [evaluation.md](evaluation.md) | The four test harnesses and how to read their numbers |
 | [findings.md](findings.md) | Every bug found and lesson learned, with the evidence |
 | [licensing.md](licensing.md) | What we may and may not depend on, and why |
@@ -42,12 +42,18 @@ Built and verified:
 - **Effect graph schema and validators** — the planner's output contract, with the
   JSON Schema generated from the enforcing model so the two cannot drift.
   179 checks.
+- **Planner scaffolding** — prompt assembly with an 18.4 k cached prefix, the
+  two-stage PLAN/EMIT driver, a bounded repair loop with SLI counters, the
+  deterministic quantifier ladder, and a forty-term descriptor glossary.
+  130 checks.
 
 Not built:
 
-- **The intelligence layer's model calls.** The output contract and its
-  validators exist (see `planner.md`); PLAN, EMIT, CLASSIFY and REFINE do not.
-  No LLM call happens anywhere in this codebase yet.
+- **The live model calls.** Everything around them exists and is tested offline
+  against a scripted client — contract, validators, prompt assembly with a
+  verified cache boundary, two-stage driver, repair loop, quantifier ladder,
+  glossary (see `planner.md`). Nothing here has ever made a live model call.
+- **CLASSIFY and REFINE.**
 - **The Phase 0 listening gate.** Three engineers, ten guitar DIs, prefer-or-tie
   in at least 6 of 10. This is the plan's explicit stop-or-go point and has not
   been attempted.

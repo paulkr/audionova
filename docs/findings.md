@@ -336,6 +336,25 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## Findings from the planner scaffolding
+
+### A glossary alias claimed by two terms
+
+The duplicate-alias guard raised at import: `distant` was both a spatial term and
+an alias of the tonal `buried`. Not a typo — a **real ambiguity**, since a source
+reads as distant either from too much reverb or from no presence at all, and the
+two want opposite answers. Silently resolving to one would have made the planner
+reach for reverb on a dry source that simply lacked presence. Both entries now
+state which measurement decides.
+
+### A cache-boundary test that checked the documentation
+
+The prefix assertion probed for the string `TPT`, which appears in
+`docs/engine.md` and **nowhere in `ParametricEQ.h`**. The test would have passed
+with the DSP reference dropped from the prompt entirely, as long as the docs still
+mentioned it. Probes now come from the source files themselves, plus a size band
+on the prefix — well under and the reference has silently stopped being included.
+
 ## Frontend findings
 
 Kept for completeness; the hero animation predates the engine work.

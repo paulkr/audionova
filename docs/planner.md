@@ -2,9 +2,10 @@
 
 `backend/schemas/graph.py` and `backend/plan/validate.py`.
 
-**Status: the contract and its validators exist; no model call does.** This
-document describes what is built and what the built parts are for. The PLAN and
-EMIT stages themselves are not implemented.
+**Status: everything except the model calls themselves.** The contract, the
+validators, the prompt assembly, the two-stage driver and its repair loop all
+exist and are tested offline against a scripted client. Nothing in this
+repository has ever made a live model call.
 
 ## The effect graph
 
@@ -184,22 +185,215 @@ with a master section, validates it, converts it to a recipe and renders real
 samples — then renders the same graph at a different delivery rate, since the
 graph deliberately carries no rate or format.
 
-## What is not built
+## The prompt, and the cache boundary
 
-The two model calls, and everything around them:
+The economics are inverted from the obvious assumption. DSP compute is about
+$0.0007 for a three-minute render; a frontier planning turn is $0.15 to $0.50 —
+**the model costs two to seven hundred times the audio processing.** So the thing
+worth engineering is the prompt.
 
-- **PLAN** — unconstrained reasoning over the measurement report, with four
-  explicit sub-tasks: input analysis, module selection, order determination,
-  parameter planning. Output is prose and is never parsed. Unconstrained because
-  constrained decoding from token one degrades reasoning, and removing
-  chain-of-thought costs 13 points of module accuracy.
-- **EMIT** — a separate constrained call that serialises the decision without
-  reconsidering it.
-- The **prompt cache layout** (~18.5 k cached prefix, ~7 k volatile) and the CI
-  canary asserting `cache_read_input_tokens > 15000`.
-- The **repair loop** driver, and the SLI counters.
+The prefix measures **18,409 estimated tokens** and never varies between
+requests: role framing, the annotated schema, the per-node parameter schemas, the
+glossary, and the DSP source of six effects. The volatile half — measurement
+report, classification, preset dossiers, the user's sentence — sits after the
+cache breakpoint.
+
+**One timestamp in the prefix destroys the entire saving.** A request id, a user
+id, a formatted date — anything per-request in the system block moves the cache
+boundary before it and turns every subsequent token into a miss. This fails
+silently: the request succeeds, the answer is fine, and the bill is five times
+larger.
+
+So `system_blocks()` takes **no arguments**, and a test asserts both that two
+independently-built prefixes are byte-identical and that the function's signature
+is empty. Further tests assert that no per-request value appears in the prefix
+and that the values the model needs *do* appear in the volatile half.
+
+**The DSP source is in the prompt because it is the highest-leverage item in it.**
+Putting the implementations in front of the model is what moved LLM2Fx from 0.53
+to 0.22 on EQ matching — the model reasons about what a parameter *does* rather
+than what its name suggests. It is also most of the prefix's size, which is
+exactly why the prefix has to cache.
+
+Six node implementations are included, not eighteen. The utility nodes are
+self-explanatory from their names and their source would cost prefix tokens for
+nothing.
+
+## Two calls, not one
+
+- **PLAN** is unconstrained, with four explicit sub-tasks: input analysis, module
+  selection, order determination, parameter planning. Output is prose and is
+  never parsed programmatically — only handed to stage 2. Unconstrained because
+  constrained decoding from the first token measurably degrades reasoning, and
+  removing chain-of-thought costs 13 points of module accuracy.
+- **EMIT** is a separate call whose system prompt reframes the model as a
+  transcriber. Separate rather than a continuation, because a model cannot be a
+  transcriber in the same turn that still holds the reasoning task — and the
+  schema constraint then applies to a turn with no reasoning left to degrade.
+
+Both share the same cached prefix.
+
+## The repair loop
+
+Two retries, then fall back. The distinction that matters for cost:
+
+- **repairable** violations are fixed in Python and logged. Burning a retry to
+  arrive at an answer we already have is a wasted round-trip.
+- **fatal** violations go back to the model, with the validator's findings quoted
+  **verbatim** rather than paraphrased. A validator message already names the
+  measurement and the rule; restating it is an opportunity to soften it. The
+  retry prompt asks for a minimal change, since every other decision was
+  accepted.
+
+**The fallback is always a graph that already passed** — the previous accepted
+graph for this source, never a default chain. A default is a guess about audio
+nobody measured.
+
+Schema failures are as retryable as semantic ones, for the same reason: the model
+can be told what was wrong.
+
+### Counters
+
+`Counters` accumulates the SLIs: repair rate, retry rate, fallback rate, and an
+unparseable rate for replies that were not graphs at all.
+
+Rates are **not reported below twenty turns**, because a rate over five samples
+is not a signal. Breaches are reported rather than enforced: refusing to serve
+because a rolling rate is high would turn a quality signal into an outage.
+
+Repair rate is the one to watch. It rising means the prompt has drifted from what
+the validators expect, and it rises long before quality visibly drops.
+
+## Multi-turn refinement
+
+`backend/plan/ladder.py`. **A refinement is a patch, not a regeneration.**
+
+Asking the planner for a whole new graph on "add a bit more air" discards every
+decision the user implicitly accepted by not complaining about it, and churns
+unrelated parameters. To the user that reads as a bug: they asked for one change
+and six things moved. A test asserts that a one-parameter refinement moves
+**exactly one** value.
+
+### The arithmetic never touches a model
+
+When a user says "slightly more delay", the size of "slightly" must be the same
+number every time — on Tuesday, on a different stem, at a different temperature.
+A model asked to apply it produces 1.2 dB one turn and 4 dB the next, and the
+user concludes the tool is unpredictable rather than that they were unclear.
+
+So the model's only job is to name a target and a magnitude word from a closed
+set. Python decides what the word means.
+
+| word | steps |
+|---|---|
+| slightly, a bit, somewhat | 1 |
+| noticeably, moderately | 2 |
+| much, a lot, significantly | 3 |
+| dramatically | 4 |
+
+`slightly` and `a bit` are deliberately identical: users treat them as synonyms
+and distinguishing them would invent precision the language does not carry. An
+unrecognised intensifier gets one step rather than zero — the user still asked for
+a change, and doing nothing looks broken.
+
+### Step sizes are perceptual, not arithmetic
+
+A step is "the smallest change a competent listener reliably notices", which is
+why they are not all the same shape:
+
+| parameter | step | why |
+|---|---|---|
+| EQ gain | **+1.5 dB** | dB is already a perceptual scale, so this adds |
+| frequency | **×1.26** | one third of an octave; pitch is logarithmic, so this multiplies |
+| Q | ×1.4 | 1 → 2 is a large change, 8 → 9 is not |
+| threshold | **−2.5 dB** | has to move further than an EQ band before the gain reduction changes audibly |
+| reverb decay | ×1.25 | |
+| mix | ×1.4 | doubling a 0.1 mix is obvious; adding 0.1 to a 0.9 mix is not |
+
+A parameter with no declared step **raises** rather than being guessed at. A step
+size is a judgement about audibility, and inventing one at call time would make
+the same word mean different things on different parameters.
+
+### Ambiguity resolved in code
+
+"More delay" almost always means a *louder* delay, not a longer one, and a planner
+allowed to choose would sometimes move the repeats off the beat.
+
+| phrase | parameter |
+|---|---|
+| more delay | `mix` |
+| more repeats | `feedback_percent` |
+| longer delay | `time_ms` |
+| darker delay | `hf_damp_hz`, **decreased** |
+| more compression | `ratio_to_1` |
+| harder compression | `threshold_dbfs`, decreased |
+
+Not every "more" increases a number: a darker reverb is a *lower* damping corner.
+
+An intent with no matching node returns **no patches** rather than adding one.
+Inserting a reverb into a chain the user never asked to have one in is a much
+larger change than they requested.
+
+### Eight operations, closed set
+
+`adjust_param`, `set_param`, `add_node`, `remove_node`, `bypass_node`,
+`enable_node`, `add_band`, `remove_band`.
+
+Closed because an open-ended "edit" would put the model back in charge of
+arithmetic. A patch naming a node that does not exist is **rejected, not
+ignored** — a silently dropped edit leaves the user with no change and no
+explanation.
+
+Values are rounded to something a human would type. An engineer reading
+"−3.2 dB at 340 Hz" trusts it; nine decimal places reads as machine output and
+invites the question of whether it was chosen at all.
+
+`describe()` renders a patch set to prose **before** rendering audio, because the
+plan's definition of done for refinement is that the user reads the diff first.
+
+## The descriptor glossary
+
+`backend/plan/glossary.py`, forty terms across tonal, dynamic, spatial and
+character axes, with aliases.
+
+**The glossary is evidence, not instruction.** Every entry carries a
+`check_first` condition that must hold of the measured audio before the
+conventional move applies, and that field is the whole point of the file. The
+alternative — "muddy means cut 250 Hz" — is a stock move applied to a source that
+may not have a problem at 250 Hz, and a chain of stock moves sounds like one.
+
+A mud complaint on a source whose 200–400 Hz region is already 6 dB below its own
+average is not a mud problem. The planner is expected to say so rather than cut a
+band that is already quiet.
+
+Frequency ranges are **wide on purpose**. "Boxy" is roughly 250–500 Hz and the
+exact centre depends on the instrument; a boxy kick and a boxy acoustic guitar are
+not the same frequency. Narrow ranges would encode precision nobody has.
+
+Several terms deliberately have **no default move** — `vintage`, `modern`,
+`lofi`, `honest`, `woody`. They are recorded so the planner recognises them as
+unactionable or preset-routed rather than inventing a frequency. A bandwidth
+limit, a tilt and some saturation is a caricature of "vintage", not an answer.
+
+A duplicate-alias guard raises at import. It immediately caught `distant` claiming
+to be both a spatial term and an alias of the tonal `buried` — a real ambiguity,
+since a source can read as distant either from too much reverb or from no
+presence at all, and the two want opposite answers. Both entries now say which
+measurement decides.
+
+## What is still not built
+
+- **The live model calls.** `AnthropicClient` follows the documented API shape and
+  has never run. The first two things to check with a key are the ones that cannot
+  be verified offline: that `cache_read_input_tokens` exceeds 15000 on a repeated
+  request, and that structured output actually honours the schema's enums.
+- **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
 - **REFINE** — match-EQ and dynamics matching, both deterministic.
-- The **preset knowledge base** and the alias routing table.
+- The **preset knowledge base** and the artist-alias routing table. The glossary
+  routes `vintage` and `lofi` to it; it does not exist.
+- The **twenty missing glossary terms**, which are the genre- and
+  instrument-specific vocabulary. Those should be authored alongside the presets
+  by someone who mixes for a living rather than guessed at.
 
 The scoreboard for all of it already exists: `docs/evaluation.md` describes the
 rule-based recovery floor of **F1 0.580** that any planner has to beat.

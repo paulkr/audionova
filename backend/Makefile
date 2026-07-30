@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema planner sweep recover
 
-test: loudness measure bridge sensitivity recovery schema
+test: loudness measure bridge sensitivity recovery schema planner
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -42,3 +42,9 @@ recover:
 # headers to assert the schema has not drifted from what the engine accepts.
 schema:
 	@$(PY) tests/test_schema.py
+
+# The scaffolding around the two model calls: quantifier ladder, glossary,
+# prompt cache boundary, and the two-stage driver with its repair loop. Runs
+# entirely offline against a scripted client.
+planner:
+	@$(PY) tests/test_planner.py
