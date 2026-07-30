@@ -272,6 +272,19 @@ reported a measurement failure for a node behaving exactly as designed.
 Perturbations now declare what they need, and corpus gaps are reported separately
 from measurement gaps.
 
+### A name-keyed range table that had already diverged
+
+The graph validator clamped parameters using a hand-maintained name-to-range map.
+A band's `gain_db` is bounded at plus or minus 18 while a gain *node*'s is plus or
+minus 24, and **a map keyed on the name cannot tell them apart** — it silently
+applied the wider bound to bands, so a 22 dB band gain passed a clamp the schema
+itself would have rejected.
+
+Bounds are now read from the Pydantic models, removing the second source of truth
+entirely. Names are not unique across contexts, and any lookup that ignores
+context is wrong the moment two nodes share a parameter name — which they already
+did.
+
 ### An ordering metric that measures the corpus
 
 The recovery baseline's ordering score reads **+0.498**, which resembles partial
@@ -303,6 +316,7 @@ because each one cost time chasing a phantom bug.
 | Drive's linear-phase latency = peak position | Linear-phase pre-ringing legitimately precedes the peak. |
 | Two independent pink-noise signals correlate within 0.05 | Pink noise has far fewer effective degrees of freedom than samples. 0.15 is the honest bound; tighter is flaky, not strict. |
 | The chain "made it louder" | A 3:1 compressor at −24 dBFS takes ~6.8 dB off pink noise well above threshold; +2 dB makeup does not restore it. That was asserting a property of the test signal. |
+| A clamped 40 dB band gain ends at 18 dB | It ends at 12. The clamp fires first, then the boost budget scales 18 dB to the 12 dB total. The test was asserting an intermediate state, and would have broken the moment the budget threshold moved. |
 
 ---
 
