@@ -381,6 +381,65 @@ since a source can read as distant either from too much reverb or from no
 presence at all, and the two want opposite answers. Both entries now say which
 measurement decides.
 
+## Refine: match-EQ
+
+`backend/refine/match_eq.py`. Deterministic, and the stage where the model's
+parameter weakness gets erased without inheriting a regression model's
+perceptual behaviour — the model chose the modules and the order, this fixes only
+the numbers.
+
+**The output is a handful of biquads, not an 8000-tap FIR.** A paying engineer has
+to read the result, trust it, disagree with it, and retype it. "−3.2 dB at
+340 Hz, Q 1.1" is all four; an impulse response is none of them.
+
+Four steps, three of which are the ones implementations skip:
+
+1. **Level-match first.** Without it a match EQ is a broadband gain change wearing
+   a filter costume — the fit spends its bands correcting an offset and the result
+   is louder rather than closer. The offset is the median, not the mean, so one
+   narrow resonance cannot drag the whole curve. It is reported separately and
+   deliberately not folded into the bands: a level change is a gain node's job.
+2. **Resample onto a uniform log grid before smoothing.** Fractional-octave
+   smoothing on linearly-spaced bins covers more bins above the centre than below,
+   biasing the curve upward and increasingly so toward the top (Tylka, Boren and
+   Choueiri, JAES 2017). On a linear grid a 1/3-octave smooth of a flat spectrum
+   is not flat.
+3. **Clamp with a soft knee.** Linear below 60% of the limit, bending above.
+   Unbounded match curves are the commonest reason match EQ sounds wrong — the
+   difference between two recordings includes performances, rooms and noise
+   floors, and following all of it into a 20 dB correction produces something
+   that matches on paper and is unusable.
+4. **Fit, round, then re-verify.** Rounding changes the response, so the reported
+   error is measured after it rather than before.
+
+### The smallest cascade that fits
+
+Every size from one band upward is fitted, and the smallest within 0.15 dB of the
+best is chosen. Fitting straight to the budget uses all of it whether the material
+needs it or not: recovering a two-band EQ with five bands available returned four,
+splitting one bell across two frequencies. Numerically better, worse to hand an
+engineer — they cannot tell which bands matter, and the halves of a split band
+cannot be adjusted independently without breaking the shape.
+
+Q is capped at 4. Unconstrained, least squares happily returns Q 8.7 notches that
+track every wrinkle of a difference curve which is mostly not EQ.
+
+### Measured recovery
+
+A known EQ applied by the real engine, recovered from the two spectra alone:
+
+| applied | recovered | error |
+|---|---|---|
+| bell 900 Hz +5.0 Q1.30 | bell **900 Hz** +4.9 Q1.38 | 1.45 → 0.11 dB RMS |
+| bell 420 Hz −5.0, shelf 6 kHz +4.5 | bell **420 Hz** −4.8, shelf 5860 Hz +4.7 | 2.25 → 0.09 dB RMS |
+| three moves | all three, right count | 1.71 → 0.17 dB RMS |
+
+The analytic filter response the optimiser fits against is checked against what
+the engine actually renders, within 0.6 dB across five band types. The optimiser
+evaluates it thousands of times so it must be arithmetic — but a response that had
+drifted from the engine would produce a beautiful fit to the wrong target, and
+nothing inside the fit could detect it.
+
 ## What is still not built
 
 - **The live model calls.** `AnthropicClient` follows the documented API shape and
@@ -388,7 +447,10 @@ measurement decides.
   be verified offline: that `cache_read_input_tokens` exceeds 15000 on a repeated
   request, and that structured output actually honours the schema's enums.
 - **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
-- **REFINE** — match-EQ and dynamics matching, both deterministic.
+- **Dynamics matching** — the other half of REFINE. A closed loop against the
+  actual renderer rather than a closed-form inversion: threshold from the RMS
+  percentile at a chosen duty cycle, ratio by bisection on rendered loudness
+  range, attack and release from where the envelope modulation spectra diverge.
 - The **preset knowledge base** and the artist-alias routing table. The glossary
   routes `vintage` and `lofi` to it; it does not exist.
 - The **twenty missing glossary terms**, which are the genre- and

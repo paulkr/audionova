@@ -51,6 +51,9 @@ Built and verified:
   two-stage PLAN/EMIT driver, a bounded repair loop with SLI counters, the
   deterministic quantifier ladder, and a forty-term descriptor glossary.
   130 checks.
+- **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
+  Recovers a known filter applied by the engine to within 0.2 dB and the right
+  band count. 68 checks.
 
 Not built:
 
@@ -58,7 +61,7 @@ Not built:
   against a scripted client — contract, validators, prompt assembly with a
   verified cache boundary, two-stage driver, repair loop, quantifier ladder,
   glossary (see `planner.md`). Nothing here has ever made a live model call.
-- **CLASSIFY and REFINE.**
+- **CLASSIFY**, and the dynamics half of **REFINE**.
 - **The Phase 0 listening gate.** Three engineers, ten guitar DIs, prefer-or-tie
   in at least 6 of 10. This is the plan's explicit stop-or-go point and has not
   been attempted.

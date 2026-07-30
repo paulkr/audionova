@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema planner sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema planner refine sweep recover
 
-test: loudness measure bridge sensitivity recovery schema planner
+test: loudness measure bridge sensitivity recovery schema planner refine
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -48,3 +48,8 @@ schema:
 # entirely offline against a scripted client.
 planner:
 	@$(PY) tests/test_planner.py
+
+# Match-EQ. Recovers a known filter applied by the real engine, and checks the
+# analytic response the optimiser fits against agrees with what the engine renders.
+refine:
+	@$(PY) tests/test_refine.py

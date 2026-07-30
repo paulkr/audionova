@@ -336,6 +336,52 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## Findings from the refine stage
+
+### A soft clamp that attenuated everything it touched
+
+Match-EQ bounds its correction curve so it cannot chase a 20 dB difference at
+40 Hz. The obvious implementation, `limit * tanh(x / limit)`, is smooth
+everywhere — and attenuates everywhere.
+
+Recovering a known 5 dB EQ against a 6 dB limit, it returned **4.09 dB**, which
+is `6*tanh(5/6)` exactly. An 18% error on a correction that was never near the
+limit, introduced by the safety mechanism rather than by the measurement. It was
+only visible because the round-trip test compares against a filter that was
+actually applied; a fit judged only against its own target curve would have
+looked perfect.
+
+Replaced with a proper soft knee: linear below 60% of the limit, bending above
+it. Same shape as a compressor's soft knee and for the same reason. Recovery
+error fell from 0.29 to 0.09 dB RMS, and gains now come back within 0.2 dB.
+
+### Fitting to the band budget rather than to the material
+
+The fit used all the bands it was allowed. Recovering a two-band EQ with a
+five-band budget it returned four: the 420 Hz bell split across 335 and 470 Hz,
+plus a shelf accompanied by a bell doing almost nothing.
+
+Numerically that is a slightly better fit. As something to hand an engineer it is
+worse — they cannot tell which bands matter, and the two halves of a split band
+cannot be adjusted independently without breaking the shape. Every size from one
+band upward is now fitted and the smallest within 0.15 dB of the best is chosen,
+so a band has to earn its place. A two-band EQ now comes back as two bands.
+
+### An optimiser seed outside its own bounds
+
+Greedy placement subtracts each band before choosing the next, so wherever a band
+overshoots, the residual there is *larger* than the original target — and a later
+band could be seeded with a gain beyond the clamp that produced the target in the
+first place. `least_squares` refuses to start from outside its bounds. Clipped,
+since the seed is only a starting point.
+
+### Identical match results across three different stems
+
+Alarming at first glance and correct on inspection: when the reference is the
+source with a known EQ applied, the spectral difference **is** the filter's
+response, independent of the material. The match recovers the filter rather than
+the source, which is what it is supposed to do.
+
 ## Findings from the planner scaffolding
 
 ### A glossary alias claimed by two terms
