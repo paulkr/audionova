@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema sweep recover
 
-test: loudness measure bridge sensitivity recovery
+test: loudness measure bridge sensitivity recovery schema
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -37,3 +37,8 @@ recovery:
 
 recover:
 	@$(PY) -m backend.eval.run_recovery $(STEMS)
+
+# The planner's output contract and its semantic validators. Reads the engine
+# headers to assert the schema has not drifted from what the engine accepts.
+schema:
+	@$(PY) tests/test_schema.py

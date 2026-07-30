@@ -13,5 +13,13 @@
 #
 # NOT essentia (AGPL-3.0, and its network clause fires for SaaS), NOT madmom
 # (models are CC-BY-NC-SA).
+# pydantic   MIT
+#
+# Used for the effect graph schema, and specifically so the JSON Schema can be
+# GENERATED from the enforcing model rather than maintained beside it. Claude
+# structured outputs do not enforce minimum/maximum, so every bound has to exist
+# both as an enforced constraint and as prose the model reads — generating both
+# from one declaration removes the drift rather than testing for it.
 numpy>=2.0
 scipy>=1.13
+pydantic>=2.0
