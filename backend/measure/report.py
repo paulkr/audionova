@@ -85,6 +85,14 @@ def measure(samples: np.ndarray, sample_rate: float, *, bit_depth: int = 24,
     channels, frames = samples.shape
     report = MeasurementReport()
 
+    # Count the damage, then remove it. A single Inf makes every cumulative sum
+    # downstream produce NaN, so an otherwise-measurable file would come back
+    # with a report full of nulls and no indication which one thing was wrong.
+    # The count is what matters; the remaining samples are still worth measuring.
+    non_finite_count = hygiene.nan_or_inf_count(samples)
+    if non_finite_count:
+        samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+
     mask, coverage = gating.gated_frame_mask(samples, sample_rate)
 
     report.source = {
@@ -203,7 +211,7 @@ def measure(samples: np.ndarray, sample_rate: float, *, bit_depth: int = 24,
         "noise_floor_dbfs": _round(_finite(floor_db)),
         "noise_floor_confidence": _round(floor_confidence),
         "dead_channels": hygiene.dead_channels(samples),
-        "non_finite_samples": hygiene.nan_or_inf_count(samples),
+        "non_finite_samples": non_finite_count,
     }
 
     report.warnings = _build_warnings(report)

@@ -54,6 +54,9 @@ Built and verified:
 - **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
   Recovers a known filter applied by the engine to within 0.2 dB and the right
   band count. 68 checks.
+- **Post-render verify gate** — re-measures the render and refuses to ship
+  corruption, ceiling overshoot, mono incompatibility, an introduced resonance,
+  a level collapse or destroyed bandwidth. 36 checks.
 
 Not built:
 

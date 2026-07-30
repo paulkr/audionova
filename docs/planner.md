@@ -440,6 +440,61 @@ evaluates it thousands of times so it must be arithmetic — but a response that
 drifted from the engine would produce a beautiful fit to the wrong target, and
 nothing inside the fit could detect it.
 
+## Verify: the post-render safety gate
+
+`backend/verify/gate.py`. The last thing that runs, and **the only check that
+sees the actual audio.**
+
+Every other check reasons about a graph and runs before anything is rendered. A
+graph can be structurally perfect, semantically justified, within budget and
+correctly ordered — and still produce a render with a resonance nobody asked for,
+because two gentle boosts landed on the same frequency and a compressor's makeup
+pushed the sum into a limiter that was already working. No amount of pre-render
+reasoning catches that.
+
+**Any failure means the render does not ship.** Not a warning — the render is
+discarded and the previous accepted graph is used instead. This is what makes it
+safe to let a model near a paying engineer's audio: whatever it proposes,
+something deterministic listens to the result before the user does.
+
+| check | fails when |
+|---|---|
+| `non_finite` | any NaN or Inf sample |
+| `silent` | the render peaks below −80 dBFS |
+| `true_peak` | above the ceiling the graph claimed, or above 0 dBTP with no limiter |
+| `loudness_target` | more than 0.5 LU off a stated target |
+| `level_collapse` | more than 12 dB quieter than the chain accounts for |
+| `out_of_phase` | correlation below −0.2 |
+| `mono_loss` | more than 1 dB beyond the arithmetic 3 |
+| `resonance` | a 9 dB peak above both neighbours that the source did not have |
+| `bandwidth_collapse` | the HF rolloff steepened by more than 18 dB/octave |
+
+### The thresholds are not symmetric with the pre-render ones
+
+A pre-render validator asks "is this a sensible thing to do?" and can afford to be
+opinionated. This asks "did something go wrong?" and has to be **nearly impossible
+to trip by accident**, because a false failure throws away work the user was happy
+with and replaces it with something older. A miss is a bug they can report; a
+false failure is the tool refusing to do its job.
+
+So every threshold sits where a competent engineer would say something is
+*broken*, not where they would have made a different choice. A deliberate 6 dB
+bell passes the resonance check; an 18 dB Q-10 boost does not. A 6 dB high-shelf
+cut passes the bandwidth check; a lowpass at 900 Hz does not.
+
+### Resonances are compared against the source
+
+Plenty of instruments have a strong resonance of their own — a snare, a resonant
+guitar body. Failing a render because the *source* had a peak would throw away
+good work for a property of the recording. What the check looks for is a peak the
+processing **introduced**.
+
+### Checks that need context are skipped, not guessed
+
+`graph` and `source_report` are both optional. Every check needing one is skipped
+without it — but the checks that catch genuine corruption need neither and always
+run. A gate that only works when fully informed is not a safety net.
+
 ## What is still not built
 
 - **The live model calls.** `AnthropicClient` follows the documented API shape and

@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema planner refine sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema planner refine verify sweep recover
 
-test: loudness measure bridge sensitivity recovery schema planner refine
+test: loudness measure bridge sensitivity recovery schema planner refine verify
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -53,3 +53,8 @@ planner:
 # analytic response the optimiser fits against agrees with what the engine renders.
 refine:
 	@$(PY) tests/test_refine.py
+
+# The post-render safety gate. Tests both directions of every check: the thing
+# it must catch, and the very similar thing it must not.
+verify:
+	@$(PY) tests/test_verify.py

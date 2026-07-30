@@ -336,6 +336,27 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## Findings from the verify gate
+
+### Widening decorrelated material is genuinely mono-incompatible
+
+The gate failed a 130% stereo-width render in a test whose whole point was that
+ordinary chains must pass. It was right: two *fully independent* channels widened
+to 130% give correlation −0.256 by arithmetic, and that does cancel on mono.
+
+The test source was the problem. No recording is fully decorrelated — the
+reference stems measure 0.70 and 0.86 — so testing "ordinary renders are not
+rejected" against the most extreme stereo field possible was testing the wrong
+thing. Fixed by building a realistic mid-plus-side source.
+
+### One Inf poisoned every measurement in the report
+
+A single non-finite sample makes every cumulative sum downstream produce NaN, so
+a file with one bad sample came back with a report full of nulls and no
+indication which thing was wrong. The count is what matters and the rest of the
+signal is still worth measuring, so non-finite samples are now counted first and
+then replaced with zero.
+
 ## Findings from the refine stage
 
 ### A soft clamp that attenuated everything it touched
