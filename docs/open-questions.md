@@ -114,6 +114,27 @@ tonal chains. The report may genuinely not carry this information for dense
 material. A planner that recovers it would be demonstrating something real rather
 than pattern-matching.
 
+### The codec detector is unstable near its own threshold
+
+Running the demo surfaced this. The vocal source and the processed output have
+near-identical spectra above 5 kHz — within about 4 dB at every band, both
+rolling off steeply and both with essentially nothing above 12 kHz — yet the
+detector reports no wall on the source and a wall at 21.2 kHz on the output,
+at **confidence 0.9**.
+
+Both readings are individually defensible. The pair is not: a 0.9 confidence on
+a case that flips from a few dB of change means the confidence is describing the
+steepness of the cliff and not the certainty of the detection.
+
+Nothing downstream currently acts on it — the verify gate's bandwidth check
+passed, and it compares against the source rather than reading this field. But
+the planner is instructed to skip air-band moves when this fires above 0.4
+confidence, so a spurious high-confidence wall would silently forbid a legitimate
+move.
+
+Not urgent, and not worth a hasty threshold change. What it wants is a confidence
+that accounts for how close the measurement sits to the decision boundary.
+
 ### The reference corpus has two gaps
 
 Six stems covering mono, dual-mono, real stereo, 44.1/48/192 kHz, and a dark bass
