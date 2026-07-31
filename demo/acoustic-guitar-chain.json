@@ -1,0 +1,86 @@
+{
+  "engine_version": "0.1.0",
+  "internal_sample_rate": 96000,
+  "seed": 20260731,
+  "output": { "sample_rate": 0, "format": "pcm24" },
+
+  "_why": [
+    "Written from the measured spectrum of acoustic-guitar-track.wav, not from",
+    "a genre convention. Every move below names the number that motivated it.",
+    "",
+    "Measured: true peak +0.52 dBTP (already clipping on conversion), PLR",
+    "25.4 dB (very dynamic, unprocessed), HF rolloff -3.9 dB/oct (bright, not",
+    "dark), and a broad +7 to +9 dB hump across 200-315 Hz relative to the",
+    "500 Hz - 4 kHz average, peaking at 250 Hz.",
+    "",
+    "Two things the vocal chain got wrong here, both visible in that data:",
+    "the 90 Hz high-pass cuts into the 80 Hz band, which sits +3.5 dB and",
+    "holds the low E fundamental at 82 Hz; and the +2.5 dB air shelf pushes a",
+    "source whose top end is already gently sloped rather than dark."
+  ],
+
+  "nodes": [
+    {
+      "id": "rumble",
+      "type": "parametric_eq",
+      "params": {
+        "bands": [
+          { "filter_type": "highpass", "center_freq_hz": 50,
+            "gain_db": 0, "q_factor": 0.707 }
+        ]
+      }
+    },
+    {
+      "id": "body",
+      "type": "parametric_eq",
+      "params": {
+        "bands": [
+          { "filter_type": "bell", "center_freq_hz": 250,
+            "gain_db": -4.0, "q_factor": 0.9 },
+          { "filter_type": "bell", "center_freq_hz": 125,
+            "gain_db": -1.5, "q_factor": 1.2 }
+        ]
+      }
+    },
+    {
+      "id": "level",
+      "type": "compressor",
+      "params": {
+        "threshold_dbfs": -22.0,
+        "ratio_to_1": 2.2,
+        "knee_db": 10.0,
+        "attack_ms": 30.0,
+        "release_ms": 180.0,
+        "makeup_gain_db": 3.0
+      }
+    },
+    {
+      "id": "space",
+      "type": "plate_reverb",
+      "mix": 0.1,
+      "params": {
+        "decay_s": 1.2,
+        "pre_delay_ms": 30.0,
+        "damping_hz": 5500.0,
+        "bandwidth_hz": 11000.0
+      }
+    }
+  ],
+
+  "master": [
+    {
+      "id": "ceiling",
+      "type": "true_peak_limiter",
+      "params": {
+        "ceiling_dbtp": -1.0,
+        "lookahead_ms": 5.0,
+        "release_ms": 90.0
+      }
+    },
+    {
+      "id": "word_length",
+      "type": "dither",
+      "params": { "bit_depth": 24, "amount_lsb": 2.0 }
+    }
+  ]
+}

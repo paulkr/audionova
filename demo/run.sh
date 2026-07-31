@@ -38,9 +38,14 @@ if [ ! -x engine/build/anv_render ]; then
   make -C engine --no-print-directory render
 fi
 
+# Named after the CHAIN as well as the source, so rendering the same file
+# through two chains leaves two files to compare rather than one that
+# overwrote the other. Comparing two chains is the whole reason to have more
+# than one.
 BASE="$(basename "${INPUT%.*}")"
-OUT="demo/out/${BASE}-processed.wav"
-MATCHED="demo/out/${BASE}-matched.wav"
+CHAIN="$(basename "${RECIPE%.*}")"
+OUT="demo/out/${BASE}--${CHAIN}.wav"
+MATCHED="demo/out/${BASE}--${CHAIN}-matched.wav"
 mkdir -p demo/out
 
 printf '\n\033[1mrendering\033[0m %s\n  chain: %s\n\n' "$INPUT" "$RECIPE"
