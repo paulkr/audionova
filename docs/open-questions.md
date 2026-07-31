@@ -74,15 +74,19 @@ threshold was chosen because libm ULP differences and SIMD summation order make
 bit-exactness across x86/ARM a losing fight — but that reasoning has never been
 checked against an actual second architecture.
 
-Resolving it needs CI on both, which does not exist.
+The CI matrix now targets both, so this resolves the first time the workflow
+runs somewhere with a runner. What it will show is unknown: −140 dB may turn out
+to be too tight, too generous, or right.
 
-### There is no CI
+### CI has never actually run on a second machine
 
-Every suite is run by hand. The plan calls for a licence-drift gate, an
-undeclared-vendoring check, an SBOM, and a prompt-cache canary — none exist. The
-licence-drift check is the one with teeth: it is exactly the JUCE-went-AGPL
-scenario, where an upstream relicence should become a red build rather than a
-legal incident found at diligence.
+`ci/run.sh` exists and passes locally in about three minutes, and the workflow
+targets both x86-64 and arm64. But it has only ever executed on one machine, so
+the cross-architecture question below remains open until it runs somewhere else.
+
+Still missing from the gates: an SBOM, and the prompt-cache canary asserting
+`cache_read_input_tokens > 15000`, which cannot be written until there is a key
+to run it against.
 
 ---
 
@@ -186,12 +190,6 @@ Flagged because it has already been mistaken for a bug twice.
 
 ## Product and legal
 
-### The homepage promises something v1 does not do
-
-`app/page.tsx:57` says the product "separates, restores and remasters". **v1 does
-not do source separation** — it takes single tracks and stems. The plan flags
-fixing this in week 1 and it has not been fixed.
-
 ### The hero's desktop layout was never verified
 
 Chrome would not resize past 500 px via automation and `window.resizeTo` is
@@ -222,4 +220,5 @@ Kept so the reasoning is not re-litigated.
 | "The report cannot localise mid-band EQ" | Wrong. The analysis was dropping band lists; the bell is recovered at +0.98 dB per dB, r = 1.00. |
 | Bisect the compressor ratio on loudness range? | No. LRA is not monotonic in ratio on real material — it rises under heavy compression, because pumping is variance. Gain reduction at the loud percentile is monotonic and is the control variable instead. |
 | Derive attack and release from the modulation-spectrum corner? | No. Compression adds modulation at those rates rather than removing it, so there is no corner. Timing comes from the source's own rate. |
+| The homepage promised source separation | Fixed. `app/page.tsx` said "separates, restores and remasters"; v1 does none of the separation. Found by the CI structural gate on its first run, which is what that gate is for. |
 | Should we source evaluation audio from YouTube? | No. Infringement, and it would undo the licensing posture at the point where every quality claim rests. See `licensing.md`. |

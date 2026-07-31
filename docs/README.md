@@ -73,14 +73,25 @@ Not built:
 - **Presets.** Zero authored. The plan budgets 4–6 person-weeks for twelve and
   notes this is not an engineering task.
 - **The platform.** No API, no queue, no storage, no auth.
+- **CI on a second machine.** The pipeline and its matrix exist; nothing has run
+  anywhere but here, so the cross-architecture claim is still untested.
 
 ## Running things
 
 ```sh
-cd engine  && make check          # contract tests, I/O tests, sanitizers
-cd backend && make test           # loudness, measurement, bridge, sensitivity, recovery
+make ci        # everything CI runs: gates, engine, sanitizers, backend (~3 min)
+make quick     # the same without the sanitizer build (~2.5 min)
 
-# Analyses that need real audio (not in git — see licensing.md)
+make engine    # engine only
+make backend   # backend only
+```
+
+`ci/run.sh` is the single definition of the pipeline — the GitHub workflow calls
+it and nothing else, so "passes locally" and "passes in CI" cannot diverge.
+
+Analyses that need real audio, which is gitignored (see `licensing.md`):
+
+```sh
 cd backend && make sweep   STEMS="../audio/stems/*.wav"
 cd backend && make recover STEMS="../audio/stems/*.wav"
 ```

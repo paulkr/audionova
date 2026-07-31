@@ -54,7 +54,7 @@ export default function Home() {
           className="rise mt-6 max-w-[46ch] text-[18px] font-light leading-[1.22] text-white/60"
           style={{ animationDelay: "0.25s" }}
         >
-          Drop a file. Audionova separates, restores and remasters it in a
+          Drop a track. Say how you want it to sound. Audionova shapes it in a
           single pass.
         </p>
 

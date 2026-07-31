@@ -1,0 +1,60 @@
+# CI runs `ci/run.sh` and nothing else.
+#
+# Every stage lives in that script rather than in this file, so "it passes
+# locally" and "it passes in CI" cannot diverge. A workflow that reimplements
+# the steps is a second definition of correct, and the two drift the first time
+# somebody fixes one of them.
+#
+# Same reasoning that keeps the Python side shelling out to the engine binary
+# that ships rather than binding it in-process.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # BOTH ARCHITECTURES, DELIBERATELY. The engine's contract is bit-exact
+        # within (engine_version, arch) and -140 dBFS across them, and that
+        # threshold was chosen because libm ULP differences and SIMD summation
+        # order make bit-exactness across x86 and ARM a losing fight.
+        #
+        # Everything has only ever run on one machine, so that reasoning has
+        # never actually been tested. Running both is the only way to find out
+        # whether -140 dB is right, too tight, or too generous.
+        include:
+          - os: ubuntu-latest     # x86-64
+          - os: macos-latest      # arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create the virtual environment
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --quiet --upgrade pip
+          .venv/bin/pip install --quiet -r backend/requirements.txt
+
+      - name: Run the pipeline
+        run: ci/run.sh
+
+      # The stems are gitignored — their licence status is the user's to decide,
+      # not something a commit should assume. Suites needing them skip cleanly,
+      # and say so rather than reporting a smaller check count silently.
+      - name: Note which suites ran without real audio
+        if: always()
+        run: |
+          echo "audio/stems is gitignored; stem-dependent assertions skip in CI."
+          echo "Run ci/run.sh locally with stems present for full coverage."
