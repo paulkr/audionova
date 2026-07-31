@@ -27,6 +27,14 @@ and none can substitute for it.
 
 Needs: real guitar DI audio, three engineers, and at least one authored preset.
 
+**Partial, informal progress, 31 July 2026.** One listener, one file, not blind,
+preferred a measurement-derived chain over a generic one on acoustic guitar — and
+separately judged the vocal chain good on the vocal stem. That is the first
+human judgement of any output here and it moves the prior, but it shares none of
+the properties that make the Phase 0 gate meaningful: it is not blind, not
+against the listener's own work, and both chains were written by the same hand
+that predicted the outcome. See `findings.md`.
+
 ### Zero presets authored
 
 The plan budgets **4–6 person-weeks for twelve** and states plainly that preset

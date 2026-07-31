@@ -336,6 +336,49 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## The first listening evidence
+
+**31 July 2026.** The first human judgement of any output this project has
+produced, and the first evidence of any kind that the central thesis works.
+
+Two chains were rendered on the same acoustic guitar stem, loudness-matched:
+a generic vocal chain, and one written from that file's measured spectrum.
+The listener preferred the measured chain.
+
+That thesis — *hand the model numbers rather than audio, and it makes better
+decisions* — is what the entire architecture rests on. It came from three
+published results about embeddings underperforming measured features, and until
+now nothing in this repository had tested it on a person.
+
+The two chains differed in ways the measurements predicted:
+
+| | 80 Hz | 250 Hz | crest | PLR |
+|---|---|---|---|---|
+| source | +3.5 | **+9.2** | 24.6 | 25.4 |
+| vocal chain | **+0.8** | +7.7 | 22.1 | 22.5 |
+| measured chain | **+2.6** | **+5.4** | 24.0 | 24.6 |
+
+The vocal chain's 90 Hz high-pass removed most of the guitar's bottom octave,
+because it was set for a voice with nothing at 80 Hz. It also under-treated the
++9.2 dB body resonance at 250 Hz that the measured chain took twice as much out
+of, and boosted air on a source already sloping at only −3.9 dB/octave.
+
+### What this does not establish
+
+The evidence is real and it is the weakest usable form of it:
+
+- **One file, one listener, not blind.** The listener knew which was which.
+- **I authored both chains**, knowing which was meant to win. A generic chain
+  chosen to lose is not a fair opponent, and while the vocal chain was written
+  in good faith before the guitar was measured, that is not the same as being
+  independent.
+- **Neither chain came from a model.** This tests whether measurements support
+  good decisions, not whether a planner can make them.
+
+It moves the prior. It does not substitute for the Phase 0 gate — three working
+engineers, ten guitar DIs, blind, against *their own* chains — which remains the
+only test that decides whether this is worth paying for.
+
 ## Findings from dynamics matching
 
 Two of the plan's specified methods did not survive measurement. Both are
