@@ -54,6 +54,8 @@ Built and verified:
 - **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
   Recovers a known filter applied by the engine to within 0.2 dB and the right
   band count. 68 checks.
+- **Dynamics matching** — compressor settings found by rendering. Converges
+  within 0.3 dB of a gain-reduction target. 49 checks.
 - **Post-render verify gate** — re-measures the render and refuses to ship
   corruption, ceiling overshoot, mono incompatibility, an introduced resonance,
   a level collapse or destroyed bandwidth. 36 checks.
@@ -64,7 +66,7 @@ Not built:
   against a scripted client — contract, validators, prompt assembly with a
   verified cache boundary, two-stage driver, repair loop, quantifier ladder,
   glossary (see `planner.md`). Nothing here has ever made a live model call.
-- **CLASSIFY**, and the dynamics half of **REFINE**.
+- **CLASSIFY**.
 - **The Phase 0 listening gate.** Three engineers, ten guitar DIs, prefer-or-tie
   in at least 6 of 10. This is the plan's explicit stop-or-go point and has not
   been attempted.

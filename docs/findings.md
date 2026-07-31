@@ -336,6 +336,70 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## Findings from dynamics matching
+
+Two of the plan's specified methods did not survive measurement. Both are
+recorded here rather than quietly replaced, because the replacements look
+arbitrary without them.
+
+### Loudness range is not monotonic in ratio, so bisection on it cannot work
+
+The plan specified finding the compressor ratio "by bisection on rendered LRA".
+Bisection requires a monotonic response. Measured on the reference stems:
+
+| | LRA against ratio 1 → 20 |
+|---|---|
+| vocals | 2.95 → **0.79 at ratio 4–6** → back up to 1.04 |
+| stereo-guitar | 0.84 → **1.15**, rising throughout |
+| bass | 1.20 → 0.47, monotonic |
+
+Two of three would fail to converge or converge on the wrong side. The cause is
+real: past a certain ratio the gain reduction *is* a modulation. Pumping is
+variance, and variance is what loudness range measures. On already-flat material
+— the guitar sits at 7.2 dB crest — that is the only thing compression can do
+to it.
+
+**Gain reduction at the loud percentile is monotonic on all three**, with no
+violations anywhere in the sweep, because it follows the static curve. It is also
+what an engineer already thinks in.
+
+This only shows up on real material. On synthetic pink noise with a clean
+envelope, loudness range falls monotonically and bisecting on it works fine — the
+third time synthetic material has been more flattering than real audio. The
+assertion accordingly lives in the real-stem test.
+
+### The envelope modulation spectrum does not yield time constants
+
+The plan specified deriving attack and release from the frequency where the
+source's and reference's modulation spectra diverge by 3 dB. The reasoning is
+sound — a compressor low-passes the amplitude envelope — and the measurement
+rejects it.
+
+On a source with envelope energy spread across 0.3 to 25 Hz, at 8:1:
+
+| compressor | 4 Hz | 30 Hz |
+|---|---|---|
+| 1 ms / 30 ms | −0.2 dB | +1.0 dB |
+| 15 ms / 150 ms | **+3.8 dB** | +3.2 dB |
+| 80 ms / 800 ms | +2.3 dB | +1.3 dB |
+
+Compression **adds** modulation at exactly the rates the method reads, because
+the gain movement is itself a modulation — the same mechanism behind the loudness
+range result above. There is no 3 dB corner to find, and the first implementation
+duly returned 582 ms for the fast compressor and 43 ms for the slow one: a time
+constant read out of noise, inverted.
+
+Replaced with a derivation from the **source's own** modulation rate, which is
+measurable and is the more useful quantity anyway — a compressor should move at
+the speed of the material.
+
+### Stem-dependent tests were silently skipping under `make`
+
+The stems path was relative to the working directory, and `make test` runs from
+`backend/`. Every test needing real audio skipped without saying so — including
+the loudness-range measurement that decided the design. Resolved against the
+repository root. A test that quietly does not run is worse than one that fails.
+
 ## Findings from the verify gate
 
 ### Widening decorrelated material is genuinely mono-incompatible

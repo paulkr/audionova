@@ -440,6 +440,49 @@ evaluates it thousands of times so it must be arithmetic — but a response that
 drifted from the engine would produce a beautiful fit to the wrong target, and
 nothing inside the fit could detect it.
 
+## Refine: dynamics matching
+
+`backend/refine/match_dynamics.py`. A closed loop against the actual renderer,
+because a compressor's effect on any statistic depends on the material's own
+distribution, on the timing interacting with its envelope, and on the knee. There
+is no closed-form inversion.
+
+Order: **threshold, timing, ratio, makeup.** Threshold and timing are derived
+directly and cost nothing. Only the ratio needs the loop. Makeup is computed once
+at the end — inside the loop it would change the level the next iteration
+measures, and the loop would chase its own tail.
+
+### The control variable is gain reduction, not loudness range
+
+A correction to the plan, forced by measurement. Loudness range is not monotonic
+in ratio on real material — it falls then rises on vocals, and rises throughout on
+an already-compressed guitar — so bisection on it cannot converge. Gain reduction
+at the loud percentile is monotonic on every stem, because it follows the static
+curve. See `findings.md` for the numbers.
+
+### Timing comes from the source, not from a reference
+
+The plan's method — the 3 dB corner between the source's and reference's
+modulation spectra — does not exist to be found. Compression *adds* modulation
+energy at those rates rather than removing it. Time constants are derived from the
+source's own modulation rate instead: a compressor should move at the speed of
+the material.
+
+### An unreachable target is reported, not silently maxed out
+
+The achievable reduction is measured first, in one render. "This material is
+already too flat for what you asked" is the useful answer; quietly returning 20:1
+would hide it, and the user would hear no change and conclude the tool does not
+work.
+
+### Measured
+
+Converges within 0.3 dB of a 2, 4 or 6 dB target inside the render budget, on
+synthetic material and on the vocals and bass stems. Matching a compressed
+reference recovers its reduction within 0.4 dB. A reference that is merely
+*louder* asks for no compression at all — a level difference is not a dynamics
+difference.
+
 ## Verify: the post-render safety gate
 
 `backend/verify/gate.py`. The last thing that runs, and **the only check that
@@ -502,10 +545,7 @@ run. A gate that only works when fully informed is not a safety net.
   be verified offline: that `cache_read_input_tokens` exceeds 15000 on a repeated
   request, and that structured output actually honours the schema's enums.
 - **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
-- **Dynamics matching** — the other half of REFINE. A closed loop against the
-  actual renderer rather than a closed-form inversion: threshold from the RMS
-  percentile at a chosen duty cycle, ratio by bisection on rendered loudness
-  range, attack and release from where the envelope modulation spectra diverge.
+- **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
 - The **preset knowledge base** and the artist-alias routing table. The glossary
   routes `vintage` and `lofi` to it; it does not exist.
 - The **twenty missing glossary terms**, which are the genre- and
