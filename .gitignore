@@ -15,3 +15,7 @@ __pycache__/
 # Source audio. Kept out of git deliberately: large, and its licence status
 # is the user's to decide rather than something a commit should assume.
 audio/stems/
+
+# Demo renders. Derived from the user's own audio, so same reasoning as the
+# stems: not ours to commit.
+demo/out/

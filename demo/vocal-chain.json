@@ -1,0 +1,71 @@
+{
+  "engine_version": "0.1.0",
+  "internal_sample_rate": 96000,
+  "seed": 20260731,
+  "output": { "sample_rate": 0, "format": "pcm24" },
+
+  "nodes": [
+    {
+      "id": "cleanup",
+      "type": "parametric_eq",
+      "params": {
+        "bands": [
+          { "filter_type": "highpass", "center_freq_hz": 90,
+            "gain_db": 0, "q_factor": 0.707 },
+          { "filter_type": "bell", "center_freq_hz": 320,
+            "gain_db": -2.5, "q_factor": 1.1 }
+        ]
+      }
+    },
+    {
+      "id": "level",
+      "type": "compressor",
+      "params": {
+        "threshold_dbfs": -24.0,
+        "ratio_to_1": 2.8,
+        "knee_db": 8.0,
+        "attack_ms": 12.0,
+        "release_ms": 140.0,
+        "makeup_gain_db": 3.0
+      }
+    },
+    {
+      "id": "air",
+      "type": "parametric_eq",
+      "params": {
+        "bands": [
+          { "filter_type": "highshelf", "center_freq_hz": 7000,
+            "gain_db": 2.5, "q_factor": 0.707 }
+        ]
+      }
+    },
+    {
+      "id": "space",
+      "type": "plate_reverb",
+      "mix": 0.14,
+      "params": {
+        "decay_s": 1.5,
+        "pre_delay_ms": 22.0,
+        "damping_hz": 6500.0,
+        "bandwidth_hz": 12000.0
+      }
+    }
+  ],
+
+  "master": [
+    {
+      "id": "ceiling",
+      "type": "true_peak_limiter",
+      "params": {
+        "ceiling_dbtp": -1.0,
+        "lookahead_ms": 5.0,
+        "release_ms": 90.0
+      }
+    },
+    {
+      "id": "word_length",
+      "type": "dither",
+      "params": { "bit_depth": 24, "amount_lsb": 2.0 }
+    }
+  ]
+}

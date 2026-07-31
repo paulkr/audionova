@@ -2,7 +2,7 @@
 # backend/Makefile and ci/run.sh; this exists so `make` from the repository root
 # does the obvious thing.
 
-.PHONY: ci quick engine backend clean
+.PHONY: ci quick engine backend demo clean
 
 # Everything CI runs, in the same script CI runs.
 ci:
@@ -11,6 +11,12 @@ ci:
 # Skips the sanitizer build, which dominates the wall clock at 40s of a 3m run.
 quick:
 	@ci/run.sh quick
+
+# Hear it. Renders a file through a hand-written chain and writes a
+# loudness-matched copy for a fair A/B.
+#   make demo IN=audio/stems/vocals.wav
+demo:
+	@demo/run.sh $(IN)
 
 engine:
 	@$(MAKE) -C engine check
