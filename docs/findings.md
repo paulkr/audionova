@@ -336,6 +336,55 @@ because each one cost time chasing a phantom bug.
 
 ---
 
+## Findings from the rule-based planner
+
+### A −5 dB cut at 100 Hz on a bass guitar
+
+The worst output this project has produced, and it came from a rule that reads
+sensibly. Scoring each band against the distant 500 Hz to 4 kHz average, the
+resonance rule proposed cutting 100 Hz by 5 dB on a bass — because 100 Hz sits
+**+41 dB** above the midrange there.
+
+It does. That is what a bass is.
+
+A resonance is **locally** peaked, prominent against the bands either side of it.
+A broad elevation is the instrument's range. The glossary already said this under
+*boxy* — "look for a peak rather than a broad lift, because a broad lift there is
+body, not box" — and the rule was written without consulting it.
+
+### The move that won the listening test cannot be derived from measurement alone
+
+The fixed rule cannot reproduce the change that made the guitar sound better, and
+that is the honest outcome rather than a reason to loosen it.
+
+The 4 dB I took out of the acoustic guitar's 250 Hz by hand is a **broad
+plateau** — only +2.5 dB above its neighbours at its peakiest. It was a tonal
+balance decision, not a resonance fix. The measurement told me *where*; knowing
+what an acoustic guitar should sound like told me *whether*.
+
+That second half is instrument knowledge. The rule-based planner has none, which
+is exactly what CLASSIFY and the preset knowledge base are for — and a concrete
+reason to expect a model with world knowledge to beat this floor rather than
+merely match it.
+
+It also qualifies the listening result: measurements **supported** the decision
+but did not **contain** it.
+
+### Two test sources that could not test what they claimed
+
+A synthetic generator took a `tilt` parameter feeding a shaping exponent
+directly. `tilt=-8` produced a measured rolloff of −2.5 dB/octave, nowhere near
+the −12 the planner needs before it will consider brightening — so the test that
+depended on it passed for the wrong reason and could not have failed.
+
+Reparameterising it to specify the slope directly then hit a second wall: past
+about −17 dB/octave the top bands fall to numerical zero and the measured fit
+floors out, so the generator returned −16.8 whatever was asked for. Chasing that
+would have been testing the noise generator.
+
+The gating tests now set the report fields directly. What is under test is the
+decision, and the measurement layer that produces those fields has its own suite.
+
 ## The first listening evidence
 
 **31 July 2026.** The first human judgement of any output this project has

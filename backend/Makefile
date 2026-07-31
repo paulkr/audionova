@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema planner refine dynamics verify sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify sweep recover
 
-test: loudness measure bridge sensitivity recovery schema planner refine dynamics verify
+test: loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -51,6 +51,11 @@ planner:
 
 # Match-EQ. Recovers a known filter applied by the real engine, and checks the
 # analytic response the optimiser fits against agrees with what the engine renders.
+# The deterministic planner. Mostly tests refusals: any set of rules can find
+# something to do to every file, and the hard part is leaving a bass alone.
+rules:
+	@$(PY) tests/test_rules.py
+
 refine:
 	@$(PY) tests/test_refine.py
 

@@ -54,6 +54,9 @@ Built and verified:
 - **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
   Recovers a known filter applied by the engine to within 0.2 dB and the right
   band count. 68 checks.
+- **Rule-based planner** — a measurement report in, a validated chain out, with
+  every move naming the number that justified it. The floor the model planner
+  has to beat. 69 checks.
 - **Dynamics matching** — compressor settings found by rendering. Converges
   within 0.3 dB of a gain-reduction target. 49 checks.
 - **Post-render verify gate** — re-measures the render and refuses to ship

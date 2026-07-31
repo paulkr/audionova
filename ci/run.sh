@@ -60,7 +60,7 @@ if [ "$MODE" != "quick" ]; then
 fi
 
 # --- backend -----------------------------------------------------------------
-for suite in loudness measure schema planner; do
+for suite in loudness measure schema planner rules; do
   run "backend: $suite"   make -C backend --no-print-directory "$suite"
 done
 
