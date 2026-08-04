@@ -260,7 +260,8 @@ def plan_project(project_id: str, body: PlanRequest) -> dict[str, Any]:
                                      f"graph: {outcome.fatal}")
         graph = outcome.graph
         notes = {"attempts": outcome.attempts, "repairs": outcome.repairs,
-                 "reasoning": outcome.reasoning}
+                 "reasoning": outcome.reasoning,
+                 "stage_seconds": outcome.stage_seconds}
 
     graph_id = _store_graph(project, graph, body.request or "initial plan", None)
     return {"graph_id": graph_id, "elapsed_s": round(time.time() - started, 1),

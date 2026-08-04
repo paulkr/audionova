@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -98,6 +99,14 @@ class PlanOutcome:
     fatal: list[str] = field(default_factory=list)
     used_fallback: bool = False
 
+    # Seconds per stage. Recorded because the first end-to-end measurement was
+    # 128.7 s against a 45 s p50 target, and "the planner is slow" is not
+    # actionable — the two stages have different models, different prompts and
+    # very different jobs, and only one of them is doing reasoning worth paying
+    # for. `emit` accumulates across retries, so a repair loop shows up here as
+    # a large emit rather than hiding inside the total.
+    stage_seconds: dict[str, float] = field(default_factory=dict)
+
     @property
     def ok(self) -> bool:
         return self.graph is not None and not self.fatal
@@ -150,9 +159,12 @@ def plan(
         report=report, request=request,
         classification=classification, presets=presets,
     )
+    started = time.monotonic()
     reasoning = client.complete(stage1.system, stage1.messages)
+    plan_seconds = time.monotonic() - started
 
     outcome = PlanOutcome(graph=None, reasoning=reasoning)
+    outcome.stage_seconds = {"plan": round(plan_seconds, 2), "emit": 0.0}
 
     # --- stage 2: constrained emission, with a bounded repair loop ---------
     emit = prompts.emit_prompt(report=report, request=request, reasoning=reasoning)
@@ -168,7 +180,10 @@ def plan(
             emit = prompts.repair_prompt(
                 previous=emit, graph_json=raw, findings=findings)
 
+        started = time.monotonic()
         raw = client.complete_structured(emit.system, emit.messages, schema)
+        outcome.stage_seconds["emit"] = round(
+            outcome.stage_seconds["emit"] + time.monotonic() - started, 2)
 
         try:
             graph = EffectGraph.model_validate(extract_json(raw))

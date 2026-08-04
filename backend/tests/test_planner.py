@@ -364,7 +364,12 @@ def test_cache_boundary() -> None:
     # And the prefix must be close to the size the cache design assumes. Well
     # under and the DSP reference has silently stopped being included; well over
     # and the volatile half is no longer the cheap part.
-    R.check(14000 < tokens < 26000,
+    # The bracket is around the LIVE API's own count, 30,938 cached tokens, not
+    # around a character-count guess. It used to be 14k-26k, from back when the
+    # estimator assumed 4 characters per token; the constant was later corrected
+    # to 2.4 against that measurement and this bound was not moved with it, so
+    # the test failed on a prefix that was in fact exactly the right size.
+    R.check(26000 < tokens < 36000,
             f"the prefix is the expected size, roughly {tokens} tokens")
 
     # The user's own words go last, where instructions carry most weight.
