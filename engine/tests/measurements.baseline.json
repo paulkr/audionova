@@ -4908,7 +4908,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -123.7322517
+          "value": -124.2799961
         },
         "asr_inband_db": {
           "applicable": true,
@@ -4917,19 +4917,19 @@
           "pass": true,
           "threshold": -100,
           "unit": "dB",
-          "value": -123.7322517
+          "value": -124.2799962
         },
         "asr_noise_floor_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -231.1234779
+          "value": -235.6885858
         },
         "asr_nonperiodic_residual_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -125.5536012
+          "value": -127.1509087
         },
         "asr_settle_frames": {
           "applicable": true,
@@ -4941,7 +4941,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -123.7322517
+          "value": -124.2799961
         },
         "asr_worst_f0_hz": {
           "applicable": true,
@@ -5013,7 +5013,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -1
+          "value": -1.041925956
         },
         "gain_transfer_-06_dbfs": {
           "applicable": true,
@@ -5067,7 +5067,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -19.2724017
+          "value": -18.93585755
         },
         "homogeneity_worst_level_dbfs": {
           "applicable": true,
@@ -5079,49 +5079,49 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -266.738185
+          "value": -266.7420125
         },
         "imd_d2_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 4.60352758e-12
+          "value": 4.601499464e-12
         },
         "imd_d3_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -155.7314076
+          "value": -167.8578761
         },
         "superposition_error_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -18.27267026
+          "value": -17.89420016
         },
         "thd_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -165.8671968
+          "value": -169.7292893
         },
         "thd_fundamental_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -0.999990983
+          "value": -1.041917344
         },
         "thd_n_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -124.4476643
+          "value": -124.9479837
         },
         "thd_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 5.089090321e-07
+          "value": 3.26238743e-07
         },
         "thd_settle_frames": {
           "applicable": true,
@@ -5139,34 +5139,34 @@
           "applicable": true,
           "exactly_zero": false,
           "lower_is_better": true,
-          "pass": false,
+          "pass": true,
           "threshold": -0.99,
           "unit": "dBTP",
-          "value": -0.9789159158
+          "value": -1.020848043
         },
         "tp_engine_meter_dbtp": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": -0.9999919462
+          "value": -1.041918818
         },
         "tp_meter_delta_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -0.02107603042
+          "value": -0.02107077465
         },
         "tp_reference_dbtp": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": -0.9789159158
+          "value": -1.020848043
         },
         "tp_sample_peak_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -2.740851942
+          "value": -2.782779263
         }
       },
       "node_type": "true_peak_limiter",
@@ -6001,8 +6001,8 @@
       "params": "soft clip, +12 dB drive, 16x"
     }
   ],
-  "generated_at_utc": "2026-08-04T08:21:52Z",
-  "git_commit": "274e6b7",
+  "generated_at_utc": "2026-08-04T10:13:04Z",
+  "git_commit": "85b1ad9",
   "node_types_in_catalog": 22,
   "sample_rate_hz": 96000,
   "schema_version": 1,

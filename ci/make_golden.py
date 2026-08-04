@@ -125,6 +125,19 @@ def build_recipe() -> dict:
                         "modulation_depth": 0.6}},
             {"id": "width", "type": "stereo_width", "mix": 1.0, "bypass": False,
              "params": {"width_percent": 140.0, "bass_mono_below_hz": 150.0}},
+            # DRIVES THE MASTER CHAIN INTO GAIN REDUCTION, and that is the only
+            # reason it is here. The first version of this golden had 12.7 dB
+            # of headroom at the limiter, so the limiter never engaged and its
+            # entire gain-computer path was outside the determinism test. It
+            # proved that by silently staying bit-exact across a change that
+            # raised the limiter's oversampling from 4x to 16x and moved its
+            # effective ceiling by 0.042 dB.
+            #
+            # A golden that does not reach a node's working range certifies
+            # that node without testing it, which is worse than not covering it
+            # at all — the coverage list says it is covered.
+            {"id": "hot", "type": "gain", "mix": 1.0, "bypass": False,
+             "params": {"gain_db": 16.0}},
         ],
         "master": [
             {"id": "limit", "type": "true_peak_limiter", "mix": 1.0,

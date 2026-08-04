@@ -103,6 +103,15 @@
         "width_percent": 140.0
       },
       "type": "stereo_width"
+    },
+    {
+      "bypass": false,
+      "id": "hot",
+      "mix": 1.0,
+      "params": {
+        "gain_db": 16.0
+      },
+      "type": "gain"
     }
   ],
   "output_format": "float64",

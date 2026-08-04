@@ -26,6 +26,17 @@
 // instantaneous requirement. Together they give a gain that is smooth AND
 // provably never too large.
 //
+// WHAT THE PROOF DOES NOT COVER, AND WHAT IS DONE ABOUT IT. The proof binds
+// the output to `truePeak[n]`, which is what the DETECTOR reported — not to
+// the true peak. The detector searches a grid of `factor` points per sample
+// and so can only ever read LOW, by up to TruePeakUpsampler::gridBoundDb().
+// A limiter that lands exactly on a ceiling using an instrument that reads
+// 0.04 dB low delivers a peak 0.04 dB above what the user asked for, and
+// permissive is the one direction a delivery ceiling may not err in. So the
+// target is lowered by exactly that bound before anything else happens; see
+// rebuild(). The measurement suite caught this as a 0.021 dB overshoot, and
+// an exact DFT-domain reconstruction put the real figure at 0.114 dB.
+//
 // THE AUDIO NEVER PASSES THROUGH THE OVERSAMPLER. Only a copy is interpolated,
 // purely to measure inter-sample peaks; the gain envelope is then applied to
 // the untouched base-rate signal. Running the programme through an 8x SRC
@@ -71,15 +82,27 @@ public:
     lookaheadMs_ = std::clamp(p.num("lookahead_ms", 2.0), 0.05, 200.0);
     releaseMs_ = std::clamp(p.num("release_ms", 100.0), 1.0, 10000.0);
 
-    int f = static_cast<int>(p.num("oversample_factor", 4.0));
-    // 4x is both BS.1770's minimum and, measured, entirely sufficient:
-    // oversampling factor has NO effect on true-peak accuracy (4x, 8x and 16x
-    // give identical error for the same filter length). Filter length is the
-    // knob that matters, so compute goes there instead. See TruePeak.h.
-    factor_ = std::clamp(f, 4, 16);
-    // Optional extra headroom for true-peak estimation error. Zero by default:
-    // the conventional -1.0 dBTP ceiling already carries far more margin than
-    // the measured worst-case estimation error.
+    int f = static_cast<int>(p.num("oversample_factor", 16.0));
+    // 16x FLOOR, NOT 4x. BS.1770 names 4x as its minimum and this node used to
+    // take it, on a measurement that said oversampling factor did not affect
+    // accuracy. That measurement was made on stationary signals and did not
+    // survive being repeated on transients; see the corrected table in
+    // TruePeak.h. The grid a peak search runs on is bounded by
+    // cos(pi/(2*factor)), which is 0.688 dB at 4x — and at the DELIVERY rate,
+    // where this node runs, 20 kHz of programme sits at 0.907 of Nyquist, so
+    // that bound is reachable by ordinary music rather than by a torture
+    // signal. 16x brings it to 0.042 dB for four times the detector cost
+    // (measured: 1.02 s -> 4.07 s per 30 s of stereo at 96 kHz).
+    //
+    // A caller asking for less gets more. Clamping upward is safe in the one
+    // direction this node cares about, and the alternative — honouring a 4
+    // that a language model wrote because it read BS.1770 — is a ceiling that
+    // is quietly half a dB permissive.
+    factor_ = std::clamp(f, 16, 32);
+    // Optional EXTRA headroom on top of the detector's own error bound, which
+    // is already subtracted unconditionally in rebuild(). Zero by default,
+    // because the unconditional term is the one derived from a measurement and
+    // this one is the caller's own risk appetite.
     safetyMarginDb_ = std::max(0.0, p.num("safety_margin_db", 0.0));
 
     if (spec_.numChannels > 0) rebuild();
@@ -140,11 +163,31 @@ private:
     if (ch <= 0) return;
     const double sr = spec_.sampleRate;
 
-    ceilingLin_ = dbToLin(ceilingDbTp_ - safetyMarginDb_);
     alphaRelease_ = timeConstantAlpha(releaseMs_ * 0.001, sr);
 
     upsampler_.design(factor_, 80.0, 0.05);
     upsampler_.prepare(ch);
+
+    // AIM UNDER THE CEILING BY WHAT THE INSTRUMENT CANNOT SEE.
+    //
+    // The proof in the header bounds the output against what the DETECTOR
+    // reported, and that is all it can bound. The detector reads a grid rather
+    // than a continuum, so it under-reports by up to gridBoundDb(); hitting
+    // "-1.000 dBTP" on an instrument that reads low is how a limiter delivers
+    // a peak above the number the user asked for. Subtracting the detector's
+    // own bound turns the guarantee from "the ceiling on our meter" into "the
+    // ceiling", for any signal band-limited to base Nyquist.
+    //
+    // This is unconditional rather than a default the caller can switch off.
+    // Permissive is the one direction a delivery ceiling may not err in, and
+    // the cost of being conservative is 0.042 dB of loudness at the 16x floor
+    // — below the 0.1 dB an engineer can hear on a level match.
+    //
+    // What it does NOT cover is the detector's transition band, which is
+    // unsigned and unbounded and which no margin of a sensible size would
+    // cover; see TruePeak.h term B and docs/open-questions.md.
+    detectorMarginDb_ = upsampler_.gridBoundDb();
+    ceilingLin_ = dbToLin(ceilingDbTp_ - safetyMarginDb_ - detectorMarginDb_);
 
     window_ = std::max(2, static_cast<int>(std::lround(lookaheadMs_ * 0.001 * sr)));
     rmax_.prepare(window_);
@@ -166,7 +209,8 @@ private:
 
   double ceilingDbTp_ = -1.0, lookaheadMs_ = 2.0, releaseMs_ = 100.0;
   double ceilingLin_ = 1.0, alphaRelease_ = 0.0, safetyMarginDb_ = 0.0;
-  int factor_ = 8, window_ = 2, latency_ = 0;
+  double detectorMarginDb_ = 0.0;
+  int factor_ = 16, window_ = 2, latency_ = 0;
   double releaseGain_ = 1.0;
 
   TruePeakUpsampler upsampler_;

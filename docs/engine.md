@@ -471,8 +471,64 @@ avoid.
 These two are rejected in `nodes[]` — see `architecture.md` for why.
 
 **`true_peak_limiter`** — `ceiling_dbtp` (≤ 0, default −1), `lookahead_ms`
-(0.05…200), `release_ms` (1…10000), `oversample_factor` (default 4),
-`safety_margin_db` (≥ 0).
+(0.05…200), `release_ms` (1…10000), `oversample_factor` (16…32, default 16),
+`safety_margin_db` (≥ 0, extra headroom on top of the automatic margin below).
+
+Zero overshoot is a proof, not a hope: a running **minimum** of the required
+gain over the lookahead window, then a **Hann-weighted average** of that
+minimum. Non-negative weights summing to one mean the smoothed gain can never
+exceed the minimum requirement anywhere in the window, so the delayed sample it
+is applied to cannot exceed the ceiling. Both halves are load-bearing — the
+minimum alone steps discontinuously, the smoothing alone sits above the
+instantaneous requirement.
+
+**The proof binds the output to what the DETECTOR read, and the detector reads
+low.** Its error has two terms and they behave completely differently.
+
+*Term A, the peak-search grid.* The detector evaluates the reconstruction at
+only `oversample_factor` points per sample and returns the largest, so it
+returns a grid maximum and never a continuous one — always an under-estimate,
+always the unsafe direction. For any signal band-limited to Nyquist the
+shortfall is at most `cos(π / (2·factor))`, attained by a tone at Nyquist. That
+is a theorem about band-limited signals rather than a corpus statistic: **0.688
+dB at 4×, 0.168 at 8×, 0.042 at 16×, 0.010 at 32×.**
+
+This node used to run at 4× on a measurement that said oversampling factor did
+not affect accuracy. It was measured on stationary tones and steady noise,
+where hundreds of cycles pass under the estimator and some crest lands near a
+grid point whatever the grid is; on an isolated transient — the thing a limiter
+exists to catch — the full bound is realised. A lone band-limited impulse
+placed ⅛ of a sample off the grid reads 0.156 dB low at 4× and 0.000 dB low at
+16×. It matters most at the delivery rate, which is where this node runs: at
+44.1 kHz, 20 kHz of programme sits at 0.907 of Nyquist, so 4× can under-read
+ordinary music by 0.56 dB.
+
+The factor floor is therefore **16, not BS.1770's 4**, and the limiter
+**subtracts the detector's own bound from the ceiling unconditionally** — 0.042
+dB at 16×. A caller asking for less oversampling gets more; clamping upward is
+safe in the only direction this node cares about. Cost is 4× the detector,
+measured at 1.02 s → 4.07 s per 30 s of stereo at 96 kHz.
+
+*Term B, the transition band.* The interpolator's transition straddles base
+Nyquist, so its passband ends at 0.475 of the base rate and content above that
+is attenuated. Unlike term A this one is **not signed** — it moves the peak by
+whatever the discarded content happened to contribute there — and no theorem
+bounds it. For anything band-limited to half the base Nyquist it is under 0.001
+dB, including hard-clipped material; for content running all the way to Nyquist
+it reaches 0.47 dB and costs 39× the runtime to halve. It is the same
+fundamental limit `backend/measure/loudness.py` records for the Python meter.
+See `open-questions.md`; the engine's resampler has already band-limited the
+signal to 20 kHz before the limiter sees it at the delivery rate.
+
+Measured against an exact DFT-domain reconstruction, the limiter now delivers
+−1.041 dBTP on band-limited programme at a −1.0 ceiling (was −0.996,
+permissive) and −0.928 dBTP on full-scale synthetic content with energy at
+Nyquist (was −0.886). The second is term B and is stated rather than fixed.
+
+**The audio never passes through the oversampler.** Only a copy is interpolated,
+to measure inter-sample peaks; the gain envelope is applied to the untouched
+base-rate signal. Running the programme through an 8× SRC round trip would
+impose the resampler's ripple and phase response on every render for no benefit.
 
 **`dither`** — TPDF at 2 LSB peak-to-peak, optional first-order noise shaping,
 bit-exact pass-through on float. `bit_depth` (0…32; 0 or ≥32 means no reduction),

@@ -1780,9 +1780,18 @@ void testDynamicEq() {
 //     against an analytic ground truth before being trusted (see the sine
 //     check in testTruePeakLimiter). Accuracy matters more than code-path
 //     independence for a measurement whose error is systematic.
+//
+//     IT MUST BE OVER-SPECIFIED ON BOTH AXES, NOT ONE. This reference used to
+//     be design(8, 100.0, 0.010): 30x the limiter's filter length, but the
+//     SAME 8x peak-search grid the limiter then used. A grid is bounded by
+//     cos(pi/(2*factor)) — 0.168 dB at 8x — so the reference shared the
+//     limiter's blind spot exactly, which is the failure mode the paragraph
+//     above is about, one axis over. 32x drops the reference's own grid bound
+//     to 0.010 dB, an order of magnitude under the 0.042 dB the node it
+//     measures is allowed.
 double tightTruePeakDb(const AudioBuffer& buf) {
   TruePeakUpsampler up;
-  up.design(8, 100.0, 0.010); // ~30x the taps of the limiter's own detector
+  up.design(32, 100.0, 0.010);
   up.prepare(buf.channels());
   up.reset();
 
@@ -1852,6 +1861,53 @@ void testTruePeakLimiter() {
       // phase drifts until some sample lands essentially on the crest. The
       // fs/4-at-45-degrees case below is the proper "sample peak lies" probe.
       (void)samplePeak;
+    }
+
+    // AND VALIDATE IT WHERE ITS OWN GRID IS EXPOSED, which the check above
+    // cannot do. 7333 Hz does not divide the sample rate, so over 96000
+    // samples its crest drifts across the grid until some cycle lands on a
+    // sample — every oversampling factor recovers the amplitude and the check
+    // says nothing about the factor. That is exactly how a reference sharing
+    // the limiter's 8x grid went unnoticed.
+    //
+    // At fs/4 the alignment repeats every cycle instead, so whatever the first
+    // cycle misses every later cycle misses identically and the grid has
+    // nowhere to hide.
+    //
+    // THE STARTING PHASE IS SWEPT RATHER THAN CHOSEN. The worst alignment sits
+    // at phase pi/(4*factor), which is a different phase for every factor — a
+    // single hand-picked value is adversarial for one grid and lands near a
+    // crest for the others, and a version of this check that fixed the phase
+    // at pi/128 passed with an 8x reference. Sweeping finds each grid's own
+    // worst case without the test having to know the factor.
+    //
+    // The worst reading is then cos(pi/(4*factor)): -0.042 dB at 8x, -0.010 at
+    // 16x, -0.003 at 32x. A 0.006 dB tolerance admits only the last.
+    {
+      const int64_t n = 2048;
+      const int64_t fade = 512;
+      double worst = 0.0;
+      for (int step = 0; step < 192; ++step) {
+        const double phase = 0.5 * M_PI * static_cast<double>(step) / 192.0;
+        AudioBuffer b(1, n);
+        for (int64_t i = 0; i < n; ++i) {
+          double env = 1.0;
+          if (i < fade)
+            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(i) /
+                                        static_cast<double>(fade)));
+          else if (i >= n - fade)
+            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(n - 1 - i) /
+                                        static_cast<double>(fade)));
+          b.channel(0)[i] = env * std::sin(M_PI * static_cast<double>(i) / 2.0 + phase);
+        }
+        worst = std::min(worst, tightTruePeakDb(b));
+      }
+      std::printf("       reference meter on a worst-aligned fs/4 unit sine: "
+                  "%+.4f dBTP (a 16x grid reads -0.0105, an 8x grid -0.0419)\n",
+                  worst);
+      checkNear(worst, 0.0, 0.006,
+                "the reference true-peak meter's own peak-search grid is fine "
+                "enough to be a reference for a 16x node");
     }
   }
 
@@ -2057,6 +2113,175 @@ void testTruePeakLimiter() {
     checkNear(linToDb(gR), linToDb(gL), 0.01,
               "both channels receive identical gain (stereo image preserved)");
     check(gL < 0.9, "the loud channel is genuinely being limited");
+  }
+
+  // --- (e) the detector's grid bound is real, and is what it claims --------
+  //
+  // TruePeakUpsampler searches a grid of `factor` points per input sample, so
+  // it returns the grid maximum and never the continuous one: it can only read
+  // LOW. gridBoundDb() claims that shortfall is at most cos(pi/(2*factor)),
+  // and the limiter subtracts exactly that from its ceiling, so if the claim
+  // is wrong the ceiling is wrong by the same amount.
+  //
+  // Checked against the ANALYTIC answer rather than another estimator. A
+  // sampled sinusoid's band-limited reconstruction is that sinusoid, so a unit
+  // sine's true peak is exactly 1.0 at every frequency and phase — no meter,
+  // no reference, nothing to share a blind spot with.
+  //
+  // Frequencies stop at 0.44 of the sample rate deliberately. Above the
+  // detector's passband edge (0.475 fs) a second and much larger error takes
+  // over, the transition band, and it is neither signed nor bounded; mixing
+  // the two would make this check measure something gridBoundDb() never
+  // claimed. That residual is documented in TruePeak.h and open-questions.md,
+  // not asserted here.
+  {
+    const int64_t n = 8192;
+    for (int factor : {16, 32}) {
+      TruePeakUpsampler up;
+      up.design(factor, 80.0, 0.05);
+      const double bound = up.gridBoundDb();
+      checkNear(bound, -20.0 * std::log10(std::cos(M_PI / (2.0 * factor))), 1e-12,
+                "gridBoundDb() at " + std::to_string(factor) + "x is the closed form");
+
+      // A faded unit sine at frequency f, read as dB against its analytic
+      // true peak of exactly 0 dBTP.
+      auto reading = [&](double f, double phase) {
+        up.prepare(1);
+        up.reset();
+        const int64_t fade = 2048;
+        double best = 0.0;
+        for (int64_t i = 0; i < n; ++i) {
+          double env = 1.0;
+          if (i < fade)
+            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(i) /
+                                        static_cast<double>(fade)));
+          else if (i >= n - fade)
+            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(n - 1 - i) /
+                                        static_cast<double>(fade)));
+          best = std::max(best, up.processMaxAbs(
+              env * std::sin(2.0 * M_PI * f * static_cast<double>(i) /
+                             kCanonicalSampleRate + phase), 0));
+        }
+        return linToDb(best);
+      };
+
+      // THE MECHANISM, EXACTLY. At fs/4 the oversampled grid lands on the same
+      // phases every cycle, so unlike an incommensurate frequency there is no
+      // phase diversity to hide behind — which is precisely why the claim this
+      // bound replaces survived being measured on stationary tones. Choosing
+      // the starting phase pi/(4*factor) puts every crest exactly half a grid
+      // step from the nearest sample, the worst alignment there is, and the
+      // reading is then cos(pi/(4*factor)) with nothing approximate about it.
+      const double atQuarter = reading(0.25 * kCanonicalSampleRate,
+                                       M_PI / (4.0 * factor));
+      const double predicted =
+          20.0 * std::log10(std::cos(M_PI / (4.0 * factor)));
+      checkNear(atQuarter, predicted, 1e-4,
+                "the " + std::to_string(factor) + "x grid loses exactly "
+                "cos(pi/(4*factor)) on a worst-aligned fs/4 sine");
+
+      // AND THE BOUND HOLDS EVERYWHERE IN THE PASSBAND. gridBoundDb() is the
+      // Nyquist case, which is the largest of these; nothing below it may
+      // exceed it.
+      double worstDb = 0.0;
+      for (double fRatio : {0.25, 0.33, 0.4, 0.44})
+        for (int phaseStep = 0; phaseStep < 12; ++phaseStep)
+          worstDb = std::min(worstDb,
+                             reading(fRatio * kCanonicalSampleRate,
+                                     M_PI * static_cast<double>(phaseStep) / 12.0));
+      worstDb = std::min(worstDb, atQuarter);
+
+      std::printf("       true-peak detector at %2dx: fs/4 worst alignment "
+                  "%+.4f dB (predicted %+.4f), sweep worst %+.4f, bound %.4f\n",
+                  factor, atQuarter, predicted, worstDb, bound);
+      check(worstDb >= -bound,
+            "the " + std::to_string(factor) + "x detector never under-reads a "
+            "band-limited sinusoid by more than its own bound (worst " +
+            std::to_string(worstDb) + " dB, bound " + std::to_string(bound) + ")");
+    }
+  }
+
+  // --- (f) the delivered ceiling is the REQUESTED ceiling ------------------
+  //
+  // Every other ceiling check in this file measures the output with an
+  // estimator. This one does not, and that is the entire point: the defect it
+  // exists to catch was the limiter landing exactly on its ceiling as measured
+  // by an instrument that read low, which no amount of measuring with that
+  // same instrument can see.
+  //
+  // A unit sinusoid's true peak is EXACTLY its amplitude. Feed one at 0 dBFS,
+  // and the output is that sinusoid times the limiter's gain, so the output's
+  // true peak is exactly the largest steady-state gain applied — a number that
+  // can be read straight off the samples with no reconstruction at all.
+  //
+  // fs/4 is the frequency chosen because it is where a peak search is most
+  // exposed: the grid alignment repeats exactly every cycle, so unlike an
+  // incommensurate frequency there is no phase diversity to rescue it, and
+  // whatever the first cycle misses every later cycle misses identically.
+  {
+    const int64_t n = 96000;
+    const int64_t settle = 24000;
+    for (double ceiling : {-1.0, -0.3}) {
+      double worstDeliveredDb = -1e9;
+      for (int phaseStep = 0; phaseStep < 8; ++phaseStep) {
+        const double phase = M_PI * static_cast<double>(phaseStep) / 8.0;
+        AudioBuffer in(1, n);
+        for (int64_t i = 0; i < n; ++i)
+          in.channel(0)[i] = std::sin(M_PI * static_cast<double>(i) / 2.0 + phase);
+
+        const AudioBuffer out = runLimiter(limiterParams(ceiling, 2.0, 100.0), in);
+
+        // Gain, read where the input is far from a zero crossing so the
+        // division is well conditioned. The input's true peak is exactly 1.0,
+        // so this gain IS the output's true peak.
+        double gain = 0.0;
+        for (int64_t i = settle; i < n - settle; ++i)
+          if (std::abs(in.channel(0)[i]) > 0.5)
+            gain = std::max(gain, std::abs(out.channel(0)[i] / in.channel(0)[i]));
+        worstDeliveredDb = std::max(worstDeliveredDb, linToDb(gain));
+      }
+      std::printf("       limiter delivered true peak at a %.1f dBTP ceiling: "
+                  "%+.4f dBTP (analytic, fs/4 unit sine)\n",
+                  ceiling, worstDeliveredDb);
+      check(worstDeliveredDb <= ceiling,
+            "a " + std::to_string(ceiling) + " dBTP ceiling is not exceeded on "
+            "a signal whose true peak is known analytically (delivered " +
+            std::to_string(worstDeliveredDb) + " dBTP)");
+      // Conservative, but not so conservative that the node is just an
+      // attenuator. The whole margin is the detector's grid bound at 16x.
+      check(worstDeliveredDb >= ceiling - 0.15,
+            "and it still reaches its ceiling rather than hiding under it "
+            "(delivered " + std::to_string(worstDeliveredDb) + " dBTP)");
+    }
+
+    // THE SAME THING ON NODE DEFAULTS, with no parameters written at all.
+    // Every other limiter check in this file spells out `oversample_factor`,
+    // so the default path — the one a recipe that omits it takes — was
+    // exercised nowhere. The default and the floor happen to coincide today,
+    // which means this check is redundant today and will not be the first time
+    // one of them moves.
+    {
+      const int64_t n = 96000;
+      AudioBuffer in(1, n);
+      for (int64_t i = 0; i < n; ++i)
+        in.channel(0)[i] = std::sin(M_PI * static_cast<double>(i) / 2.0 +
+                                    M_PI / 64.0);
+      ParamSet defaults; // nothing set: ceiling defaults to -1 dBTP
+      const AudioBuffer out = runLimiter(defaults, in);
+      double gain = 0.0;
+      for (int64_t i = 24000; i < n - 24000; ++i)
+        if (std::abs(in.channel(0)[i]) > 0.5)
+          gain = std::max(gain, std::abs(out.channel(0)[i] / in.channel(0)[i]));
+      std::printf("       limiter on node defaults: delivered %+.4f dBTP\n",
+                  linToDb(gain));
+      check(linToDb(gain) <= -1.0,
+            "the limiter honours its default -1 dBTP ceiling with no "
+            "parameters written (delivered " + std::to_string(linToDb(gain)) +
+            " dBTP)");
+      check(linToDb(gain) >= -1.15,
+            "and the default oversampling is fine enough not to over-limit "
+            "(delivered " + std::to_string(linToDb(gain)) + " dBTP)");
+    }
   }
 }
 

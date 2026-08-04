@@ -133,7 +133,7 @@ be worth naming:
 | `transient_designer` (8×) | −101.8 dB | −100, by 1.8 dB |
 | `compressor` | −104.2 dB | passes |
 | `dynamic_eq` | −107.8 dB | passes |
-| `true_peak_limiter` | −123.7 dB | passes |
+| `true_peak_limiter` | −124.3 dB | passes |
 | `multiband_compressor` (4×) | −152.0 dB | comfortable |
 
 **Resolved, 4 August 2026: the two dynamics nodes that failed.**
@@ -164,46 +164,79 @@ back; a rectifier's harmonic series runs to infinity and the *rate* decides
 which member of it folds. Which lever works depends on where the harmonics
 come from, so the diagnosis has to be redone per node rather than carried over.
 
-### The true-peak limiter overshoots its ceiling by 0.02 dB
+### No true-peak meter here is trustworthy on content within ~2 kHz of Nyquist
 
-Measured with an independent 32× / 6145-tap reference meter written in the
-measurement harness and validated against the analytic answer (a sampled unit
-sinusoid reconstructs to exactly 0 dBTP; the reference is accurate to
-**0.0018 dB** across eight frequencies and five phases). On a 0 dBFS stress
-signal built around a tone at exactly f<sub>s</sub>/4 at 45°, the limiter set to
-a −1.0 dBTP ceiling delivers **−0.979 dBTP**.
+The 0.02 dB limiter overshoot that used to be the entry here is fixed and has
+moved to the Resolved table. Fixing it exposed a larger and less comfortable
+fact about the *measurement*, which is what this entry is now about.
 
-**The two meters disagree by exactly the overshoot.** On the same buffer the
-engine's own meter reports **−1.000 dBTP** — the ceiling, precisely — and the
-reference reports **−0.979**. The limiter is not failing to hit its target; it
-is hitting a target its instrument is reading 0.021 dB low. That is the whole
-mechanism, visible in one row of the report.
+**The 32× / 6145-tap reference meter in `engine/tests/measurements.cpp` is
+itself 0.09 dB low on the signal it is used to judge.** Ground truth was
+obtained a fourth way — DFT-domain sinc interpolation, which for a buffer that
+decays to zero at both ends *is* the band-limited reconstruction, with no
+filter, no window and no transition band to argue about. It agrees with the
+analytic answer on a unit sinusoid to 1e-4 dB at every frequency tested,
+including 47.9 kHz.
 
-This is small, and it is not nothing: the node's header states the overshoot is
-zero by construction, and the proof depends on its own internal meter seeing the
-true peak. That meter is 4× with a ~200-tap filter, and `open-questions.md`
-already records that it under-reads content above about 19 kHz. A limiter whose
-ceiling is enforced against an under-reading meter will let through exactly the
-amount the meter misses — which is what this measurement appears to show.
+On the limiter's own stress buffer, before any of this commit's changes:
 
-**What would resolve it:** either lengthen the limiter's internal true-peak
-filter until its own error is below the margin it promises, or subtract the
-meter's known worst-case error from the ceiling as an explicit safety margin
-rather than defaulting `safety_margin_db` to 0.
-**Cost of being wrong:** 0.02 dB does not clip anything. It matters because the
-claim is *exactness*, and a delivery ceiling that is "usually" held is the
-failure mode the node exists to prevent.
+| meter | reading |
+|---|---|
+| exact (DFT-domain, 512× grid) | **−0.886 dBTP** |
+| 32× / 6145-tap Blackman-Harris reference | −0.979 dBTP |
+| engine detector, 4× | −1.000 dBTP |
 
-**A caveat on the reference, stated because the alternative is overclaiming.**
-The two meters agree to within 0.03 dB on twenty of the twenty-four
-configurations measured, and diverge to **0.10 dB on `drive`**, whose output is
-the most harmonically dense in the set — there in the other direction, with the
-engine's meter reading *higher*. Both are validated against sinusoids, where the
-analytic answer exists; neither has an analytic answer on broadband content, and
-comparing two approximations there tells you they disagree rather than which is
-right. The limiter case is the trustworthy one because its output is dominated
-by a single tone at f<sub>s</sub>/4, which is exactly the case both meters are
-validated on.
+So the reported overshoot was 0.021 dB and the real one was **0.114 dB**. The
+reference was not wrong about the direction, only about the size — but it was
+wrong about the size by a factor of five, and it is the instrument the CI gate
+is built on.
+
+**The mechanism is the transition band, and it is fundamental.** Every
+windowed-sinc interpolator has to put its transition somewhere, and the first
+image begins exactly at base Nyquist, so a zero-width transition is not
+realisable. Content in the top ~2 kHz is therefore attenuated by *some* amount
+in every meter here, and the resulting peak error is **not signed** — it moves
+the peak by whatever the discarded content contributed at that instant, which
+was +0.032 dB on the stress input and −0.114 dB on the stress output. Measured
+against the exact answer at 96 kHz, 16×:
+
+| material | t=0.05 | t=0.02 | t=0.01 | t=0.005 |
+|---|---|---|---|---|
+| anything band-limited to 24 kHz, incl. hard-clipped | −0.001 | +0.000 | −0.000 | −0.000 |
+| hard-clipped noise with energy to Nyquist | −0.466 | −0.219 | −0.078 | −0.055 |
+| band-limited impulse at Nyquist | −0.117 | −0.046 | −0.022 | −0.010 |
+
+Halving it costs roughly four times the runtime each time and it does not reach
+zero. This is the same limit `backend/measure/loudness.py` records in
+`_interpolation_filter`'s docstring for the Python meter, arrived at from a
+different direction.
+
+After this commit the limiter delivers **−1.041 dBTP** on band-limited
+programme at a −1.0 ceiling — conservative, as a safety limiter should be — and
+**−0.928 dBTP** on the synthetic stress signal, still 0.072 dB permissive
+because the detector cannot see the content that produces it. The CI gate
+passes because the reference meter reads that buffer as −1.021.
+
+**What would resolve it:** replacing the reference meter in `measurements.cpp`
+with the DFT-domain method for buffers that decay to zero at their edges, which
+is most of the suite's stimuli. That makes the gate measure the true quantity
+rather than a good approximation of it, and it is *cheaper* than the 6145-tap
+convolution it replaces. It was deliberately not done in this commit: the
+instrument and the thing being measured should not change in the same change.
+**Cost of being wrong:** the engine's delivery ceiling is verified against a
+meter with a known 0.09 dB blind spot on the one signal class the ceiling is
+most at risk from. Nothing clips at 0.07 dB over a −1 dBTP ceiling; the cost is
+that the number in the report is not the number in the file, and that gap is
+invisible until somebody measures a fourth way.
+
+**A caveat on cross-meter comparison, stated because the alternative is
+overclaiming.** The engine detector and the 32× reference agree to within
+0.03 dB on twenty of the twenty-four configurations measured, and diverge to
+**0.10 dB on `drive`**, whose output is the most harmonically dense in the set —
+there in the other direction, with the engine's meter reading *higher*. Both are
+validated against sinusoids, where an analytic answer exists. Comparing two
+approximations on broadband content tells you they disagree, not which is right;
+that is exactly why the exact method above had to be brought in to settle it.
 
 ### The aliasing sweep cannot see transient-only nonlinearity
 
@@ -367,6 +400,49 @@ relative offset. Checked over 20 000 random block sets: the minimum of
 Harmless, and worth knowing before someone reads the fallback as evidence that
 the gate handles a case it never sees.
 
+### Five more branches in the planner and refine stages cannot fire either
+
+Second round of the same exercise, on `plan/validate.py`, `refine/match_eq.py`
+and `refine/match_dynamics.py`. These are the mutations no test could catch
+because the code they change is unreachable or behaviour-neutral, not because
+the test was weak. Each is recorded rather than left as an apparently-untested
+check.
+
+**1. The Q floor in the ringing repair.** `_check_filter_stability` repairs an
+over-radius pole by solving for the widest Q that clears the bar, floored at
+`max(0.5, ...)`. The floor binds only where the solved Q would fall below 0.5,
+which is **below 7.64 Hz**; the schema's minimum `center_freq_hz` is 20 Hz. The
+floor can be 0.05 or 5.0 and no legal graph reaches it.
+
+**2. The master section in `_check_filter_stability`.** It iterates
+`graph.nodes + graph.master`, but `MASTER_ONLY` is `("true_peak_limiter",
+"dither")` and neither model has a `bands` field, so the master half of that
+loop can never see a band. (The equivalent loop in `_check_ranges` *is*
+reachable — those nodes have bounded scalar parameters — and is now tested.)
+
+**3. The `gate_expander` exemption in the noise-floor check.** The check skips
+`gate_expander` before iterating its bands, on the reasoning that a gate is the
+right answer to a noisy source. `GateExpanderParams` has no `bands` field, so
+the inner loop is empty with or without the exemption. It documents an intent
+correctly and does nothing.
+
+**4. `soft_clamp`'s zero-limit guard.** `if limit_db <= 0.0: return zeros`.
+Falling through at exactly zero gives `start = 0`, `headroom = 0` and
+`compressed = 0 + 0 * tanh(x / 1e-9)`, which is zero for every input — verified
+across the sign boundary. The guard is an early exit, not a behaviour.
+
+**5. The greedy seeder's give-up threshold, from below.** `_greedy_seed` stops
+placing bands once the largest remaining error is under 0.35 dB. Lowering it to
+0.02 changes nothing observable: `choose_cascade` refits every size from one
+band upward and takes the smallest within 0.15 dB, so extra seeded bands are
+discarded on the way out. Only the *upper* side of that constant is observable
+(at 2 dB a real 1.2 dB correction produces no bands at all), and that direction
+is now tested. Lowering it costs compute and nothing else.
+
+None of the five is worth deleting. Each reads as a second line of defence, and
+the cost of being wrong is zero in all five — but a reader should know that
+three of them have never executed a single time.
+
 ### The true-peak meter's 8x oversampling at 48 kHz buys nothing measurable
 
 `_oversample_factor` returns 8 at or below 48 kHz and 4 above, justified in the
@@ -409,6 +485,13 @@ matters in practice depends on whether any real delivery has that much energy
 that close to Nyquist; a 44.1 or 48 kHz master usually does not, and the engine's
 own conversion filter rolls off at 20 kHz. The case that would matter is a
 render whose top octave was deliberately lifted.
+
+**Largely fixed since, and the residual is now the general entry above.** The
+passband edge went 0.95 → 0.99 and the filter 48 → 64 taps per phase, taking the
+20+22 kHz case from −1.078 dB to −0.028; see `_interpolation_filter`'s docstring
+for the measured table. What is left is the same term B the C++ detector has, and
+it is the same fundamental limit in both: no finite filter reconstructs content
+arbitrarily close to Nyquist, and the transition band has to go somewhere.
 
 ### `channel_weights` treats channel 4 of a 5.1 file as a surround
 
@@ -626,6 +709,7 @@ Kept so the reasoning is not re-litigated.
 
 | Was | Resolution |
 |---|---|
+| The true-peak limiter overshoots its ceiling by 0.02 dB | Fixed, and the diagnosis in the original entry was only half right. The detector's error has **two** terms, not one. Term A is the peak-search grid: it evaluates the reconstruction at `factor` points per sample and returns the largest, so it can only read LOW, by at most `cos(π/(2·factor))` — a theorem about band-limited signals, 0.688 dB at the 4× the node was running. Term B is the transition band, which is unsigned and unbounded. The header's claim that "oversampling factor does not affect accuracy at all" was measured on stationary signals, where phase diversity over hundreds of cycles hides term A entirely; on an isolated transient it is worth up to 0.22 dB. Factor floor raised 4 → 16, and the limiter now subtracts `gridBoundDb()` from its ceiling unconditionally rather than leaving `safety_margin_db` at 0 and hoping. Delivered true peak against a −1.0 ceiling, measured by exact DFT-domain reconstruction: −0.996 → **−1.041 dBTP** on band-limited programme, i.e. from permissive to conservative. Cost 4× the detector, 1.02 s → 4.07 s per 30 s of stereo; the measurement suite went 29.1 s → 31.5 s. Eight mutations, eight caught after two of them exposed real gaps — an untested default path and a reference meter that shared the grid it was checking. Term B remains and has its own entry above. |
 | The codec detector is unstable near its own threshold | Fixed. The confidence read the slope alone, which is the strength of the evidence and not the certainty of the verdict. It is now the weaker of two margins — slope past the gate that actually binds, and depth inside the 60 dB guard — so it falls to zero as either boundary is approached. The demo vocal chain's output went from 0.88 to 0.15; the seven real lame/AAC encodes of the acoustic guitar all still report 1.00. Ten mutations, ten caught. |
 | Stereo width unmeasurable — every stem was mono or dual-mono | Two genuinely stereo files were already in the user's library. `stereo.correlation` tracks width at r = −0.99. |
 | "Drive does not brighten" | Wrong. An artifact of full-band pink noise plus a summary statistic; on real stems 12 dB of drive moves the 8 kHz band by +33.5 dB on a bass. |

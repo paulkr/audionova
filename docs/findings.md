@@ -112,6 +112,49 @@ sinusoid's band-limited reconstruction *is* that sinusoid, so a unit sinusoid's
 true peak is exactly 0 dBTP at every frequency and phase. Against that the meter
 is accurate to **0.0001 dB**.
 
+Third time, one axis over. The contract suite's reference for the limiter was
+`design(8, 100.0, 0.010)` — thirty times the filter length of the thing it
+measured, and the **same 8× peak-search grid**. Filter length was the axis
+everyone was watching; the grid is a second, independent error term bounded by
+`cos(π/(2·factor))`, which is 0.168 dB at 8×. So the reference was
+over-specified on the axis that was being discussed and identical on the one
+that mattered. Now 32×, whose own grid bound is 0.010 dB — an order of
+magnitude under what the node it measures is allowed.
+
+**Rule:** "independent" has to mean independent on every axis the error has, and
+you only know the axes once you have decomposed the error.
+
+### A bound measured on stationary signals, applied to transients
+
+`TruePeak.h` carried this, and the limiter's oversampling factor was set to
+BS.1770's minimum of 4 on the strength of it:
+
+> Oversampling FACTOR does not affect accuracy at all. 4x, 8x and 16x produce
+> bit-identical errors for the same filter length.
+
+The measurement was real and reproducible. It was also made entirely on held
+tones and steady broadband noise, and for those it is true — over hundreds of
+cycles some crest lands near a grid point whatever the grid is, so the grid
+stops mattering. **A limiter does not exist for held tones.** On a lone
+band-limited impulse placed ⅛ of a sample off the grid, against an exact
+DFT-domain reconstruction:
+
+| content to | 4× | 8× | 16× | 32× |
+|---|---|---|---|---|
+| 20 kHz | −0.039 dB | −0.000 | −0.000 | −0.000 |
+| 40 kHz | −0.156 dB | −0.000 | −0.000 | −0.000 |
+| 48 kHz | −0.224 dB | −0.017 | −0.006 | −0.001 |
+
+Factor is worth up to 0.22 dB, in the permissive direction, on exactly the
+signal class the node was built to catch. The worst case is not a corpus number
+either — for anything band-limited to Nyquist the shortfall is at most
+`cos(π/(2·factor))`, attained by a tone at Nyquist, so it is 0.688 dB at 4×.
+
+**Rule:** a claim that a parameter does not matter has to be probed with the
+signal class the code is for, not the one that is convenient to generate. Steady
+state is the case that hides grid, alignment and phase effects; it is the worst
+possible choice for measuring any of them.
+
 ### Floored measurement functions
 
 A mid/side null test bottomed out at −240 dB — which was `linToDb`'s safety
@@ -978,6 +1021,110 @@ A linear ramp in dB is the distribution where the choice has an arithmetic
 consequence: short-term loudness becomes roughly uniform, so the 95th minus the
 10th is 0.85 of the swept range against 1.00 for max minus min. A 20 dB ramp
 must read 17 LU, not 20.
+
+## Findings from mutation-testing the planner's validators and the refine stage
+
+The second round of the same exercise, on the three modules the first round
+deferred because the schema was being edited underneath them.
+
+| | mutations | survived first pass | survived after strengthening |
+|---|---|---|---|
+| `plan/validate.py` | 62 | **43** | 3 |
+| `refine/match_eq.py` | 43 | **23** | 1 |
+| `refine/match_dynamics.py` | 32 | **17** | 2 |
+
+The shape of the failure is the one the first round predicted and the rate is
+worse: **83 of 137 survived.** Again almost every check existed and fired on the
+case it was given, and again the missing thing was the threshold. The one new
+pattern is that four checks were not merely untested but *never asserted to
+exist at all* — the delivery ceiling, the bypassed-node finding, the dither word
+length and the two-band cascade could each have been deleted outright.
+
+Three of the survivors were real defects rather than weak tests, and all three
+are the same species: **a mechanism that reported success without delivering
+it.**
+
+### The ringing repair did not reach the bar it had just named
+
+`_check_filter_stability` rejects a pole radius above 0.9995 and repairs it by
+setting `Q = q / 4`. A fixed divisor does not know how far over the bar it
+started, and the case in the function's own docstring is the case where it is not
+enough:
+
+| | Q | pole radius | over 0.9995? |
+|---|---|---|---|
+| as emitted | 12 | 0.999940 | yes |
+| after `q / 4` | 3 | 0.999760 | **still yes** |
+| solving for the bar | 1.43 | 0.999497 | no |
+
+At 22 Hz the pole has to be pulled to Q 1.44 to clear the bar, and the repair
+stopped at 3. It logged *"reduced to Q 3"* against a message saying Q 12 "rings
+audibly", so the graph carried a repair note asserting it was now safe and was
+not — which is worse than not repairing, because the note is what anyone reading
+the log would trust.
+
+The repair now inverts the pole-radius expression for the widest Q that sits on
+the bar and rounds it down. The old test asserted only `q_factor < 12.0`, which
+is true of every wrong answer including this one.
+
+### The comment said "not the sum" and the code summed
+
+`_check_gain_staging` projected an EQ node's contribution as
+
+```python
+projected = max(projected, projected + gain) if gain > 0 else projected
+```
+
+which for a positive gain is `projected += gain`, evaluated once per band — a
+sum. Two lines below it sat the comment *"Only the largest boost, not the sum:
+bands at different frequencies do not add at any single frequency"*, which is
+both correct and the opposite of what the code did.
+
+Nothing exercised it: `test_gain_staging` drove the check with a gain node and a
+compressor and never with an EQ at all. Three 4 dB bands at 200 Hz, 1.5 kHz and
+8 kHz were projected as a 12 dB peak that occurs at no frequency, so the check
+was failing chains that are fine. Now the largest boost per node, summed across
+nodes — because two EQs lifting the same region really do stack.
+
+### The dither word length was repaired only when a measurement report existed
+
+The dither check reads nothing from the report. It sat below
+`_check_source_constraints`'s `if not report: return`, and `Project.excerpt_report`
+defaults to `{}`, which is falsy — so a graph validated before the measurement
+landed shipped a 20-bit dither untouched. Moved above the early return. There was
+no test for the check in either direction.
+
+### An N-point Hann window is an (N−2)-point window
+
+`smooth_log` floors its window at 3 points to guarantee some smoothing.
+`np.hanning(3)` is `[0, 1, 0]`: normalised, it is the identity. Asking for 1/12
+octave or finer on a 256-point grid therefore returned the curve **completely
+unsmoothed**, and the floor that existed to prevent exactly that was the thing
+producing it.
+
+The existing test compared a 1/1-octave smooth against a 1/12-octave one and
+asserted the first was wider — true, and equally true when the second does
+nothing. Floor raised to 5, and the test now asserts that a fine setting still
+changes the curve rather than that it changes it less.
+
+### Tolerances four to thirty times looser than the fit
+
+`test_refine.py` allowed the recovered band to sit 0.75 octaves from the applied
+one and to carry "a meaningful fraction" of its gain, defined as 40%. Measured,
+the fit lands on **800.0 Hz for a filter applied at 800 Hz** and returns 4.8 dB
+for 5.0:
+
+| | asserted | measured | margin |
+|---|---|---|---|
+| centre frequency | 0.75 octaves | 0.000–0.005 | 150x |
+| gain | 40% of applied | 96% | 5x |
+| band count | at most 5 | 1 | untested |
+| filter shape | not asserted | correct | — |
+
+Inside that slack the smoothing could run at 1/1 octave, the shelf/bell boundary
+could move by a factor of four, the cascade could return five bands instead of
+one, and `choose_cascade` could be replaced by "always take the largest" — the
+property `findings.md` records as the reason it exists. All of them passed.
 
 ## Findings from the refine stage
 
