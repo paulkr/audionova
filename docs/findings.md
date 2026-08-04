@@ -27,10 +27,24 @@ and the tap-count parity case: forcing an even `taps` down to odd changes
 nothing observable through `latencyFrames()`, because `(512-1)/2` and `(511-1)/2`
 are both 255. Only the kernel's LENGTH shows it.
 
+`MultibandCompressor` and `TransientDesigner` continued it: 23 of 27 mutations
+caught first time, and all four survivors were the same shape as the ones
+before — a defence measured where it does not bind, or a property with two
+implementations so that breaking one leaves the other holding it up. Details
+under "the rectification that was already being done twice" and "the crossover
+spacing that binds on one input nobody had written" below.
+
 Second recurring lesson, arrived at later: **synthetic test material is more
 flattering than real audio, twice in a row and in the same direction.** The codec
 detector and the drive analysis both passed on synthetic signals and were wrong
 on real stems.
+
+Third, from the first mutation run on the Python stages: **a test that probes a
+threshold from far outside it proves the check exists and says nothing about
+where it sits.** Forty-two of seventy-two mutations survived across the verify
+gate and the loudness meter, and almost all of them were constants — moved by
+half their value, inside the distance the tests happened to probe from. See
+"Findings from mutation-testing the Python stages" below.
 
 ---
 
@@ -213,6 +227,98 @@ because that is the only place the window's job exists.
 **The general lesson:** a defensive measure whose benefit depends on a parameter
 has to be tested at the parameter value where it binds. Tested anywhere else it
 looks like pure cost, and the obvious conclusion — delete it — is wrong.
+
+### The rectification that was already being done twice
+
+`TransientDesigner` half-wave rectifies its attack differential, because that
+differential goes negative through a decay and an attack boost would otherwise
+quietly cut the body of every note. The test for it looked right — it asserts
+the body moves less than 0.05 dB while the leading edge moves 5.4 — and it
+measured **+0.0000 dB** with the rectification removed.
+
+The cause was a second copy of the same rule three lines further down. Stereo
+linking took a running maximum over channels seeded at `0.0`, so at
+`stereo_link = 1` the linked value was `max(0, differential)` whatever the
+differential had been. **A property with two implementations is a property no
+test can falsify**: breaking either one leaves the other holding it up. The
+linking now seeds from channel 0 and the rectification is stated once.
+
+The same run found the mirror-image case one line over. The SUSTAIN differential
+is not rectified at all, and removing a guard there changed nothing either —
+because it provably cannot go negative: `slowRelease` shares `fast`'s attack
+coefficient and releases more slowly, so its detector state dominates at every
+sample, by induction and bit-exactly, since IEEE rounding is monotone. That one
+was not a surviving mutation, it was **dead code**, and the fix is the opposite
+of the first: the guard was deleted and the invariant written down. A guard that
+can never fire tells the next reader the quantity can go negative when it
+cannot.
+
+Both were replaced in the mutation list by the thing each was imagined to
+protect against, and both are now caught.
+
+### The crossover spacing that binds on one input nobody had written
+
+`MultibandCompressor` forces two crossover corners written at the same frequency
+apart by 5%. Removing it survived all 1589 checks, and the first attempt to
+measure its effect produced results identical to four decimal places — because
+the probe compared corners of `(1000, 1000)` against `(1000, 1050)`, and the
+repair normalises the first into the second. **The probe was measuring the same
+configuration twice.**
+
+Measured properly, against a build with the spacing removed, it is worth
+0.35–1.3 dB: with the mid band at +12 dB makeup, 1030 Hz reads **+5.64 dB**
+spaced and **+4.77 dB** unspaced, because two stages at the same corner are the
+same filter twice and the band between them is the product of a low-pass and its
+own complement rather than a band. The test now writes both corners at 1 kHz,
+which is the only input where the constant does anything.
+
+### Sorting crossovers and pushing them apart are not the same repair
+
+Out-of-order corners will arrive — the caller is a language model — and
+reconstruction cannot tell the two candidate repairs apart, because the
+complementary subtraction is an identity that holds for any filter placed
+anywhere. Both null at −319 dB.
+
+They are not equivalent musically. Pushing each corner above the previous one
+turns `(6000, 200)` into `(6000, 6300)`: the mid band becomes a 300 Hz sliver
+and everything from 200 Hz to 6 kHz is silently handled by the LOW band's
+threshold, ratio and timing. Sorting turns it into `(200, 6000)`, which is what
+was written. A probe at 1 kHz is the only place the two differ, and it differs
+by the whole band gain — 6 dB.
+
+The first implementation pushed. **A repair that keeps every measurable
+invariant can still be the wrong repair**, and the way to tell is to ask what
+the parameters the caller wrote are now attached to.
+
+### The transient designer's steady-state limit is real, and smaller than expected
+
+A broadband envelope detector cannot separate "the envelope is moving" from "the
+waveform is moving" once a period approaches the fast envelope's release, so a
+sustained tone is gain-modulated at twice its own frequency. The expectation was
+that this would be bad enough to need a fix — a detector high-pass, or a
+mean-square envelope.
+
+Measured with both controls at +12 dB: a steady 1 kHz tone moves **0.034 dB**
+and a steady 60 Hz tone **0.59 dB**. The reason it is that small is the
+decoupled detector's release branch, which holds the peak between cycles instead
+of following the rectified waveform down; the ripple that survives is what the
+30 ms release leaks. 0.59 dB on sustained bass is still audible enough to route
+around, so it is documented and the contract test asserts it as a ratio to the
+1 kHz figure rather than as an absolute — the shape of the limit is the claim,
+not the number.
+
+### The bed's own onset read exactly like lookahead
+
+The check that `transient_designer`'s lookahead makes the boost arrive early
+measures the four milliseconds before a hit, over a quiet tone bed, and expected
+nothing there with lookahead at zero. It read **0.186 dB**.
+
+Not a bug in the node. The bed started at sample 0 and the hit was 85 ms later,
+and with `attack_ms` at 20 the slow envelope needs about five time constants to
+catch up — so the window still carried the BED's own attack. Moving the hit to
+340 ms into the buffer took it to 0.0001 dB. A measurement artifact that
+shrinks when the measurement improves, which is the same signature as the
+zero-phase EQ's analysis-window case above, with the sign the right way round.
 
 ### `DynamicEQ` upward mode pinned at full boost
 
@@ -651,6 +757,122 @@ indication which thing was wrong. The count is what matters and the rest of the
 signal is still worth measuring, so non-finite samples are now counted first and
 then replaced with zero.
 
+## Findings from mutation-testing the Python stages
+
+The C++ nodes had all been mutation-tested; the Python measurement, verify and
+plan stages never had. Seventy-two semantic mutations across
+`backend/verify/gate.py`, `backend/measure/loudness.py` and
+`backend/measure/gating.py`:
+
+| | mutations | survived first pass | survived after strengthening |
+|---|---|---|---|
+| `verify/gate.py` | 26 | **17** | 1 |
+| `measure/loudness.py` | 35 | **18** | 2 |
+| `measure/gating.py` | 11 | **7** | 1 |
+
+**Forty-two of seventy-two survived.** The four remaining are unkillable rather
+than untested: three are unreachable branches and one is an oversampling factor
+with no measurable effect. All four are in `open-questions.md`.
+
+The pattern across all three modules is the same, and it is not the pattern the
+C++ suites had. Nearly every check *existed* and nearly every check *fired on
+the case it was given*. What was missing was the threshold: the tests probed
+each check two to eight times further past its bar than the bar itself, so the
+constant could move by half its value and nothing noticed.
+
+### Every threshold in the safety gate was free to move
+
+The gate had 36 checks and read as thorough. It tested corruption with a NaN,
+mono incompatibility with a polarity flip, true peak with audio 3.3 dB over the
+ceiling, a level collapse at 20 dB against a 12 dB bar, and a bandwidth collapse
+at 26 dB/octave against an 18 dB/octave bar. Every one of those is the extreme
+case. Measured margins:
+
+| check | bar | what the test used | margin |
+|---|---|---|---|
+| true peak | ceiling + 0.1 dB | +3.3 dB over | 33x |
+| correlation | −0.20 | −1.00 | the whole range |
+| level collapse | 12 dB | 20 dB | 1.7x |
+| bandwidth | 18 dB/oct | 26 dB/oct | 1.4x |
+| loudness target | 0.5 LU | 3.0 LU | 6x |
+| silence | −80 dBFS | digital zero | infinite |
+
+The silence case is the sharpest example. An all-zero render has *no measurable
+peak*, so it fails on the `peak is None` branch and never reaches the threshold
+at all — the `-80.0` could have been `-200.0`, and was, and the suite passed.
+
+The fix throughout is to probe each bar from both sides at a plausible distance:
+a render 0.5 dB over its ceiling and one 0.05 dB over (inside the meter slack), a
+correlation of −0.30 and one of −0.15, a 14 dB collapse and a 10 dB one. The gate
+suite went from 36 checks to 66 and from 9 mutations caught to 25.
+
+### Two gate checks were the same check written twice
+
+`MIN_CORRELATION = -0.2` and `MAX_MONO_LOSS_DB = 1.0` are the same bar: mono loss
+is `-10*log10(1 + r*k)` with `k <= 1`, which at `r = -0.2` is 0.969 dB. Since the
+mono-loss test is an `elif` after the correlation one, it can never fire. See
+`open-questions.md`.
+
+### EBU case 4 does not test what its comment says
+
+`test_loudness.py` case 4 is documented as testing the absolute gate
+independently — "a meter with only the relative gate passes case 3 and fails
+here". Measured: **deleting the absolute gate entirely changes cases 1, 3, 4 and
+5 by nothing at all.** The quiet sections are 49 LU below the programme and the
+relative gate at −10 LU discards them on its own.
+
+The absolute gate decides exactly one thing, and nothing in the suite exercised
+it: a file with **no programme in it**. A stem that is nothing but noise floor
+has no loudness to report, and the relative gate cannot say so, because it
+measures everything against whatever it finds. A 20 s tone at −72 LUFS must read
+`-inf`; at −68 LUFS it must read −68.
+
+### "Validated against published ground truth" was not checked against it
+
+`loudness.py`'s docstring says its analog parameters "reproduce the published
+48 kHz table exactly". Nothing compared them. Every other assertion in the suite
+is either a 1 kHz reading — where the RLB high-pass is flat, and its corner
+moved from 38 Hz to 60 Hz undetected — or a comparison of the filter against
+*itself* at another sample rate, which a wrong filter passes as readily as a
+right one.
+
+They do match, to **8.9e−16**. That is now asserted against the coefficients as
+published rather than against the derivation that produced them.
+
+### A tolerance two hundred times looser than the measurement
+
+The true-peak analytic case asserted 0 dBTP within 0.05 dB on a meter that
+`findings.md` records as accurate to 0.0001 dB. Inside that slack, narrowing the
+interpolator's passband from 0.95 to 0.85 of the corner and cutting its taps from
+48 per phase to 12 both passed. Tightened to 0.002 dB, still a twenty-fold
+margin over the worst reading.
+
+**A tolerance is an assertion about the implementation, not only about the
+standard.** Set at the standard's tolerance when the implementation is orders of
+magnitude better, it stops constraining the implementation at all.
+
+### Coverage is not a mask
+
+`gating.gated_frame_mask` was checked with `0.15 < coverage < 0.60`. A range that
+wide is satisfied by a mask that keeps the wrong 35% of the file — and it was:
+marking only the 100 ms step of each surviving block instead of its full 400 ms
+passed, and so did requiring *all four* covering blocks to survive instead of any
+one, which is the specific rule the module's docstring exists to justify. The
+test now asserts which frames: each phrase kept whole, the 300 ms either side
+kept with it, and the gaps empty.
+
+### The percentiles in loudness range were never the measurement
+
+Every EBU Tech 3342 case is two flat plateaus, whose 95th and 10th percentiles
+sit *on* the plateaus — and so do the maximum and the minimum. Replacing the
+percentiles with extremes passed all four published cases and the steady-sine
+case.
+
+A linear ramp in dB is the distribution where the choice has an arithmetic
+consequence: short-term loudness becomes roughly uniform, so the 95th minus the
+10th is 0.85 of the swept range against 1.00 for max minus min. A 20 dB ramp
+must read 17 LU, not 20.
+
 ## Findings from the refine stage
 
 ### A soft clamp that attenuated everything it touched
@@ -937,6 +1159,153 @@ Both are now routed through a helper that compares the raised exception's name
 like any other wrong answer, and the planner probes run with `ANTHROPIC_API_KEY`
 removed from the environment — otherwise a regression in an enum pattern would be
 "proved" by making a paid API call on every CI run.
+
+## Findings from the per-commit DSP measurement suite
+
+`engine/tests/measurements.cpp`. Five of the seven bugs below were in the
+MEASUREMENT, not in the engine, and every one of them produced a plausible
+number that a reader would have believed.
+
+### The analysis window sat at the end of the stimulus
+
+The first version rendered `settle + N` samples of tone and read the last `N`.
+That is findings.md's own "measuring the wrong window", and it cost real
+numbers: `zero_phase_eq` measured **−89 dB THD** and `chorus` **−74 dB**, on two
+nodes physically incapable of producing a harmonic. Both reach BACKWARDS — a
+filtfilt pass by up to its 24 000-frame reach, a lookahead limiter by its
+window — so the tail of that window is the response decaying into the silence
+past the signal. Every measurement now keeps 32 768 samples of live tone after
+the window it reads, which is more than the largest backwards reach in the
+engine.
+
+### Homogeneity alone is not linearity
+
+Which nodes are subject to the aliasing requirement is decided by measurement
+rather than by a list, so that a new node cannot quietly escape it. The first
+test was homogeneity: does `f(2x) == 2f(x)`?
+
+`transient_designer` passes that **exactly**. Its gain is a ratio of a fast
+envelope to a slow one, which is scale invariant, so it is perfectly homogeneous
+and thoroughly nonlinear. It was classified "linear", excused from the aliasing
+requirement, and reported as fine. Adding superposition — `f(x+y) == f(x)+f(y)`
+— fails it by 60 dB and it then measures **−66 dB ASR against a −100 dB
+requirement**, the single worst result in the suite.
+
+The converse matters as much: `chorus` and `plate_reverb` are time-VARYING but
+linear. They satisfy both properties exactly and are correctly left out of a
+requirement that means nothing for them.
+
+### An exactly-zero null was discarded as unmeasurable
+
+`polarity`, `mono_to_stereo` and `stereo_width` null against themselves to the
+last bit. The deviation is exactly zero, `log(0)` is not a number, the code
+treated it as "could not measure", and all three were then classified
+**nonlinear** and put under the aliasing requirement.
+
+Substituting −320 dB instead would have been the `linToDb` clamp bug one row up
+in this document. A measured value carries three states here, not two: absent,
+present, and *exactly zero* — which serialises as `null` with an
+`exactly_zero` flag, so nothing downstream can read it as "0 dB of error".
+
+### The settle time was guessed, and the compressor was still moving
+
+With a fixed 0.34 s settle the compressor reported **−78 dB of in-band
+aliasing**. Almost none of it was aliasing. Its program release converges over
+*seconds*: at 0.34 s the residual drift sat at −48 dB relative to the
+fundamental, one bin either side of the tone, and its rectangular-window skirts
+leaked down into the alias bins. At a 2.7 s settle the off-locus energy is
+−130 dB and the same node measures **−104 dB**, which is a pass.
+
+The settle is now measured rather than chosen. A deterministic node fed an
+exactly periodic tone produces an exactly periodic output, so energy off the
+harmonic loci is either noise or an unfinished transient; the probe lengthens
+the settle until that residual is 20 dB below the requirement, and stops early
+when a longer settle stops helping — which is what distinguishes a transient
+(shrinks) from `dither`'s noise floor (does not).
+
+### The periodicity residual counted the aliasing as evidence of itself
+
+The first version of that convergence test defined "off the harmonic loci" as
+"not a multiple of the tone's bin". **A folded harmonic is not a multiple of the
+tone's bin** — that is what folding means. So the residual included the alias
+energy, and for four different nodes the reported residual equalled the reported
+ASR to two decimal places and said nothing at all.
+
+### The Farina pre-window truncated the response it was measuring
+
+Standard practice is to window off everything before the deconvolved linear
+impulse, because the harmonic products land there. Implemented at 4096 samples,
+which comfortably clears the second harmonic's arrival 5980 samples early.
+
+The linear impulse of a sweep starting at 20 Hz is **band-limited, and therefore
+about 50 ms wide**: still −13 dB one thousand samples from its peak and −35 dB
+at four thousand. The window was cutting through the middle of it. `dc_block`
+measured ±3 dB of magnitude ripple and 20° of phase where the correct answers
+are 0.000 dB and 0.81°, and `linear_phase_eq` read 0.12° where its header claims
+7.3e−13.
+
+There is no window that separates them at this sweep length. The pre-window was
+removed, the stimulus is at −26 dBFS so the distortion products are small enough
+to leave in, and the amount left in is *measured* rather than assumed. With it
+gone, `linear_phase_eq` and `zero_phase_eq` both read **0.0000° at every bin**,
+which is the number that makes the rest of the table trustworthy.
+
+### Group delay by differencing two bins is 41 722× the phase noise
+
+`gd = −Δφ/Δω` across adjacent bins divides by `2π/M`, which at M = 262 144
+multiplies the phase error by 41 722. It reported **29 samples** of residual
+group delay for `linear_phase_eq` and **1486** for `dc_block` at 1 kHz — both
+pure noise, both exactly the shape a reader takes for a property of the filter.
+Fitting a slope across 25 bins gives −0.00002 and 0.216 samples respectively.
+
+### Mutation results
+
+Nine mutations, seven caught. Two of the three initially missed were failures of
+the *gate*, not of the measurement, and both changed how tolerances are set:
+
+| mutation | caught | by |
+|---|---|---|
+| `drive`: oversampling removed (4× → 1×) | yes | ASR −135.7 → −100.4 dB |
+| `drive`: oversampling filter 120 → 40 dB | yes | ASR −100.4 → −68.6 dB, three configs stop meeting the threshold |
+| limiter: ceiling raised 5% (0.42 dB overshoot) | yes* | true-peak conformance |
+| limiter: gain applied 2% high | yes* | true-peak conformance, 0.17 dB |
+| `parametric_eq`: bell gain +0.6 dB | yes | frequency response, group delay |
+| `dither`: noise removed | yes | ASR at worst level, IMD d3 |
+| compressor: knee quadratic 5% wrong | yes* | gain transfer at −18 dBFS |
+| `linear_phase_eq`: symmetry broken 0.1% | **no** | see below |
+| `linear_phase_eq`: symmetry broken 1 ULP | **no** | see below |
+
+\* not caught by the first version of the gate. Three separate reasons, each a
+real defect in it:
+
+**A 0.50 dB tolerance cannot police a delivery ceiling.** Raising the limiter's
+ceiling by 0.42 dB — straight overshoot on a node whose whole contract is that
+it does not overshoot — slipped under it. dBTP is now 0.05 dB, which is thirty
+times the reference meter's own validated error.
+
+**An ungated metric has no good direction.** A frequency response, a
+gain-transfer level and a phase are *fingerprints*. The gate compared them
+directionally with "lower is better", so the compressor's knee error — which
+moves the output at −18 dBFS by −0.081 dB — was recorded as an **improvement**
+and waved through. Any movement in a fingerprint is now a failure.
+
+**One flat tolerance per unit is the wrong shape.** It has to be loose enough
+for a −280 dB THD residue that is nothing but FFT round-off and tight enough for
+a magnitude response that should be exact to six decimals, and those differ by
+five orders of magnitude. The tolerance is now derived from where the value
+sits: the engine bounds cross-platform sample error at −140 dBFS, so a figure at
+V dB is perturbed by at most `20·log10(1 + 10^((−140 − V)/20))` — 0.086 dB at
+the −100 dB gate, 9e−7 dB for a response near unity, and unbounded below
+−160 dB, where the statement "this is not a measurement" is the honest one.
+
+**The two that survived are honest survivors.** A 0.1% break in
+`linear_phase_eq`'s kernel symmetry moves every acoustic quantity in the suite
+by ≤ 0.009 dB and the phase at 1 kHz by 0.0029°, and a 1-ULP break moves them by
+nothing. No cross-platform-safe tolerance can resolve that, and it should not
+try: the contract suite asserts symmetry **on the kernel itself**, which is
+where a bit-exactness claim belongs. A 5% break is caught, with 18 regressions.
+
+---
 
 ## Frontend findings
 

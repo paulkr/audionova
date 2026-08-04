@@ -122,7 +122,11 @@ def test_agrees_with_engine() -> None:
             R.check(name in engine_params,
                     f"{node_type}.{name} is a parameter the engine reads")
 
-    for band_model in (G.EqBand, G.DynamicEqBand):
+    # Every band model, not just the EQ ones. A list field is skipped above
+    # because it is read through items() rather than by name, so without this
+    # loop a new band type's parameters would never be checked against the
+    # engine at all — which is the drift this whole section exists to catch.
+    for band_model in (G.EqBand, G.DynamicEqBand, G.MultibandBand):
         for name in band_model.model_fields:
             R.check(name in engine_params,
                     f"{band_model.__name__}.{name} is read by the engine")

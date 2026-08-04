@@ -66,7 +66,7 @@ one won perceptually by a wide margin.
 ```
        C++  (engine/)                    Python  (backend/)
   ┌──────────────────────┐          ┌──────────────────────────┐
-  │ 20 DSP nodes         │          │ measurement report       │
+  │ 22 DSP nodes         │          │ measurement report       │
   │ Chain + PDC          │◀── JSON ─│ planner (not built)      │
   │ resampler            │  recipe  │ validators (not built)   │
   │ WAV / RF64           │──▶ WAV ──│ evaluation harnesses     │

@@ -24,10 +24,16 @@ TESTBIN  := $(BUILD)/contract_tests
 SANBIN   := $(BUILD)/contract_tests_san
 RENDERBIN := $(BUILD)/anv_render
 IOTESTBIN := $(BUILD)/io_tests
+MEASBIN  := $(BUILD)/measurements
 
-.PHONY: all test iotest san check render clean
+# Stamped into the measurement report so a number can be traced back to the
+# commit that produced it. Empty when git is unavailable, and the report says
+# "unknown" rather than inventing one.
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
 
-all: $(TESTBIN) $(IOTESTBIN) $(RENDERBIN)
+.PHONY: all test iotest san check render measure clean
+
+all: $(TESTBIN) $(IOTESTBIN) $(RENDERBIN) $(MEASBIN)
 
 # Header dependencies come from the compiler (-MMD -MP), not from a `find`
 # glob. A glob evaluated at parse time can miss an edit and hand `make test` a
@@ -88,8 +94,30 @@ $(RENDERBIN): src/anv_render.cpp
 
 render: $(RENDERBIN)
 
+# The DSP measurement suite: THD, aliasing, intermodulation, swept-sine
+# response, true peak. A third binary rather than more cases in the contract
+# suite, because the two answer different questions and want different exit
+# behaviour. The contract tests ask "is this still the same program?" and any
+# failure is a bug; this asks "what does it do to a signal?", writes an HTML
+# and a JSON report, and leaves the gating to ci/check_measurements.py, which
+# is the only thing that knows what the last commit measured.
+#
+# It reads include/anv/io/Recipe.h at run time to enumerate the node types, so
+# the working directory matters — hence ./ rather than an absolute path, and an
+# ANV_ENGINE_DIR escape hatch in the binary for anyone running it elsewhere.
+$(MEASBIN): tests/measurements.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -DANV_GIT_COMMIT='"$(GIT_COMMIT)"' \
+	    -MMD -MP -MF $(BUILD)/measurements.d \
+	    tests/measurements.cpp -o $@
+
+-include $(BUILD)/measurements.d
+
+measure: $(MEASBIN)
+	@./$(MEASBIN)
+
 # What CI should run.
-check: test iotest san $(RENDERBIN)
+check: test iotest san measure $(RENDERBIN)
 
 clean:
 	@rm -rf $(BUILD)

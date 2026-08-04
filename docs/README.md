@@ -34,8 +34,8 @@ only in a commit message.
 
 Built and verified:
 
-- **Engine** — 20 DSP nodes, float64, 96 kHz internal, exact integer latency.
-  1321 contract checks + 139 I/O checks.
+- **Engine** — 22 DSP nodes, float64, 96 kHz internal, exact integer latency.
+  1596 contract checks + 139 I/O checks.
 - **Render CLI** — `anv_render`, WAV/RF64 in and out, hand-written resampler.
 - **Measurement layer** — BS.1770 loudness validated against EBU conformance
   signals, gated spectrum, dynamics, stereo, hygiene. 148 checks.
@@ -46,7 +46,7 @@ Built and verified:
   F1 0.580). 152 checks.
 - **Effect graph schema and validators** — the planner's output contract, with the
   JSON Schema generated from the enforcing model so the two cannot drift.
-  179 checks.
+  203 checks.
 - **Planner scaffolding** — prompt assembly with an 18.4 k cached prefix, the
   two-stage PLAN/EMIT driver, a bounded repair loop with SLI counters, the
   deterministic quantifier ladder, and a sixty-term descriptor glossary whose

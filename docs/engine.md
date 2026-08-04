@@ -103,7 +103,7 @@ The caller is going to be a language model, so:
 
 ## Node reference
 
-20 nodes. Ranges are the clamps the engine applies; a value outside them is
+22 nodes. Ranges are the clamps the engine applies; a value outside them is
 clamped, not rejected.
 
 ### Utility
@@ -233,6 +233,116 @@ eliminates the clipped-attack artifact. `threshold_dbfs`, `ratio_to_1`,
 `release_ms` (1…10000), `lookahead_ms` (0…200), `hysteresis_db`,
 `sidechain_hp_hz`, `stereo_link`.
 
+**`multiband_compressor`** — one compressor per band, over the same
+**complementary linear-phase crossover** `stereo_width` uses. Each stage
+low-passes what is left and forms the remainder as (input delayed by the stage's
+own latency) minus that low band, so the bands sum back to a pure delay exactly,
+at every frequency.
+
+**The unity case is the specification, and it is measured, not asserted.** Three
+bands at 1:1 with 0 dB makeup null against the input at **−319.1 dB** — the
+arithmetic floor of float64, not a design target. That is what makes the node
+safe to reach for when one part of the spectrum misbehaves and the rest is
+already right: the bands nobody moved cost nothing. A Linkwitz-Riley split
+cannot do this, because an LR pair sums to an allpass and leaves a phase
+signature even with every band neutral.
+
+| Parameter | Range | Default |
+|---|---|---|
+| `bands` | 1…6 in the engine, 2…4 in the schema | — |
+| `lookahead_ms` | 0…200, shared by every band | 5 |
+| `stereo_link` | 0…1 | 1 |
+| `crossover_stopband_db` | 40…120 | 80 |
+
+Per band: `crossover_hz` (40…18000), `threshold_dbfs` (±80), `ratio_to_1` (≥ 1),
+`knee_db` (≥ 0), `attack_ms` (0.01…10000), `release_ms` (1…10000),
+`makeup_gain_db` (±80).
+
+- **`crossover_hz` is the band's UPPER edge**, and the last band's is not read —
+  a band that runs to Nyquist has no upper corner. Corners are **sorted**, not
+  pushed upward: `(6000, 200)` becomes `(200, 6000)`, which is what was meant.
+  Pushing each corner above the previous one would make it `(6000, 6300)` and
+  hand everything from 200 Hz to 6 kHz to the low band's settings.
+- **Align, then compress.** Each stage costs its own latency, so the bands
+  emerge staggered; every band is pulled back to the common total *before* its
+  detector runs. Compressing first and aligning afterwards reconstructs just as
+  exactly and is wrong: the low band would be reacting to a moment thousands of
+  samples away from the one the high band was reacting to. Every band would
+  measure correctly on its own.
+- **Lookahead is shared**, because per-band lookahead means per-band latency and
+  re-aligning after compression is the mistake above.
+- Latency is exactly the sum of the crossover stages plus the lookahead, both
+  integers. Measured: a 100 Hz corner declares 4456 frames, 1 kHz 370, 4 kHz
+  125. A bandless node declares 0.
+- **Cost is in the crossover, not the compressors.** The FIR's tap count grows
+  as 1/f, so a 40 Hz corner is ~12 000 taps. Corners are clamped to 40 Hz for
+  that reason; below that it is a rumble filter, not a band split.
+- A **one-band** multiband is bit-identical to `compressor` at the same
+  settings, which is the sharpest available statement that the detector reads
+  the right signal.
+- Measured in-band ASR at 0 dBFS is **−98.6 dB**, 1.4 dB short of the −100 dB
+  requirement below — same cause as `transient_designer` and much closer to it.
+  Tracked in `open-questions.md`.
+
+**`transient_designer`** — attack and sustain shaped by the *difference* between
+envelope followers of different time constants.
+
+**Not a compressor, and not a substitute for one.** A compressor's gain is a
+function of how loud the signal is; this node's is a function of how fast the
+level is *changing*. There is no threshold and adding one would be a category
+error: a hit 40 dB quieter is shaped identically, measured to **2.7e−15 dB**.
+The same two hits through a compressor differ by 9.3 dB.
+
+| Parameter | Range | Default |
+|---|---|---|
+| `attack_db` | ±18 | 0 |
+| `sustain_db` | ±18 | 0 |
+| `attack_ms` | 1…200 | 20 |
+| `sustain_ms` | 50…3000 | 250 |
+| `lookahead_ms` | 0…200 | 2 |
+| `stereo_link` | 0…1 | 1 |
+
+Three detectors, and which coefficient each pair shares is the whole design:
+
+```
+A = 1 − slowAttackEnv / fastEnv      rectified; positive only while rising
+S = 1 − fastEnv / slowReleaseEnv     positive only while falling
+gain_dB = attack_db * A + sustain_db * S
+```
+
+- **Both controls at zero is a bit-exact delay**, not "no measurable change":
+  the gain is `pow(10, 0/20)` and multiplying by one is the identity. There is
+  no early-out branch, so this is a property of the arithmetic rather than of a
+  special case no test can reach.
+- **Ratios, not dB differences.** Both differentials live in [0, 1) by
+  construction. A dB differential is unbounded and behaves worst exactly where
+  it matters — a hit rising out of silence puts the fast envelope 20–50 dB above
+  the slow one within a millisecond, so any usable control value slams into
+  whatever range clamp is bolted on and stops meaning anything. As a ratio the
+  same event saturates smoothly at 1, no clamp is needed, and `attack_db` means
+  literally what it says.
+- **A is rectified and S is not**, and the asymmetry is deliberate: `S` cannot
+  go negative, because `slowRelease` shares `fast`'s attack coefficient and
+  releases more slowly, so it dominates it at every sample — by induction and
+  bit-exactly, since IEEE rounding is monotone. A guard that can never fire
+  tells the reader the quantity can go negative when it provably cannot.
+- **The fast envelope's times are fixed** (0.5 ms attack, 30 ms release). They
+  are the reference the user's two times are measured against, so exposing them
+  would let a planner set the reference slower than the thing being referenced
+  and get silence from both controls.
+- **Known limit:** the detector is broadband, so once a waveform's period
+  approaches the fast envelope's release the envelope follows the *waveform*
+  rather than the envelope. With both controls at +12 dB a steady 1 kHz tone
+  moves **0.034 dB** and a steady 60 Hz tone moves **0.59 dB**. Send bass-led
+  material to `multiband_compressor`.
+- **This node does NOT meet the −100 dB aliasing requirement stated below.**
+  Measured in-band ASR at 0 dBFS is **−66.4 dB**, 34 dB short: the gain is a
+  ratio of two envelopes taken from a full-wave rectifier running at the base
+  rate, which is a sharper nonlinearity than a compressor's log-domain curve and
+  none of it is oversampled. Tracked in `open-questions.md`, gated as a known
+  failure in `ci/check_measurements.py`, and **not yet fixed**. It is the one
+  place this node is currently below the bar the rest of the engine holds.
+
 ### Character
 
 **`drive`** — ADAA order 2 with 4× oversampling, roughly the quality of 32×
@@ -247,9 +357,25 @@ piecewise polynomials rather than `tanh`.
 | `curve` | `soft_clip` \| `hard_clip` | `soft_clip` |
 | `oversample_factor` | — | 4 |
 
-Aliasing-to-signal ratio is asserted at ≤ −100 dB at 0 dBFS for every nonlinear
-node. The ASR test measures in-band and full-band separately, because counting
-ultrasonic fold-down as aliasing hides the real number.
+Aliasing-to-signal ratio is **measured** for every nonlinear node — the target
+is ≤ −100 dB at 0 dBFS, and **three nodes do not currently meet it**:
+`transient_designer` at −66.4 dB, `multiband_compressor` at −98.6, and `drive`
+at +12 dB into 4× oversampling scraping past at −100.4. See
+`docs/open-questions.md`.
+
+This paragraph used to say the requirement was "asserted for every nonlinear
+node". It was not, and had never been: the only node under an ASR gate was
+`drive`, at −83 to −95 dB. The measurement suite that would have shown this did
+not exist until it was built, and the sentence had been true of the intent
+rather than of the code for as long as it had been written down. A claim about
+what is enforced is worth exactly as much as the thing enforcing it.
+
+The ASR test measures in-band and full-band separately, because counting
+ultrasonic fold-down as aliasing hides the real number. Nonlinearity is
+detected rather than listed — homogeneity *and* superposition at four levels —
+because `transient_designer` is exactly homogeneous (its gain is a ratio of
+envelopes) and the obvious test would have excused it from the requirement it
+misses by the widest margin.
 
 ### Time and space
 

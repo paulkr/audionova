@@ -117,6 +117,109 @@ to run it against.
 
 ## Measurement gaps
 
+### Three nodes do not meet the −100 dB aliasing requirement
+
+`engine/tests/measurements.cpp` measures aliasing-to-signal ratio by sweeping a
+coherently-sampled tone at 0 dBFS and masking the harmonic loci, which is the
+plan's own method. The requirement is **ASR ≤ −100 dB at 0 dBFS for every
+nonlinear node**, and `docs/engine.md` states it as already asserted. It is not
+met by three of the eight nonlinear nodes, and one more passes by 0.4 dB:
+
+| node | in-band ASR @ 0 dBFS | against |
+|---|---|---|
+| `transient_designer` | **−66.4 dB** | −100 |
+| `multiband_compressor` | **−98.6 dB** | −100 |
+| `drive` (+12 dB, 4×) | −100.4 dB | −100, by 0.4 dB |
+| `drive` (defaults, 4×) | −105.1 dB | −100, by 5.1 dB |
+| `drive` (+12 dB, 16×) | −135.7 dB | comfortable |
+| `compressor` | −104.2 dB | passes |
+| `true_peak_limiter` | −123.7 dB | passes |
+| `dynamic_eq` | −107.8 dB | passes |
+
+`transient_designer` is the real one — 34 dB short, and it is the newest node in
+the engine. Its gain signal is a ratio of two envelopes, which is a much sharper
+nonlinearity than a compressor's log-domain curve, and none of it is
+oversampled. The other two are close enough that a modest amount of oversampling
+on the gain signal would very likely close them.
+
+The thresholds have not been moved. `ci/check_measurements.py` prints all three
+on every run under KNOWN FAILURES and fails the build if any of them gets worse
+by more than the tolerance.
+
+**What would resolve it:** oversample the gain-computation path in the three
+dynamics nodes, or band-limit the gain signal before it multiplies the audio.
+**Cost of being wrong:** `transient_designer` at −66 dB puts audible
+non-harmonic fizz into exactly the material it is used on — transients, which
+are broadband and where fold-down is least masked.
+
+**Also worth knowing:** `drive` barely moves between 4× and 16× at 0 dBFS
+(−100.4 against −135.7 is a large gap at the worst sweep step, but the in-band
+figure at most steps is dominated by the downsampling filter's stopband rather
+than by the factor). The oversampling *filter* is the binding constraint, not
+the oversampling *ratio* — mutating the filter's stopband from 120 dB to 40 dB
+costs 32 dB of ASR, while removing the oversampling entirely costs 35 dB.
+
+### The true-peak limiter overshoots its ceiling by 0.02 dB
+
+Measured with an independent 32× / 6145-tap reference meter written in the
+measurement harness and validated against the analytic answer (a sampled unit
+sinusoid reconstructs to exactly 0 dBTP; the reference is accurate to
+**0.0018 dB** across eight frequencies and five phases). On a 0 dBFS stress
+signal built around a tone at exactly f<sub>s</sub>/4 at 45°, the limiter set to
+a −1.0 dBTP ceiling delivers **−0.979 dBTP**.
+
+**The two meters disagree by exactly the overshoot.** On the same buffer the
+engine's own meter reports **−1.000 dBTP** — the ceiling, precisely — and the
+reference reports **−0.979**. The limiter is not failing to hit its target; it
+is hitting a target its instrument is reading 0.021 dB low. That is the whole
+mechanism, visible in one row of the report.
+
+This is small, and it is not nothing: the node's header states the overshoot is
+zero by construction, and the proof depends on its own internal meter seeing the
+true peak. That meter is 4× with a ~200-tap filter, and `open-questions.md`
+already records that it under-reads content above about 19 kHz. A limiter whose
+ceiling is enforced against an under-reading meter will let through exactly the
+amount the meter misses — which is what this measurement appears to show.
+
+**What would resolve it:** either lengthen the limiter's internal true-peak
+filter until its own error is below the margin it promises, or subtract the
+meter's known worst-case error from the ceiling as an explicit safety margin
+rather than defaulting `safety_margin_db` to 0.
+**Cost of being wrong:** 0.02 dB does not clip anything. It matters because the
+claim is *exactness*, and a delivery ceiling that is "usually" held is the
+failure mode the node exists to prevent.
+
+**A caveat on the reference, stated because the alternative is overclaiming.**
+The two meters agree to within 0.03 dB on twenty of the twenty-four
+configurations measured, and diverge to **0.10 dB on `drive`**, whose output is
+the most harmonically dense in the set — there in the other direction, with the
+engine's meter reading *higher*. Both are validated against sinusoids, where the
+analytic answer exists; neither has an analytic answer on broadband content, and
+comparing two approximations there tells you they disagree rather than which is
+right. The limiter case is the trustworthy one because its output is dominated
+by a single tone at f<sub>s</sub>/4, which is exactly the case both meters are
+validated on.
+
+### The aliasing sweep cannot see transient-only nonlinearity
+
+The ASR probe is a steady tone by construction — coherent sampling requires it.
+A node whose nonlinearity only appears during an envelope transition therefore
+measures clean: `gate_expander` reports **−250 dB**, which is true of a steady
+tone through an open gate and says nothing about what the gate does at the
+moment it opens.
+
+Partially mitigated: the suite also runs the sweep at whichever level the
+linearity probe found the node most nonlinear, which catches threshold-straddling
+behaviour that 0 dBFS misses (`dynamic_eq` goes from −107.8 dB at 0 dBFS to
+−71.4 dB at −40 dBFS on that probe). It does not catch anything that requires a
+*transient*.
+
+**What would resolve it:** a burst-based aliasing probe — a tone gated on and
+off, analysed with a windowed transform, accepting the leakage floor that comes
+with it and reporting a number that is only meaningful down to about −70 dB.
+**Cost of being wrong:** gate and transient artefacts are the ones listeners
+describe as "chattery", and nothing in the suite currently measures them.
+
 ### Distortion character is invisible
 
 The report can say a source has 8 kHz energy a clean version would lack. It
@@ -220,6 +323,101 @@ prediction**. It catches a chain arriving 15 dB hot; it will not catch a chain
 that arrives 4 dB hot through a compressor's makeup interacting with a drive
 stage.
 
+### Three checks in the Python stages cannot fire at all
+
+Found by mutation-testing `backend/verify/` and `backend/measure/`. Each of these
+reads as a second line of defence and is unreachable by construction, so deleting
+it is behaviour-preserving — which is why deleting it was the one mutation in
+each module that no test could catch.
+
+**1. The verify gate's mono-loss check.** `gate.verify` tests correlation first
+and mono loss in an `elif`, so the mono-loss branch only ever sees material that
+already cleared `MIN_CORRELATION = -0.2`. For channels of power `P_L` and `P_R`
+at correlation `r`, the loss beyond the arithmetic 3 dB is
+`-10*log10(1 + r*k)` with `k = 2*sqrt(P_L*P_R)/(P_L+P_R) <= 1`, maximised when
+the channels are equally loud. At `r = -0.2` that is **0.969 dB against a
+1.0 dB bar**, and unequal channel levels only reduce it. Confirmed empirically
+over a sweep of anti-correlation and channel-balance: no signal reaches the
+branch.
+
+The two constants are two spellings of one decision, and `test_verify.py` now
+says so, so loosening either without the other fails. What it does not do is
+give the branch a job. **The interesting version of this check is per-band**:
+`stereo.per_band` already reports mono loss per ERB band, and a mix that is
+broadband-fine while cancelling in the bottom two octaves — a bass DI with a
+phase-rotated double, a widened kick — is a real failure the broadband number
+cannot see. Resolving this means either wiring the check to the per-band figure
+or deleting it. It costs nothing to be wrong today, because the correlation bar
+catches everything the mono-loss bar would.
+
+**2. The empty-gate fallbacks in `loudness._gated_loudness` and
+`gating.gated_frame_mask`.** Both read `if not np.any(keep): ...` after
+`keep = above_absolute & (block_loudness > first_pass + RELATIVE_GATE)`. The
+first pass is `10*log10` of the **mean** of the linear block powers and the
+block loudnesses are `10*log10` of the individual ones, so the loudest block is
+always at or above the first pass and therefore always clears a *negative*
+relative offset. Checked over 20 000 random block sets: the minimum of
+`max(block_loudness) - first_pass` is exactly 0.0. `keep` is never empty.
+
+Harmless, and worth knowing before someone reads the fallback as evidence that
+the gate handles a case it never sees.
+
+### The true-peak meter's 8x oversampling at 48 kHz buys nothing measurable
+
+`_oversample_factor` returns 8 at or below 48 kHz and 4 above, justified in the
+docstring on the grounds that "the error of a 4x estimate grows toward Nyquist".
+Mutating it to 4 at 48 kHz was not caught, and strengthening the test did not
+change that, because **the two factors produce identical readings**: 0.0001 dB
+apart or exactly equal on unit sinusoids from 997 Hz to 23 kHz, on clipped pink
+noise, on a square wave and on an impulse train. The taps-per-phase is fixed at
+48, so raising the factor refines where the reconstruction is *sampled* without
+improving the filter, and the `max(peak, sample_peak)` floor supplies the answer
+in most of the cases where it would matter.
+
+Only one construction separated them — two tones at 20 and 23 kHz with the
+sample-peak floor disabled, 4x reading 0.126 dB low against 8x at 0.074 — and
+with the floor in place, as the meter actually runs, even that collapses to the
+same number.
+
+Either the justification is wrong and 4x everywhere would halve this
+measurement's cost, or there is material where it binds that has not been
+found. Resolving it needs a case where 8x is measurably better with the meter
+in its shipping configuration. It costs little to be wrong: the error is
+runtime, not accuracy.
+
+### The true-peak meter under-reads content above about 19 kHz
+
+Found while looking for the case above. The interpolation filter's passband
+reaches 0.95 of the base Nyquist, so the top kilohertz or two is attenuated in
+the reconstruction and the meter reports **less** than the true peak — the
+unsafe direction for a delivery ceiling.
+
+Two tones at 19 and 23 kHz have an exactly known continuous peak, because the
+band-limited reconstruction of their samples *is* that sum. The meter reads
+**0.86 dB below it**. A single tone hides this entirely: its sample peak is
+close enough to its true peak that the floor supplies the answer, which is why
+the analytic conformance case — which sweeps to 19 kHz and stops — reads
+0.0002 dB there.
+
+`test_loudness.py` now pins the limit so it cannot silently worsen. Whether it
+matters in practice depends on whether any real delivery has that much energy
+that close to Nyquist; a 44.1 or 48 kHz master usually does not, and the engine's
+own conversion filter rolls off at 20 kHz. The case that would matter is a
+render whose top octave was deliberately lifted.
+
+### `channel_weights` treats channel 4 of a 5.1 file as a surround
+
+`loudness.channel_weights` sets `weights[3]` and `weights[4]` to 1.41 for any
+layout of five channels or more. That is right for 5.0 (L, R, C, Ls, Rs) and
+wrong for **5.1** (L, R, C, LFE, Ls, Rs), where index 3 is the LFE — which
+BS.1770 excludes entirely — and Rs at index 5 is left at unity. The docstring
+says "LFE is excluded entirely"; no line of code excludes anything.
+
+Not reachable from the product, whose input is a mono or stereo stem, and the
+5.0 case is now asserted in `test_loudness.py`. Resolving it means either
+taking a channel layout as an argument or refusing more than five channels,
+because a count alone cannot distinguish 5.0 from 5.1.
+
 ### No proxy metric has been calibrated against human judgement
 
 The plan is firm: **no metric gates CI until it passes ρ > 0.6 against human MOS**,
@@ -233,6 +431,33 @@ Nothing here has been calibrated, because there is no human data. Every number i
 ---
 
 ## Performance and architecture
+
+### The cached prompt prefix grows with the node set, and its bound is not measured
+
+Every node type adds its parameter schema to the PLAN prefix — about **1,000
+estimated tokens each**. `test_planner.py` brackets that prefix, and the bracket
+has now had to move twice. It was `26,000 < tokens < 36,000` and the prefix was
+already at **35,388** with twenty node types, so `multiband_compressor` and
+`transient_designer` would have broken it whatever their descriptions said. It
+is now `< 44,000`, roughly six more nodes of headroom.
+
+Two things are unresolved and they compound:
+
+- **The bracket is around an ESTIMATE, not a measurement.** The live API reported
+  30,938 cached tokens once; everything since is `len(prefix) / 2.4`, a constant
+  fitted to that single observation. Nobody has re-measured, so the relationship
+  between the number the test checks and the number that is billed is a
+  four-month-old straight line through one point.
+- **The prefix grows without a budget.** Nothing decides how large it is allowed
+  to get; the test only notices afterwards. At some node count the cached prefix
+  stops being the cheap half, and the current mechanism will report that as a
+  test failure to be re-bracketed rather than as a design decision.
+
+Resolves by making one live call and reading the `cache_read_input_tokens`
+counter, then deciding a ceiling on purpose. Costs, if wrong: a per-call bill
+larger than the design assumed, discovered from an invoice rather than a test.
+The `SOURCE_NODES` list is the obvious lever — it is six headers chosen by hand,
+and neither of the two nodes added here is in it.
 
 ### The engine is invoked per render as a subprocess
 

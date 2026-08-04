@@ -95,6 +95,22 @@ PARAMS: dict[str, tuple[str, float, float, float, str]] = {
                     "1 links the channels so the image cannot wander; 0 is "
                     "fully independent"),
     "makeup_gain_db": ("dB", -24.0, 24.0, 0.0, "Applied after compression"),
+    # multiband_compressor bands
+    "crossover_hz": ("Hz", 40.0, 18000.0, 1000.0,
+                     "Upper edge of this band. List bands lowest first; the "
+                     "last band's value is not read"),
+    # transient_designer
+    "attack_db": ("dB", -18.0, 18.0, 0.0,
+                  "Gain on a fully-developed transient. Positive sharpens the "
+                  "attack, negative softens it"),
+    "sustain_db": ("dB", -18.0, 18.0, 0.0,
+                   "Gain on the body after the transient. Positive lengthens "
+                   "the tail, negative tightens it"),
+    "transient_attack_ms": ("ms", 1.0, 200.0, 20.0,
+                            "How long a transient is taken to last"),
+    "sustain_ms": ("ms", 50.0, 2000.0, 250.0,
+                   "How long the body after a transient is taken to last; "
+                   "roughly the decay time of the material"),
     # gate_expander
     "range_db": ("dB", 0.0, 80.0, 60.0, "Maximum attenuation when closed"),
     "hold_ms": ("ms", 0.0, 2000.0, 50.0, "Minimum time held open after opening"),
@@ -304,6 +320,51 @@ class CompressorParams(_Strict):
     detector: Literal["peak", "rms"] = "peak"
 
 
+class MultibandBand(_Strict):
+    """One band of the multiband compressor. `crossover_hz` is its UPPER edge."""
+
+    crossover_hz: float = _field("crossover_hz")
+    threshold_dbfs: float = _field("threshold_dbfs")
+    ratio_to_1: float = _field("ratio_to_1", default=2.0)
+    knee_db: float = _field("knee_db")
+    attack_ms: float = _field("attack_ms")
+    release_ms: float = _field("release_ms")
+    makeup_gain_db: float = _field("makeup_gain_db")
+
+
+class MultibandCompressorParams(_Strict):
+    """Compression per band, over a crossover that is exact at unity.
+
+    Only when one part of the spectrum misbehaves and the rest is already
+    right. Every band at 1:1 with 0 dB makeup returns the input unchanged, so
+    bands left alone cost nothing.
+    """
+
+    bands: list[MultibandBand] = Field(
+        default_factory=list, max_length=4,
+        description="Two to four bands, lowest first.",
+    )
+    lookahead_ms: float = _field("lookahead_ms")
+    stereo_link: float = _field("stereo_link")
+
+
+class TransientDesignerParams(_Strict):
+    """Attack and sustain shaping from the difference between two envelopes.
+
+    Not a compressor: the gain follows how fast the level is CHANGING, so there
+    is no threshold and a quiet hit is shaped like a loud one. Broadband
+    detection, so sustained low bass is modulated by its own waveform — send
+    bass-led material to multiband_compressor instead.
+    """
+
+    attack_db: float = _field("attack_db")
+    sustain_db: float = _field("sustain_db")
+    attack_ms: float = _field("transient_attack_ms")
+    sustain_ms: float = _field("sustain_ms")
+    lookahead_ms: float = _field("lookahead_ms", default=2.0)
+    stereo_link: float = _field("stereo_link")
+
+
 class GateExpanderParams(_Strict):
     threshold_dbfs: float = _field("threshold_dbfs", default=-40.0)
     ratio_to_1: float = _field("ratio_to_1", default=4.0)
@@ -407,6 +468,8 @@ PARAM_MODELS: dict[str, type[_Strict]] = {
     "linear_phase_eq": LinearPhaseEqParams,
     "dynamic_eq": DynamicEqParams,
     "compressor": CompressorParams,
+    "multiband_compressor": MultibandCompressorParams,
+    "transient_designer": TransientDesignerParams,
     "gate_expander": GateExpanderParams,
     "drive": DriveParams,
     "delay": DelayParams,
@@ -425,7 +488,8 @@ MASTER_ONLY = ("true_peak_limiter", "dither")
 NodeType = Literal[
     "gain", "pan", "polarity", "dc_block", "mono_to_stereo", "mid_side",
     "parametric_eq", "zero_phase_eq", "linear_phase_eq", "dynamic_eq",
-    "compressor", "gate_expander", "drive", "delay", "plate_reverb",
+    "compressor", "multiband_compressor", "transient_designer",
+    "gate_expander", "drive", "delay", "plate_reverb",
     "convolution_reverb", "chorus", "stereo_width", "true_peak_limiter",
     "dither",
 ]

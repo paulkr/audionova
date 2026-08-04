@@ -39,10 +39,12 @@
 #include "anv/nodes/LinearPhaseEQ.h"
 #include "anv/nodes/MidSide.h"
 #include "anv/nodes/MonoToStereo.h"
+#include "anv/nodes/MultibandCompressor.h"
 #include "anv/nodes/Pan.h"
 #include "anv/nodes/PlateReverb.h"
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
+#include "anv/nodes/TransientDesigner.h"
 #include "anv/nodes/Gain.h"
 #include "anv/nodes/ParametricEQ.h"
 #include "anv/nodes/ReferenceDelay.h"
@@ -212,6 +214,46 @@ std::vector<NodeSpec> registry() {
         .set("stereo_link", 1.0);
     p.setStr("detector", "peak");
     v.push_back({"gate_expander", [] { return std::make_unique<GateExpander>(); }, p});
+  }
+  {
+    // Crossovers deliberately HIGH (800 Hz / 5 kHz). The crossover FIR's group
+    // delay grows as 1/f, and the latency probe puts its impulse at frame 1000
+    // — a 120 Hz split declares 3400 frames of crossover latency, whose
+    // pre-ring would be clipped against the start of the buffer and fail an
+    // energy-centroid check for a reason that has nothing to do with latency.
+    // The low crossover gets its own check in test 25.
+    //
+    // Makeup gains differ per band on purpose: at equal makeup the impulse
+    // response collapses to a pure delay and the latency test would pass
+    // without ever exercising the crossover's reconstruction.
+    ParamSet p;
+    p.set("lookahead_ms", 3.0).set("stereo_link", 0.8)
+        .set("crossover_stopband_db", 80.0);
+    ParamSet b1; b1.set("crossover_hz", 800.0).set("threshold_dbfs", -24.0)
+                   .set("ratio_to_1", 3.0).set("knee_db", 6.0)
+                   .set("attack_ms", 30.0).set("release_ms", 250.0)
+                   .set("makeup_gain_db", 2.0);
+    ParamSet b2; b2.set("crossover_hz", 5000.0).set("threshold_dbfs", -20.0)
+                   .set("ratio_to_1", 2.5).set("knee_db", 4.0)
+                   .set("attack_ms", 8.0).set("release_ms", 120.0)
+                   .set("makeup_gain_db", 0.0);
+    ParamSet b3; b3.set("crossover_hz", 12000.0).set("threshold_dbfs", -18.0)
+                   .set("ratio_to_1", 2.0).set("knee_db", 3.0)
+                   .set("attack_ms", 2.0).set("release_ms", 80.0)
+                   .set("makeup_gain_db", -1.5);
+    p.addItem(b1).addItem(b2).addItem(b3);
+    v.push_back({"multiband_compressor",
+                 [] { return std::make_unique<MultibandCompressor>(); }, p});
+  }
+  {
+    // Both controls non-zero and of opposite sign, so the registry exercises a
+    // boost path and a cut path at once. A node tested at zero would satisfy
+    // every contract test while doing nothing at all.
+    ParamSet p;
+    p.set("attack_db", 6.0).set("sustain_db", -4.0).set("attack_ms", 20.0)
+        .set("sustain_ms", 250.0).set("lookahead_ms", 2.0).set("stereo_link", 1.0);
+    v.push_back({"transient_designer",
+                 [] { return std::make_unique<TransientDesigner>(); }, p});
   }
   {
     // A de-esser band, a static bell, and an upward shelf, so all three modes
@@ -4194,6 +4236,833 @@ void testLinearPhaseEq() {
   }
 }
 
+// 25. Multiband compressor correctness.
+
+ParamSet mbBand(double crossoverHz, double thresholdDb, double ratio,
+                double kneeDb, double attackMs, double releaseMs,
+                double makeupDb) {
+  ParamSet b;
+  b.set("crossover_hz", crossoverHz).set("threshold_dbfs", thresholdDb)
+      .set("ratio_to_1", ratio).set("knee_db", kneeDb)
+      .set("attack_ms", attackMs).set("release_ms", releaseMs)
+      .set("makeup_gain_db", makeupDb);
+  return b;
+}
+
+ParamSet mbParams(std::initializer_list<ParamSet> bands, double lookaheadMs,
+                  double stereoLink = 1.0) {
+  ParamSet p;
+  p.set("lookahead_ms", lookaheadMs).set("stereo_link", stereoLink)
+      .set("crossover_stopband_db", 80.0);
+  for (const ParamSet& b : bands) p.addItem(b);
+  return p;
+}
+
+AudioBuffer runMultiband(const ParamSet& p, const AudioBuffer& in) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "mb";
+  chain.add(std::unique_ptr<Node>(new MultibandCompressor()), p, cfg);
+  chain.prepare(makeSpec(in.channels(), 1024, in.frames()));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+  return out;
+}
+
+int mbLatency(const ParamSet& p, int channels = 2) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "mb";
+  chain.add(std::unique_ptr<Node>(new MultibandCompressor()), p, cfg);
+  chain.prepare(makeSpec(channels, 1024, 4096));
+  return chain.totalLatencyFrames();
+}
+
+double windowRmsDb(const AudioBuffer& b, int channel, int64_t from, int64_t to) {
+  double s = 0.0;
+  for (int64_t i = from; i < to; ++i)
+    s += b.channel(channel)[i] * b.channel(channel)[i];
+  return 10.0 * std::log10(std::max(s / static_cast<double>(to - from), 1e-300));
+}
+
+void testMultibandCompressor() {
+  const int64_t n = 65536;
+  AudioBuffer in(2, n);
+  {
+    CounterRng rng(4711);
+    for (int c = 0; c < 2; ++c) {
+      double lp = 0.0;
+      for (int64_t i = 0; i < n; ++i) {
+        const double white = rng.bipolar(c, i);
+        lp = 0.995 * lp + 0.005 * white; // real weight under the crossovers
+        const double t = static_cast<double>(i) / kCanonicalSampleRate;
+        in.channel(c)[i] = 0.25 * (white + 8.0 * lp) +
+                           0.15 * std::sin(2.0 * M_PI * 55.0 * t + c) +
+                           0.10 * std::sin(2.0 * M_PI * 7000.0 * t);
+      }
+    }
+  }
+
+  // --- (a) THE UNITY NULL --------------------------------------------------
+  //
+  // The claim the whole crossover design exists to keep: three bands, every one
+  // at 1:1 with 0 dB makeup, and the node must return its input DELAYED —
+  // not "flat within a dB", not "phase-shifted but magnitude-flat". The bands
+  // carry different attack and release times and the lookahead is non-zero, so
+  // every piece of per-band machinery is running; it just has nothing to say.
+  //
+  // Note the last band's `crossover_hz`: it is deliberately absurd, because it
+  // is the one value in the parameter set that is never read. A band that runs
+  // to Nyquist has no upper corner.
+  {
+    const ParamSet unity = mbParams({mbBand(120.0, -18.0, 1.0, 6.0, 30.0, 250.0, 0.0),
+                                     mbBand(2500.0, -18.0, 1.0, 6.0, 8.0, 120.0, 0.0),
+                                     mbBand(-999.0, -18.0, 1.0, 6.0, 2.0, 80.0, 0.0)},
+                                    5.0);
+    const AudioBuffer out = runMultiband(unity, in);
+    const double diff = maxAbsDiff(in, out, n);
+    const double nullDb = 20.0 * std::log10(std::max(diff, 1e-300));
+    std::printf("       multiband: three bands at 1:1 null against the input at "
+                "%.1f dB\n", nullDb);
+    check(nullDb < -180.0,
+          "multiband: unity through the crossover reconstructs exactly (null " +
+              std::to_string(nullDb) + " dB)");
+
+    // AND THE COMPARISON IS NOT VACUOUS. If the node were a pass-through the
+    // null above would also be perfect, so something has to prove the bands
+    // are separable at all: 1 dB of makeup on one band alone must break it by
+    // roughly that dB.
+    ParamSet tilted = mbParams({mbBand(120.0, -18.0, 1.0, 6.0, 30.0, 250.0, 1.0),
+                                mbBand(2500.0, -18.0, 1.0, 6.0, 8.0, 120.0, 0.0),
+                                mbBand(-999.0, -18.0, 1.0, 6.0, 2.0, 80.0, 0.0)},
+                               5.0);
+    const AudioBuffer tiltedOut = runMultiband(tilted, in);
+    const double tiltedDiff = maxAbsDiff(in, tiltedOut, n);
+    check(tiltedDiff > 0.001,
+          "multiband: 1 dB of makeup on the low band alone genuinely changes "
+          "the output, so the null is a measurement (" +
+              std::to_string(tiltedDiff) + ")");
+  }
+
+  // --- (b) each band's makeup lands in its own band -------------------------
+  //
+  // With every band at 1:1 the node is exactly a three-band linear-phase gain
+  // stage, so the steady-state gain at a frequency inside band k must be that
+  // band's makeup and nothing else. This is what says the crossover SPLITS
+  // rather than merely reconstructs — an implementation that sent the whole
+  // signal through band 0 would still null perfectly in (a).
+  {
+    auto mb = [] { return std::unique_ptr<Node>(new MultibandCompressor()); };
+    const ParamSet gains =
+        mbParams({mbBand(150.0, -18.0, 1.0, 0.0, 30.0, 250.0, 6.0),
+                  mbBand(2500.0, -18.0, 1.0, 0.0, 8.0, 120.0, 0.0),
+                  mbBand(-999.0, -18.0, 1.0, 0.0, 2.0, 80.0, -4.0)},
+                 5.0);
+
+    const double lowHz = snapHz(45.0, 16384);
+    const double midHz = snapHz(800.0, 16384);
+    const double highHz = snapHz(10000.0, 16384);
+    const double lowDb = measureTwoSidedGainDb(mb, gains, lowHz);
+    const double midDb = measureTwoSidedGainDb(mb, gains, midHz);
+    const double highDb = measureTwoSidedGainDb(mb, gains, highHz);
+    std::printf("       multiband band gains: %.0f Hz %+.4f dB (want +6), "
+                "%.0f Hz %+.4f dB (want 0), %.0f Hz %+.4f dB (want -4)\n",
+                lowHz, lowDb, midHz, midDb, highHz, highDb);
+
+    checkNear(lowDb, 6.0, 0.05, "multiband: the low band's makeup lands below the "
+                                "first crossover");
+    checkNear(midDb, 0.0, 0.05, "multiband: the mid band is untouched");
+    checkNear(highDb, -4.0, 0.05, "multiband: the high band's makeup lands above "
+                                  "the second crossover");
+  }
+
+  // --- (c) the bands compress independently --------------------------------
+  //
+  // THE ONLY REASON THIS NODE EXISTS. A loud 50 Hz tone and a quiet 8 kHz tone:
+  // a broadband compressor ducks the 8 kHz tone every time the bass moves,
+  // which is the pumping a multiband is bought to avoid. Measured against a
+  // NULL RENDER — the same node with every band at 1:1 — rather than against
+  // the raw source, so the crossover's own (zero) contribution cannot be read
+  // as compression.
+  {
+    constexpr size_t kN = 32768;
+    constexpr int64_t kSettle = 65536;
+    const int64_t total = kSettle + static_cast<int64_t>(kN);
+    auto binOf = [](double hz) {
+      return static_cast<size_t>(std::round(hz * static_cast<double>(kN) /
+                                            kCanonicalSampleRate));
+    };
+    const size_t lowBin = binOf(50.0), highBin = binOf(8000.0);
+    const double lowHz =
+        static_cast<double>(lowBin) * kCanonicalSampleRate / static_cast<double>(kN);
+    const double highHz =
+        static_cast<double>(highBin) * kCanonicalSampleRate / static_cast<double>(kN);
+
+    AudioBuffer tones(1, total);
+    for (int64_t i = 0; i < total; ++i) {
+      const double t = static_cast<double>(i) / kCanonicalSampleRate;
+      tones.channel(0)[i] = 0.6 * std::sin(2.0 * M_PI * lowHz * t) +
+                            0.02 * std::sin(2.0 * M_PI * highHz * t);
+    }
+
+    auto binDb = [&](const AudioBuffer& buf, size_t bin) {
+      const auto pw = powerSpectrum(buf.channel(0) + kSettle, kN);
+      return 10.0 * std::log10(std::max(pw[bin], 1e-300));
+    };
+
+    const ParamSet flat = mbParams({mbBand(150.0, -30.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                    mbBand(2500.0, -30.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                    mbBand(-999.0, -30.0, 1.0, 0.0, 20.0, 200.0, 0.0)},
+                                   3.0);
+    const ParamSet lowOnly = mbParams({mbBand(150.0, -30.0, 8.0, 0.0, 20.0, 200.0, 0.0),
+                                       mbBand(2500.0, -30.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                       mbBand(-999.0, -30.0, 1.0, 0.0, 20.0, 200.0, 0.0)},
+                                      3.0);
+
+    const AudioBuffer nullRender = runMultiband(flat, tones);
+    const AudioBuffer squashed = runMultiband(lowOnly, tones);
+
+    const double lowChange = binDb(squashed, lowBin) - binDb(nullRender, lowBin);
+    const double highChange = binDb(squashed, highBin) - binDb(nullRender, highBin);
+
+    // The reference: one broadband compressor at the same threshold and ratio.
+    Chain wide;
+    Chain::SlotConfig wideCfg;
+    wideCfg.nodeId = "wide";
+    wide.add(std::make_unique<Compressor>(),
+             compressorParams(-30.0, 8.0, 0.0, 20.0, 200.0, 3.0), wideCfg);
+    wide.prepare(makeSpec(1, 1024, total));
+    AudioBuffer wideOut;
+    wide.render(tones, wideOut, 1024);
+    const double wideHighChange = binDb(wideOut, highBin) - binDb(tones, highBin);
+
+    std::printf("       multiband selectivity: 50 Hz %+.2f dB, 8 kHz %+.3f dB; "
+                "the same move broadband costs the 8 kHz tone %+.2f dB\n",
+                lowChange, highChange, wideHighChange);
+
+    check(lowChange < -8.0,
+          "multiband: the low band is genuinely compressed (" +
+              std::to_string(lowChange) + " dB)");
+    check(std::abs(highChange) < 0.1,
+          "multiband: and the high band is untouched while it happens (" +
+              std::to_string(highChange) + " dB)");
+    check(wideHighChange < -8.0,
+          "and a broadband compressor really does duck the high tone, so the "
+          "comparison is not vacuous (" + std::to_string(wideHighChange) + " dB)");
+  }
+
+  // --- (d) one band is bit-identical to the plain compressor ---------------
+  //
+  // A one-band multiband has no crossover to run, so it must reduce to exactly
+  // the node it is built out of — BIT exactly, since the arithmetic is the same
+  // arithmetic. This is the sharpest available statement that the detector sees
+  // the right signal: feed it the delayed audio instead of the undelayed band
+  // and the lookahead stops anticipating, which no spectrum-shaped assertion
+  // would notice but this does immediately.
+  {
+    const ParamSet single = mbParams({mbBand(-999.0, -24.0, 4.0, 6.0, 5.0, 150.0, 3.0)},
+                                     4.0, 0.8);
+    const AudioBuffer mbOut = runMultiband(single, in);
+
+    ParamSet wide = compressorParams(-24.0, 4.0, 6.0, 5.0, 150.0, 4.0);
+    wide.set("stereo_link", 0.8).set("makeup_gain_db", 3.0);
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "cmp";
+    chain.add(std::make_unique<Compressor>(), wide, cfg);
+    chain.prepare(makeSpec(2, 1024, n));
+    AudioBuffer wideOut;
+    chain.render(in, wideOut, 1024);
+
+    const double diff = maxAbsDiff(mbOut, wideOut, n);
+    check(diff == 0.0,
+          "multiband: a single band is bit-identical to the plain compressor "
+          "(diff " + std::to_string(diff) + ")");
+    check(mbLatency(single) == mbLatency(single, 1) &&
+              mbLatency(single) == static_cast<int>(std::lround(4.0 * 96.0)),
+          "multiband: and declares only the lookahead, " +
+              std::to_string(mbLatency(single)) + " frames");
+  }
+
+  // --- (e) the bands are time-aligned with each other ----------------------
+  //
+  // Each crossover stage costs its own latency, so the bands emerge staggered
+  // by thousands of samples and have to be pulled back together BEFORE their
+  // detectors run. The evidence is the raw impulse response: every band is a
+  // symmetric linear-phase kernel, so if — and only if — they all sit on the
+  // same centre does their sum stay symmetric about the declared latency. A
+  // band left at its own latency shifts one kernel and the sum goes lopsided.
+  {
+    const ParamSet gains = mbParams({mbBand(800.0, -18.0, 1.0, 0.0, 30.0, 250.0, 4.0),
+                                     mbBand(5000.0, -18.0, 1.0, 0.0, 8.0, 120.0, 0.0),
+                                     mbBand(-999.0, -18.0, 1.0, 0.0, 2.0, 80.0, -3.0)},
+                                    2.0);
+    const RawResponse r = rawResponse(std::make_unique<MultibandCompressor>(),
+                                      gains, 8192, 2048);
+    const double asym = symmetryError(r, 1024);
+    std::printf("       multiband: impulse response asymmetry about the declared "
+                "latency %d is %.3e of peak\n", r.latency, asym);
+    check(asym < 1e-9,
+          "multiband: the bands are aligned, so the response is symmetric about "
+          "the declared latency (worst " + std::to_string(asym) + " of peak)");
+  }
+
+  // --- (f) declared latency describes what the node actually does ----------
+  {
+    const ParamSet none = mbParams({}, 5.0);
+    check(mbLatency(none) == 0,
+          "multiband: a bandless multiband declares no latency at all (" +
+              std::to_string(mbLatency(none)) + ")");
+
+    auto twoBandsAt = [](double crossoverHz, double lookaheadMs) {
+      return mbParams({mbBand(crossoverHz, -18.0, 2.0, 6.0, 20.0, 200.0, 0.0),
+                       mbBand(-999.0, -18.0, 2.0, 6.0, 20.0, 200.0, 0.0)},
+                      lookaheadMs);
+    };
+
+    // Lookahead is added to the crossover, exactly, in whole samples.
+    const int noLook = mbLatency(twoBandsAt(1000.0, 0.0));
+    const int look5 = mbLatency(twoBandsAt(1000.0, 5.0));
+    check(look5 - noLook == static_cast<int>(std::lround(5.0 * 0.001 * kCanonicalSampleRate)),
+          "multiband: lookahead adds exactly its own sample count (" +
+              std::to_string(look5 - noLook) + ")");
+
+    // A lower crossover needs a longer FIR and must say so. A node that
+    // declared a fixed number would pass every other check here.
+    const int low = mbLatency(twoBandsAt(100.0, 0.0));
+    const int high = mbLatency(twoBandsAt(4000.0, 0.0));
+    std::printf("       multiband crossover latency: 100 Hz -> %d frames, "
+                "1 kHz -> %d, 4 kHz -> %d\n", low, noLook, high);
+    check(low > 5 * high,
+          "multiband: a low crossover declares proportionally more latency (" +
+              std::to_string(low) + " vs " + std::to_string(high) + ")");
+  }
+
+  // --- (g) crossovers out of order are sorted, not stacked -----------------
+  //
+  // The caller is a language model, so descending corners will happen. The
+  // repair has to be the RIGHT one, and reconstruction cannot tell the two
+  // candidates apart: the complementary subtraction is an identity, so it holds
+  // for any filter anywhere, including one placed somewhere nobody meant.
+  //
+  // Pushing each corner above the previous one turns (6000, 200) into
+  // (6000, 6300): the mid band becomes a 300 Hz sliver and everything from
+  // 200 Hz to 6 kHz is silently handled by the LOW band's settings. Sorting
+  // turns it into (200, 6000), which is what was written. The probe at 1 kHz is
+  // the only place the two differ, and it differs by the whole band gain.
+  {
+    auto mb = [] { return std::unique_ptr<Node>(new MultibandCompressor()); };
+    const ParamSet backwards =
+        mbParams({mbBand(6000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 6.0),
+                  mbBand(200.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                  mbBand(-999.0, -18.0, 1.0, 0.0, 20.0, 200.0, -4.0)},
+                 2.0);
+
+    const AudioBuffer out = runMultiband(backwards, in);
+    const double nullDb =
+        20.0 * std::log10(std::max(maxAbsDiff(in, runMultiband(
+                                       mbParams({mbBand(6000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                                 mbBand(200.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                                 mbBand(-999.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0)},
+                                                2.0), in), n), 1e-300));
+    check(nullDb < -180.0,
+          "multiband: descending crossovers still reconstruct exactly (" +
+              std::to_string(nullDb) + " dB)");
+    check(peak(out) > 0.0, "multiband: and still produce audio");
+
+    const double lowDb = measureTwoSidedGainDb(mb, backwards, snapHz(80.0, 16384));
+    const double midDb = measureTwoSidedGainDb(mb, backwards, snapHz(1000.0, 16384));
+    const double highDb = measureTwoSidedGainDb(mb, backwards, snapHz(12000.0, 16384));
+    std::printf("       multiband with corners written (6000, 200): 80 Hz "
+                "%+.3f dB, 1 kHz %+.3f dB, 12 kHz %+.3f dB\n",
+                lowDb, midDb, highDb);
+    checkNear(lowDb, 6.0, 0.05,
+              "multiband: out-of-order corners are SORTED, so the low band is "
+              "still below 200 Hz");
+    checkNear(midDb, 0.0, 0.05,
+              "multiband: and 1 kHz is still the mid band rather than being "
+              "swept into the low band's settings");
+    checkNear(highDb, -4.0, 0.05, "multiband: and the high band is unchanged");
+  }
+
+  // --- (h) identical corners still leave a real band between them ----------
+  //
+  // A defence tested where it BINDS, which is the lesson from the linear-phase
+  // EQ's design window in findings.md. Removing the minimum spacing survived
+  // every check above, because nothing above ever wrote two corners at the same
+  // frequency — and everywhere else the spacing is a 5% shift inside a
+  // transition band a full octave wide, which is nothing at all.
+  //
+  // Where it binds is exactly there: two stages at the same corner are the same
+  // filter twice, so the band between them is the product of a low-pass and its
+  // own complement rather than a band. Measured, with the mid band at +12 dB
+  // makeup: 1030 Hz reads +5.64 dB spaced and +4.77 dB unspaced.
+  {
+    MultibandCompressor node;
+    node.prepare(makeSpec(1, 1024, 4096));
+    node.setParams(mbParams({mbBand(1000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                             mbBand(1000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 12.0),
+                             mbBand(-999.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0)},
+                            0.0));
+    const std::vector<double>& corners = node.crossoverFrequencies();
+    check(corners.size() == 2 && corners[1] > corners[0],
+          "multiband: two corners written at the same frequency come back "
+          "strictly increasing (" + std::to_string(corners.empty() ? 0.0 : corners[0]) +
+              ", " + std::to_string(corners.size() < 2 ? 0.0 : corners[1]) + ")");
+
+    // And the same statement in the audio, so the check above cannot be
+    // satisfied by a getter that is right while the filters are not.
+    auto mb = [] { return std::unique_ptr<Node>(new MultibandCompressor()); };
+    const ParamSet stacked =
+        mbParams({mbBand(1000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                  mbBand(1000.0, -18.0, 1.0, 0.0, 20.0, 200.0, 12.0),
+                  mbBand(-999.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0)},
+                 0.0);
+    const double midDb = measureTwoSidedGainDb(mb, stacked, snapHz(1030.0, 16384));
+    std::printf("       multiband with both corners at 1 kHz: the +12 dB mid "
+                "band still reads %+.4f dB at 1030 Hz (unspaced it is +4.77)\n",
+                midDb);
+    check(midDb > 5.2,
+          "multiband: the band between two identical corners is narrow but real (" +
+              std::to_string(midDb) + " dB)");
+  }
+}
+
+// 26. Transient designer correctness.
+
+ParamSet tdParams(double attackDb, double sustainDb, double attackMs,
+                  double sustainMs, double lookaheadMs, double stereoLink = 1.0) {
+  ParamSet p;
+  p.set("attack_db", attackDb).set("sustain_db", sustainDb)
+      .set("attack_ms", attackMs).set("sustain_ms", sustainMs)
+      .set("lookahead_ms", lookaheadMs).set("stereo_link", stereoLink);
+  return p;
+}
+
+AudioBuffer runTransient(const ParamSet& p, const AudioBuffer& in) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "td";
+  chain.add(std::unique_ptr<Node>(new TransientDesigner()), p, cfg);
+  chain.prepare(makeSpec(in.channels(), 1024, in.frames()));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+  return out;
+}
+
+// A drum-like hit: instantaneous onset, exponential decay, two partials so the
+// envelope is not a pure sinusoid's. Cosines, so the very first sample is the
+// peak — the onset has to be a genuine step or there is no transient to shape.
+void addHit(AudioBuffer& b, int64_t onset, double amp, double decayS) {
+  for (int64_t i = onset; i < b.frames(); ++i) {
+    const double t = static_cast<double>(i - onset) / kCanonicalSampleRate;
+    const double env = std::exp(-t / decayS);
+    b.channel(0)[i] += amp * env *
+                       (0.6 * std::cos(2.0 * M_PI * 180.0 * t) +
+                        0.4 * std::cos(2.0 * M_PI * 1450.0 * t));
+  }
+}
+
+AudioBuffer transientHit(int64_t frames, int64_t onset, double amp,
+                         double decayS) {
+  AudioBuffer b(1, frames);
+  addHit(b, onset, amp, decayS);
+  return b;
+}
+
+void testTransientDesigner() {
+  const int64_t frames = 65536;
+  const int64_t onset = 8192;
+  const int64_t ms = static_cast<int64_t>(kCanonicalSampleRate / 1000.0);
+
+  // Peak of the leading edge, and RMS of the body well after it.
+  auto peakDb = [&](const AudioBuffer& b) {
+    double pk = 0.0;
+    for (int64_t i = onset; i < onset + 3 * ms; ++i)
+      pk = std::max(pk, std::abs(b.channel(0)[i]));
+    return 20.0 * std::log10(std::max(pk, 1e-300));
+  };
+  auto bodyDb = [&](const AudioBuffer& b) {
+    return windowRmsDb(b, 0, onset + 60 * ms, onset + 200 * ms);
+  };
+
+  // --- (a) BOTH CONTROLS AT ZERO IS A BIT-EXACT DELAY ----------------------
+  //
+  // The property that decides whether this node can sit in a chain by default.
+  // Not "no measurable level change" — bit exact, because the gain is
+  // pow(10, 0/20) and multiplying by one is the identity. The times and the
+  // lookahead are deliberately non-trivial, so all three detectors and the
+  // delay line are running the whole time and still change nothing.
+  {
+    const AudioBuffer hit = transientHit(frames, onset, 0.5, 0.08);
+    const AudioBuffer out = runTransient(tdParams(0.0, 0.0, 25.0, 300.0, 3.0), hit);
+    const double diff = maxAbsDiff(hit, out, frames);
+    const double levelChange = windowRmsDb(out, 0, 0, frames) -
+                               windowRmsDb(hit, 0, 0, frames);
+    std::printf("       transient designer at 0/0: level change %+.4f dB, worst "
+                "sample difference %.3e\n", levelChange, diff);
+    check(diff == 0.0,
+          "transient designer: both controls at zero is a bit-exact delay (worst "
+          "difference " + std::to_string(diff) + ")");
+    check(levelChange == 0.0,
+          "transient designer: and therefore exactly no level change (" +
+              std::to_string(levelChange) + " dB)");
+
+    // Not vacuous: the same signal with the controls up must move.
+    const AudioBuffer shaped =
+        runTransient(tdParams(6.0, -6.0, 25.0, 300.0, 3.0), hit);
+    check(maxAbsDiff(hit, shaped, frames) > 0.01,
+          "transient designer: and the controls do something when they are not "
+          "zero, so the null above is a measurement");
+  }
+
+  // --- (b) attack moves the leading edge and only the leading edge ---------
+  {
+    const AudioBuffer hit = transientHit(frames, onset, 0.5, 0.08);
+    const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 2.0), hit);
+    const AudioBuffer up = runTransient(tdParams(6.0, 0.0, 20.0, 250.0, 2.0), hit);
+    const AudioBuffer down = runTransient(tdParams(-6.0, 0.0, 20.0, 250.0, 2.0), hit);
+
+    const double upPeak = peakDb(up) - peakDb(flat);
+    const double downPeak = peakDb(down) - peakDb(flat);
+    const double upBody = bodyDb(up) - bodyDb(flat);
+    std::printf("       transient attack +/-6 dB: peak %+.2f / %+.2f dB, body "
+                "%+.4f dB\n", upPeak, downPeak, upBody);
+
+    // A fully-developed transient gets close to the whole control value; the
+    // shortfall is the differential not having quite reached 1, which is a
+    // property of the material rather than of the node.
+    check(upPeak > 4.5 && upPeak <= 6.05,
+          "transient designer: +6 dB of attack lifts the leading edge by " +
+              std::to_string(upPeak) + " dB");
+    check(downPeak < -4.5 && downPeak >= -6.05,
+          "transient designer: -6 dB of attack softens it by " +
+              std::to_string(downPeak) + " dB");
+    // THE HALF-WAVE RECTIFICATION, measured. Through the decay the attack
+    // differential is negative, so an unrectified version would quietly cut the
+    // body every time the attack was boosted — an attack control that is also
+    // a sustain control, which nobody would think to check for.
+    check(std::abs(upBody) < 0.05,
+          "transient designer: and leaves the body alone (" +
+              std::to_string(upBody) + " dB)");
+  }
+
+  // --- (c) sustain moves the body and only the body ------------------------
+  {
+    const AudioBuffer hit = transientHit(frames, onset, 0.5, 0.08);
+    const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 2.0), hit);
+    const AudioBuffer up = runTransient(tdParams(0.0, 6.0, 20.0, 250.0, 2.0), hit);
+    const AudioBuffer down = runTransient(tdParams(0.0, -6.0, 20.0, 250.0, 2.0), hit);
+
+    const double upBody = bodyDb(up) - bodyDb(flat);
+    const double downBody = bodyDb(down) - bodyDb(flat);
+    const double upPeak = peakDb(up) - peakDb(flat);
+    std::printf("       transient sustain +/-6 dB: body %+.2f / %+.2f dB, peak "
+                "%+.3f dB\n", upBody, downBody, upPeak);
+
+    check(upBody > 2.0, "transient designer: +6 dB of sustain lifts the body by " +
+                            std::to_string(upBody) + " dB");
+    check(downBody < -2.0, "transient designer: -6 dB tightens it by " +
+                               std::to_string(downBody) + " dB");
+    check(std::abs(upPeak) < 0.3,
+          "transient designer: and leaves the leading edge alone (" +
+              std::to_string(upPeak) + " dB)");
+  }
+
+  // --- (d) the shaping is LEVEL-INDEPENDENT --------------------------------
+  //
+  // The one property that separates this node from a compressor, and the reason
+  // it has no threshold. The differentials are RATIOS of envelopes, so a hit
+  // 40 dB quieter is shaped identically. A compressor cannot do that at any
+  // setting — which is what the reference below establishes, so the assertion
+  // is about this node rather than about arithmetic in general.
+  {
+    const ParamSet shape = tdParams(6.0, -6.0, 20.0, 250.0, 2.0);
+    // Both halves of the shaping, against each hit's OWN null render, so the
+    // hits' identical intrinsic peak-to-body ratio cannot carry the comparison.
+    auto shapingDb = [&](double amp, double& bodyOut) {
+      const AudioBuffer hit = transientHit(frames, onset, amp, 0.08);
+      const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 2.0), hit);
+      const AudioBuffer out = runTransient(shape, hit);
+      bodyOut = bodyDb(out) - bodyDb(flat);
+      return peakDb(out) - peakDb(flat);
+    };
+    double loudBody = 0.0, quietBody = 0.0;
+    const double loudPeak = shapingDb(0.5, loudBody);
+    const double quietPeak = shapingDb(0.005, quietBody); // 40 dB down
+
+    // The reference: a compressor, measured the same way. Its threshold is a
+    // fixed level, so the quiet hit sits entirely underneath it and comes back
+    // untouched while the loud one is squashed. Without this the assertion
+    // above would be satisfied by any processor that happened to be linear.
+    auto compressorPeakDb = [&](double amp) {
+      const AudioBuffer hit = transientHit(frames, onset, amp, 0.08);
+      auto chain = compressorChain(compressorParams(-18.0, 10.0, 0.0, 1.0, 10.0, 2.0),
+                                   1, frames);
+      AudioBuffer out;
+      chain->render(hit, out, 1024);
+      return peakDb(out) - peakDb(hit);
+    };
+    const double compLoud = compressorPeakDb(0.5);
+    const double compQuiet = compressorPeakDb(0.005);
+
+    std::printf("       transient level independence: peak %+.4f / %+.4f dB and "
+                "body %+.4f / %+.4f dB at -6 and -46 dBFS (deltas %.1e, %.1e); a "
+                "compressor's peak change differs by %.2f dB across the same "
+                "two hits\n", loudPeak, quietPeak, loudBody, quietBody,
+                std::abs(loudPeak - quietPeak), std::abs(loudBody - quietBody),
+                std::abs(compLoud - compQuiet));
+
+    check(std::abs(loudPeak - quietPeak) < 0.02 &&
+              std::abs(loudBody - quietBody) < 0.02,
+          "transient designer: a hit 40 dB quieter is shaped identically (peak " +
+              std::to_string(std::abs(loudPeak - quietPeak)) + " dB, body " +
+              std::to_string(std::abs(loudBody - quietBody)) + " dB apart)");
+    check(std::abs(compLoud - compQuiet) > 3.0,
+          "and a compressor genuinely treats them differently, so the claim is "
+          "not something every processor satisfies (" +
+              std::to_string(std::abs(compLoud - compQuiet)) + " dB)");
+  }
+
+  // --- (e) steady state is left alone, and where it is not ------------------
+  //
+  // A tone that never changes has no transient and no decay, so both
+  // differentials should be zero. They are not exactly zero, and the reason is
+  // worth stating rather than hiding: the detector is BROADBAND, so once a
+  // waveform's period approaches the fast envelope's release the envelope
+  // follows the WAVEFORM instead of the envelope. The number below is measured
+  // at both ends and recorded in findings.md.
+  {
+    auto steadyChangeDb = [&](double hz) {
+      const int64_t total = 8 * 65536;
+      AudioBuffer tone(1, total);
+      for (int64_t i = 0; i < total; ++i)
+        tone.channel(0)[i] = 0.3 * std::sin(2.0 * M_PI * hz *
+                                            static_cast<double>(i) / kCanonicalSampleRate);
+      const AudioBuffer out = runTransient(tdParams(12.0, 12.0, 20.0, 250.0, 0.0), tone);
+      return windowRmsDb(out, 0, total / 2, total) -
+             windowRmsDb(tone, 0, total / 2, total);
+    };
+    const double at1k = steadyChangeDb(1000.0);
+    const double at60 = steadyChangeDb(60.0);
+    std::printf("       transient designer on a steady tone, both controls at "
+                "+12 dB: 1 kHz %+.3f dB, 60 Hz %+.2f dB\n", at1k, at60);
+    check(std::abs(at1k) < 0.15,
+          "transient designer: a steady 1 kHz tone is essentially untouched (" +
+              std::to_string(at1k) + " dB)");
+    // Asserted as a RATIO to the 1 kHz figure rather than as an absolute, so
+    // the check is about the shape of the limit — it grows as the period
+    // approaches the fast envelope's release — rather than about a number that
+    // would have to be re-tuned every time a constant moved. This is the node's
+    // real limit and the reason bass-led material belongs in
+    // `multiband_compressor`.
+    check(at60 > 5.0 * std::abs(at1k) && at60 < 2.0,
+          "transient designer: and a steady 60 Hz tone is NOT, by " +
+              std::to_string(at60) + " dB against " + std::to_string(at1k) +
+              " at 1 kHz (the documented broadband limit)");
+  }
+
+  // --- (f) lookahead is exact, and it actually anticipates ------------------
+  //
+  // Latency has to be the lookahead and nothing else. Then the point of paying
+  // it: the gain is computed from the UNDELAYED signal, so the boost begins
+  // exactly `lookahead` samples before the hit it belongs to. Measured on a
+  // quiet bed running under the hit, because a boost applied to the silence
+  // before an onset multiplies zero and is invisible.
+  {
+    for (double lookMs : {0.0, 1.0, 2.5, 5.0}) {
+      Chain chain;
+      Chain::SlotConfig cfg;
+      cfg.nodeId = "td";
+      chain.add(std::make_unique<TransientDesigner>(),
+                tdParams(6.0, 0.0, 20.0, 250.0, lookMs), cfg);
+      chain.prepare(makeSpec(1, 1024, 4096));
+      const int want = static_cast<int>(std::lround(lookMs * 0.001 * kCanonicalSampleRate));
+      check(chain.totalLatencyFrames() == want,
+            "transient designer: " + std::to_string(lookMs) +
+                " ms of lookahead is exactly " + std::to_string(want) +
+                " frames (got " + std::to_string(chain.totalLatencyFrames()) + ")");
+    }
+
+    // The hit sits 340 ms into the bed, not 85 ms. THE BED'S OWN ONSET IS A
+    // TRANSIENT: with `attack_ms` at 20 the slow envelope needs about five time
+    // constants to catch up, so measured too close to the start of the buffer
+    // the window still carries 0.19 dB of the bed's own attack — which reads
+    // exactly like lookahead and is nothing of the kind.
+    const int64_t bedOnset = 32768;
+    AudioBuffer bedded = transientHit(frames, bedOnset, 0.5, 0.08);
+    for (int64_t i = 0; i < frames; ++i)
+      bedded.channel(0)[i] += 0.005 * std::sin(2.0 * M_PI * 3000.0 *
+                                               static_cast<double>(i) / kCanonicalSampleRate);
+
+    auto preOnsetLiftDb = [&](double lookMs) {
+      const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, lookMs), bedded);
+      const AudioBuffer out = runTransient(tdParams(12.0, 0.0, 20.0, 250.0, lookMs), bedded);
+      return windowRmsDb(out, 0, bedOnset - 4 * ms, bedOnset) -
+             windowRmsDb(flat, 0, bedOnset - 4 * ms, bedOnset);
+    };
+    const double none = preOnsetLiftDb(0.0);
+    const double look4 = preOnsetLiftDb(4.0);
+    std::printf("       transient lookahead: the 4 ms before the hit are lifted "
+                "%+.4f dB with no lookahead and %+.2f dB with 4 ms\n", none, look4);
+    check(std::abs(none) < 0.02,
+          "transient designer: with no lookahead nothing happens before the hit (" +
+              std::to_string(none) + " dB)");
+    check(look4 > 3.0,
+          "transient designer: with 4 ms of lookahead the boost has already "
+          "started when the hit lands (" + std::to_string(look4) + " dB)");
+  }
+
+  // --- (g) attack_ms decides what counts as a transient --------------------
+  //
+  // A node that ignored the parameter and used its fixed reference for both
+  // envelopes would pass everything above, because the differential would still
+  // be large on a hit out of silence. What it could not do is CHANGE with the
+  // setting: a longer attack window keeps the two envelopes apart for longer,
+  // so the boost lasts longer.
+  {
+    const AudioBuffer hit = transientHit(frames, onset, 0.5, 0.08);
+    auto boostedFramesFor = [&](double attackMs) {
+      const AudioBuffer flat =
+          runTransient(tdParams(0.0, 0.0, attackMs, 250.0, 0.0), hit);
+      const AudioBuffer out =
+          runTransient(tdParams(6.0, 0.0, attackMs, 250.0, 0.0), hit);
+      int64_t count = 0;
+      for (int64_t i = onset; i < onset + 400 * ms; ++i) {
+        const double a = std::abs(out.channel(0)[i]);
+        const double b = std::abs(flat.channel(0)[i]);
+        if (b > 1e-9 && a / b > 1.02) ++count; // more than ~0.17 dB of lift
+      }
+      return count;
+    };
+    const int64_t shortWindow = boostedFramesFor(5.0);
+    const int64_t longWindow = boostedFramesFor(80.0);
+    std::printf("       transient attack_ms: 5 ms lifts %lld frames, 80 ms lifts "
+                "%lld\n", (long long)shortWindow, (long long)longWindow);
+    check(shortWindow > 0 && longWindow > 3 * shortWindow,
+          "transient designer: a longer attack_ms holds the boost on for longer (" +
+              std::to_string(shortWindow) + " vs " + std::to_string(longWindow) +
+              " frames)");
+  }
+
+  // --- (h) a GHOST NOTE after an accent still gets its attack --------------
+  //
+  // The reason the fast and slow-attack envelopes are given the SAME release
+  // coefficient, and the only place that choice is observable. On one hit in
+  // isolation the two envelopes agree during the onset whatever their releases
+  // are, so every check above passes with the coefficients mismatched —
+  // measured, and the mutation survived the first version of this section.
+  //
+  // What breaks is the second hit. Give the slow-attack envelope a long
+  // release and it is still sitting near the FIRST hit's peak when a quieter
+  // one arrives 150 ms later; the differential goes negative, is rectified to
+  // zero, and the ghost note gets no attack at all. Sharing the release is what
+  // makes the shaping depend on the note being played rather than on the note
+  // before it.
+  {
+    // A SHORT decay on both hits, so the accent has died away by the time the
+    // ghost note arrives. Left ringing, the accent's own tail is louder than
+    // the ghost note's onset and the measurement is of the wrong event: the
+    // first version of this check used an 80 ms decay and read +2.1 dB on a
+    // node that was working correctly.
+    AudioBuffer two(1, frames);
+    addHit(two, onset, 0.5, 0.03);
+    const int64_t second = onset + 150 * ms;
+    addHit(two, second, 0.15, 0.03); // 10 dB down, one slow-release time later
+
+    const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 0.0), two);
+    const AudioBuffer up = runTransient(tdParams(9.0, 0.0, 20.0, 250.0, 0.0), two);
+
+    auto peakIn = [&](const AudioBuffer& b, int64_t from, int64_t to) {
+      double pk = 0.0;
+      for (int64_t i = from; i < to; ++i) pk = std::max(pk, std::abs(b.channel(0)[i]));
+      return 20.0 * std::log10(std::max(pk, 1e-300));
+    };
+    const double firstLift = peakIn(up, onset, onset + 3 * ms) -
+                             peakIn(flat, onset, onset + 3 * ms);
+    const double secondLift = peakIn(up, second, second + 3 * ms) -
+                              peakIn(flat, second, second + 3 * ms);
+    std::printf("       transient ghost note: accent lifted %+.2f dB, the "
+                "10 dB-quieter hit 150 ms later lifted %+.2f dB\n",
+                firstLift, secondLift);
+    check(firstLift > 6.0,
+          "transient designer: the accent gets its attack (" +
+              std::to_string(firstLift) + " dB)");
+    check(secondLift > 5.0,
+          "transient designer: and so does a quieter hit inside its decay (" +
+              std::to_string(secondLift) + " dB)");
+  }
+
+  // --- (i) the sustain differential is non-negative by construction --------
+  //
+  // `slowRelease` shares `fast`'s attack coefficient and releases more slowly,
+  // so it dominates `fast` at every sample and the sustain differential can
+  // never go below zero. The node therefore does NOT rectify it, and this is
+  // the assertion that keeps that from becoming a latent inversion the day
+  // someone gives the two detectors different attack times: a positive
+  // `sustain_db` must never attenuate ANY sample, anywhere, by any amount.
+  // Checked with no tolerance, because a gain of at least one cannot round a
+  // magnitude downwards.
+  {
+    AudioBuffer hard = testSignal(1, frames, 909);
+    addHit(hard, 12000, 0.6, 0.05);
+    addHit(hard, 20000, 0.2, 0.4);
+    const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 0.0), hard);
+    const AudioBuffer lifted = runTransient(tdParams(0.0, 6.0, 20.0, 250.0, 0.0), hard);
+    int64_t below = 0;
+    for (int64_t i = 0; i < frames; ++i)
+      if (std::abs(lifted.channel(0)[i]) < std::abs(flat.channel(0)[i])) ++below;
+    check(below == 0,
+          "transient designer: a positive sustain_db never attenuates any "
+          "sample (" + std::to_string(below) + " of " + std::to_string(frames) +
+              " went the wrong way)");
+  }
+
+  // --- (j) stereo linking holds the image still ----------------------------
+  //
+  // Every check above is mono, and mono cannot see linking at all: with one
+  // channel the running maximum over channels is that channel. Measured —
+  // inverting the link from a maximum to a minimum survived the whole suite
+  // until this existed.
+  //
+  // A hit in the LEFT channel only, over a bed in both. Linked, the right
+  // channel is shaped by the left's transient and the two move together;
+  // unlinked, only the left moves and the image jumps sideways on every hit.
+  {
+    AudioBuffer stereo(2, frames);
+    for (int64_t i = 0; i < frames; ++i) {
+      const double t = static_cast<double>(i) / kCanonicalSampleRate;
+      const double bed = 0.05 * std::sin(2.0 * M_PI * 900.0 * t);
+      stereo.channel(0)[i] = bed;
+      stereo.channel(1)[i] = bed;
+    }
+    for (int64_t i = onset; i < frames; ++i) {
+      const double t = static_cast<double>(i - onset) / kCanonicalSampleRate;
+      stereo.channel(0)[i] += 0.6 * std::exp(-t / 0.03) *
+                              std::cos(2.0 * M_PI * 900.0 * t);
+    }
+
+    auto rightLiftDb = [&](double link) {
+      const AudioBuffer flat =
+          runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 0.0, link), stereo);
+      const AudioBuffer out =
+          runTransient(tdParams(9.0, 0.0, 20.0, 250.0, 0.0, link), stereo);
+      return windowRmsDb(out, 1, onset, onset + 3 * ms) -
+             windowRmsDb(flat, 1, onset, onset + 3 * ms);
+    };
+    const double linked = rightLiftDb(1.0);
+    const double unlinked = rightLiftDb(0.0);
+    std::printf("       transient stereo link: a left-only hit lifts the RIGHT "
+                "channel %+.2f dB linked, %+.3f dB unlinked\n", linked, unlinked);
+    check(linked > 4.0,
+          "transient designer: linked, a hit in one channel shapes both (" +
+              std::to_string(linked) + " dB)");
+    check(std::abs(unlinked) < 0.2,
+          "transient designer: and unlinked it does not (" +
+              std::to_string(unlinked) + " dB)");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -4243,6 +5112,8 @@ int main() {
   std::printf("[22] dither\n");               { TIMED("dither"); testDither(); }
   std::printf("[23] zero-phase EQ\n");        { TIMED("zero-phase EQ"); testZeroPhaseEq(); }
   std::printf("[24] linear-phase EQ\n");      { TIMED("linear-phase EQ"); testLinearPhaseEq(); }
+  std::printf("[25] multiband compressor\n"); { TIMED("multiband compressor"); testMultibandCompressor(); }
+  std::printf("[26] transient designer\n");   { TIMED("transient designer"); testTransientDesigner(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

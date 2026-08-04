@@ -58,6 +58,15 @@ run "engine: I/O"         make -C engine --no-print-directory iotest
 # one committed render establishes that transitively, without CI having to ship
 # artifacts between jobs.
 run "engine: golden"      "$PY" ci/check_golden.py
+# THE ONLY THING THAT MEASURES AUDIO QUALITY RATHER THAN AUDIO SAMENESS. The
+# golden check above proves the render did not change; it would say nothing if
+# every render had always been 40 dB worse than it should be. This measures
+# THD, aliasing, intermodulation, swept-sine response and true peak, writes
+# engine/build/measurements.html for a person, and gates the numbers against a
+# committed baseline. Two stages because they fail for different reasons: the
+# first is "the instrument broke", the second is "the engine got worse".
+run "engine: measurements" make -C engine --no-print-directory measure
+run "engine: measurement gate" "$PY" ci/check_measurements.py
 
 if [ "$MODE" != "quick" ]; then
   # Not optional discipline. Mutation testing found a partition-indexing bug

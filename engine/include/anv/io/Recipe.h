@@ -55,11 +55,13 @@
 #include "anv/nodes/LinearPhaseEQ.h"
 #include "anv/nodes/MidSide.h"
 #include "anv/nodes/MonoToStereo.h"
+#include "anv/nodes/MultibandCompressor.h"
 #include "anv/nodes/Pan.h"
 #include "anv/nodes/ParametricEQ.h"
 #include "anv/nodes/PlateReverb.h"
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
+#include "anv/nodes/TransientDesigner.h"
 #include "anv/nodes/TruePeakLimiter.h"
 #include "anv/nodes/ZeroPhaseEQ.h"
 
@@ -85,6 +87,9 @@ inline std::unique_ptr<Node> makeNode(const std::string& type) {
   if (type == "zero_phase_eq")      return std::make_unique<ZeroPhaseEQ>();
   if (type == "linear_phase_eq")    return std::make_unique<LinearPhaseEQ>();
   if (type == "compressor")         return std::make_unique<Compressor>();
+  if (type == "multiband_compressor")
+    return std::make_unique<MultibandCompressor>();
+  if (type == "transient_designer") return std::make_unique<TransientDesigner>();
   if (type == "gate_expander")      return std::make_unique<GateExpander>();
   if (type == "dynamic_eq")         return std::make_unique<DynamicEQ>();
   if (type == "drive")              return std::make_unique<Drive>();

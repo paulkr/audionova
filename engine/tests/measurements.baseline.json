@@ -1,0 +1,6046 @@
+{
+  "asr_requirement_db": -100,
+  "configs": [
+    {
+      "config": "gain",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -1.112588356e-12
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 4.911860471e-10
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.5
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.5
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.5
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.5
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.5
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 1.712656941e-13
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 7.039590506e-14
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.500000167
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -10.50000017
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -16.50000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -22.50000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -28.50000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -34.50000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -40.50000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -49.50000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -64.50000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.7542033
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.595045684e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3434512
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -310.7151263
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9239877
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.5
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7435559
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.013100935e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -2.037447367
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -2.062421154
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.5
+        }
+      },
+      "node_type": "gain",
+      "params": "gain_db -4.5"
+    },
+    {
+      "config": "pan",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -3.835054067e-12
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 8.668151214e-10
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.002382319
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.002382319
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.002382319
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.002382318
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.002382319
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 1.088674981e-13
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 4.243040853e-14
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.002382486
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.002382486
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -13.00238249
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -19.00238249
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -25.00238249
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -31.00238249
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -37.00238249
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -46.00238249
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -61.00238249
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.7542101
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.595042099e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3429288
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -314.212744
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9243659
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.002382319
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7429168
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.012752024e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 1.460170315
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 1.435196528
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.002382319
+        }
+      },
+      "node_type": "pan",
+      "params": "pan -0.4"
+    },
+    {
+      "config": "polarity",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 0
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 0
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -180
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.6743417e-07
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000167
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.00000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.00000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.7542117
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.59504124e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3430809
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9243938
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 2.275812821e-13
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7449779
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.012726342e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.462552633
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.437578846
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        }
+      },
+      "node_type": "polarity",
+      "params": "inverted"
+    },
+    {
+      "config": "dc_block",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 0.216124625
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 240.9050222
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.000178575969
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.334816873e-08
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -8.096204111e-11
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.381874768e-07
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.2561748078
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 0.8099234765
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02909960984
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.61230866e-08
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000046
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000005
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000005
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000005
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000005
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.00000005
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.00000005
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.00000005
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.759536
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.592225429e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3428403
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -309.1947598
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -238.5642593
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.380643461e-08
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -184.4434984
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 1.17974199e-10
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.474770629
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02493820829
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.449832421
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.03111353529
+        }
+      },
+      "node_type": "dc_block",
+      "params": "10 Hz"
+    },
+    {
+      "config": "mono_to_stereo",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.376252705e-16
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 4.89787065e-14
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 3.963730819e-17
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.6743417e-07
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000167
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.00000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.00000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.7542117
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.59504124e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3430809
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9243938
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 2.275812821e-13
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7449779
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.012726342e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.462552633
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.437578846
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        }
+      },
+      "node_type": "mono_to_stereo",
+      "params": "from channel 0"
+    },
+    {
+      "config": "mid_side",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.820835883e-12
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1.262044066e-09
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.010299957
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.010299957
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.010299957
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.010299957
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.010299956
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 2.113979048e-13
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 2.8929824e-15
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 3.010299789
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -2.989700211
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -8.989700211
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -14.98970021
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20.98970021
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -26.98970021
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -32.98970021
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -41.98970021
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -56.98970021
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.754198
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.595048499e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3436742
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -312.2048264
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9237698
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 3.010299957
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7430282
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.013301959e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 5.47285259
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 5.447878803
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 3.010299957
+        }
+      },
+      "node_type": "mid_side",
+      "params": "encode"
+    },
+    {
+      "config": "parametric_eq",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 3.348286697
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 739.4760336
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.06319054
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1172508321
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.073189859
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 2.007597896
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -47.93912469
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 22.85497842
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 12.94244803
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.1139097243
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.886090276
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.88609028
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -17.88609028
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.88609028
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.88609028
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -35.88609028
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -44.88609028
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -59.88609028
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -268.1109078
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 3.930561607e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3532603
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -301.4206329
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -280.5982828
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.1145081375
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.2328766
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 9.334388285e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.640263614
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02591657332
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.61434704
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 1.39081565
+        }
+      },
+      "node_type": "parametric_eq",
+      "params": "HP 80 Hz 24 dB/oct + 3 bands"
+    },
+    {
+      "config": "zero_phase_eq",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -5.491762093e-05
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 5.491762093e-05
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.009001254269
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.5949227628
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.262222888
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.530303188
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.81822525
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 2.380291963e-06
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.00521710605
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.5911348818
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.408865118
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.40886512
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -17.40886512
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.40886512
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.40886512
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -35.40886512
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -44.40886512
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -59.40886512
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -269.0445059
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 3.529999986e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.4070355
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -302.0319545
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -280.1360755
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.5918117108
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -244.9230324
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 9.844558017e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -242.4250683
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 4.860532178
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.002232497785
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 4.858299681
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 2.566692355
+        }
+      },
+      "node_type": "zero_phase_eq",
+      "params": "3 bands, >3 kHz (magnitude is squared)"
+    },
+    {
+      "config": "linear_phase_eq",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -2.192674517e-05
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.192674517e-05
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.01167357016
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.3238689535
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.076543702
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 2.014624118
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.006991595499
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 1.13699504e-06
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.002785524708
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.3218543704
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.67814563
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.67814563
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -17.67814563
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.67814563
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.67814563
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -35.67814563
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -44.67814563
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -59.67814563
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -267.9458914
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.005949111e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3397872
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -289.5264883
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -280.7826972
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.3222144242
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.3146038
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 9.138294318e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.740209562
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0256297947
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.714579767
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 1.219908137
+        }
+      },
+      "node_type": "linear_phase_eq",
+      "params": "511 taps, 2 bands"
+    },
+    {
+      "config": "compressor",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -104.2124086
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -104.2124086
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -257.3784146
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -122.0821506
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 524288
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -104.2124086
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 3202.148438
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -2.555274309e-12
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 6.773635459e-10
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 3.349375104e-13
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.253625707e-14
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.07400132
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -13.57400132
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -15.07400132
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -16.62881068
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -21.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -27.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.00000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -42.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -57.00000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -7.842401334
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.7602969
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.591823152e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -139.8606346
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.867343711
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -205.15899
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.99976371
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -128.0094713
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 5.521416412e-09
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 524288
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -4.729724501
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.009796034986
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -4.739520536
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.547284135
+        }
+      },
+      "node_type": "compressor",
+      "params": "-20 dBFS, 4:1, 5/150 ms, 3 ms lookahead"
+    },
+    {
+      "config": "multiband_compressor",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -98.60776355
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": false,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -98.60776357
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -195.6264473
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -124.445177
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -98.60776355
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 3202.148438
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -4.130763253e-07
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1.645353444e-05
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.614881209e-07
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.171178576e-06
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.00000898
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.000094948
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.0001909935816
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -4.689690213e-07
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.464257151e-06
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -10.80199994
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -13.20203439
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -15.60205718
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.45113741
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.99999997
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.99999997
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -35.99999997
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -44.99999997
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -59.99999997
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -9.409386257
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -249.8225347
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 3.227552115e-11
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -129.6427479
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -5.987405962
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -221.1543443
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -10.79991934
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -134.8607143
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.755536983e-10
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -8.004101295
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.01529490626
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -8.019396201
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -9.103612721
+        }
+      },
+      "node_type": "multiband_compressor",
+      "params": "3 bands @ 200 Hz / 2.5 kHz, 2.5-4:1"
+    },
+    {
+      "config": "transient_designer",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -66.41570342
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": false,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -66.41577592
+        },
+        "asr_inband_worstlevel_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -66.41577592
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -199.8637427
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -105.7656268
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -66.41570342
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 3202.148438
+        },
+        "asr_worstlevel_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 6.177736821
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 226.0653072
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0404334926
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02673445808
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02086929489
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.23530087
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.6718624983
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -0.08221030256
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 4.231998982
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.01231551986
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.01231552
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.01231552
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.01231552
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.01231552
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.01231552
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.01231552
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.01231552
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.01231552
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.7591361
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.592436863e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -63.10921278
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -31.25790432
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -75.61028523
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.01082017353
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -75.42845236
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.01657622902
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 6.745208654
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02508444833
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 6.720124205
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 4.725776025
+        }
+      },
+      "node_type": "transient_designer",
+      "params": "attack +6 dB, sustain -4 dB"
+    },
+    {
+      "config": "gate_expander",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -248.7940877
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -250.0725854
+        },
+        "asr_inband_worstlevel_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -250.0726274
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -265.253731
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -227.1904388
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -248.7940877
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 16502.92969
+        },
+        "asr_worstlevel_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.01942447
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 10917.0068
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1032098988
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.01060861877
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -2.868789059e-05
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.021256784
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -56.98623067
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 0.02100522568
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -11.95494242
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.6743417e-07
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000167
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -41.03734334
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -90.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -105.0000002
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 24.53882887
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.7542117
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.59504124e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3430809
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.5420117902
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -281.9243938
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 2.275812821e-13
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7449779
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.012726342e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.445637161
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497041815
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.420666743
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.622133183e-07
+        }
+      },
+      "node_type": "gate_expander",
+      "params": "-35 dBFS, 6:1, 45 dB range"
+    },
+    {
+      "config": "dynamic_eq",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -107.8116745
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -107.8374655
+        },
+        "asr_inband_worstlevel_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -71.42650015
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -250.3437862
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -140.4193508
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -107.8116745
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 19502.92969
+        },
+        "asr_worstlevel_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1.872234886
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 13.57262763
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.248570703
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.07023034807
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.9584678407
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.280738933e-05
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.104529624
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 7.943988489
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.15153843
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.1688098806
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.159118256
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.15793006
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.15793006
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.12167523
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.01224001
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.01224001
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.01224001
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.01224001
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -27.19328767
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.8485565
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.545400714e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -107.1252241
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -27.68258509
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -119.5963735
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.168624221
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -115.2902136
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.0001047565834
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.321293691
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02539614583
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.346689837
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.4909593612
+        }
+      },
+      "node_type": "dynamic_eq",
+      "params": "de-esser + static bell + upward shelf"
+    },
+    {
+      "config": "drive",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -32.51017202
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -100.4006904
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -254.7332041
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -158.9912366
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -32.51616766
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 19502.92969
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 3.10128777
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 75.96867184
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.726164399
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.71006526
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.532655637
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.877893118
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.242177105
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -0.758742381
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1139422923
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.755091553
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.768344653
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -8.002035964
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.27468292
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.05176039
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.07841957
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.12639581
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -39.17002811
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -54.19304077
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -6.015877166
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -24.78247593
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 5.766020782
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -13.74294305
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.013044531
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -8.324991365
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.485512497
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -8.324991342
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 38.34868107
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -5.25634551
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1006316625
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -5.356977172
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.812469411
+        }
+      },
+      "node_type": "drive",
+      "params": "soft clip, +12 dB drive, bias 0.15, 4x"
+    },
+    {
+      "config": "delay",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2856.447242
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2856.447242
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.413472976
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.733089262
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.4586385355
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.740292104
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -2.605997473
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -2.258351235
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -4.908725146
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 3.327717698
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -2.672282302
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -8.672282302
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -14.6722823
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20.6722823
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -26.6722823
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -32.6722823
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -41.6722823
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -56.6722823
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -264.0069252
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 6.304544864e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -278.5268146
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -305.9719599
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -218.4431116
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 3.472046606
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -170.1351475
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 1.196311892e-09
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.055631381
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02403633484
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 3.079667716
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 1.073128016
+        }
+      },
+      "node_type": "delay",
+      "params": "20 ms, 35% feedback"
+    },
+    {
+      "config": "convolution_reverb",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2751.618616
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 10291.99323
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 3.568219766
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.886471296
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.1300200914
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 10.82541053
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -54.03898562
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -6.76748396
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 10.74061445
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 6.161054103
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.1610541033
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.838945897
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.8389459
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -17.8389459
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.8389459
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.8389459
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -38.8389459
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -53.8389459
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -33.97940009
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -263.872412
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 6.402939539e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -279.9011549
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -301.16956
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -289.612745
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 6.270411086
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7507066
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 3.306456023e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 4.949139559
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.006690930731
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 4.942448628
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 4.553325527
+        }
+      },
+      "node_type": "convolution_reverb",
+      "params": "0.35 s decay, full decorrelation"
+    },
+    {
+      "config": "plate_reverb",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 4114.884803
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 13084.66482
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -9.765366198
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -9.852753565
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -7.703779948
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.909216614
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -55.07886317
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 119.2352546
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -12.82978771
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.341850797
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.341850797
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -13.3418508
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -19.3418508
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -25.3418508
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -31.3418508
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -37.3418508
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -46.3418508
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -61.3418508
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -108.777159
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.000364034087
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -85.38208752
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -302.3124185
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -88.25408837
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -2.571238044
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -23.02081803
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.003866300284
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 524288
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -33.18612941
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -4.015888142
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.04779538464
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -3.968092757
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -4.816314342
+        }
+      },
+      "node_type": "plate_reverb",
+      "params": "0.4 s decay, size 1.0"
+    },
+    {
+      "config": "chorus",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1165.571669
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1172.370733
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.008887584876
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0005981752565
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.01015835728
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0108761103
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.5152202759
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -41.28116551
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -3.028482019
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -8.963943892e-07
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000896
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.0000009
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.0000009
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.0000009
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.0000009
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.0000009
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.0000009
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.0000009
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -20
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -68.5708825
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.03727828078
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -48.48980006
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -307.6108253
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -73.87116755
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.5017906436
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -9.110843793
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 0.02025077379
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 524288
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -19.51188423
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 1.989706415
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.04679822911
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.036504644
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 1.073956016
+        }
+      },
+      "node_type": "chorus",
+      "params": "1 voice, 0.1 Hz, 12 ms base"
+    },
+    {
+      "config": "stereo_width",
+      "linear": true,
+      "metrics": {
+        "asr_inband_db": {
+          "applicable": false,
+          "exactly_zero": false,
+          "na_reason": "measured linear \u2014 both homogeneous and additive to better than -100 dB \u2014 so it generates no harmonics and has nothing that could fold",
+          "unit": "dB",
+          "value": null
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 0
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.376252705e-16
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 4.89787065e-14
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 3.963730819e-17
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.6743417e-07
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000167
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.00000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.00000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -266.7542117
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.59504124e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -274.3430809
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -281.9243938
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 2.275812821e-13
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -245.7449779
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.012726342e-13
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.462552633
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497378709
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.437578846
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        }
+      },
+      "node_type": "stereo_width",
+      "params": "130%, bass mono below 120 Hz"
+    },
+    {
+      "config": "true_peak_limiter",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -123.7322517
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -123.7322517
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -231.1234779
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -125.5536012
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -123.7322517
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 3202.148438
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 4.690056588e-12
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 3.87573001e-09
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -9.643274666e-16
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 7.714619732e-15
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.02025846e-12
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 1.446529773e-10
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.739608177e-10
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 1.53198164e-13
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -1.928654933e-15
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.000000167
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.00000017
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.00000017
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.00000017
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00000017
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -36.00000017
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -45.00000017
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -60.00000017
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -19.2724017
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.738185
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.60352758e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -155.7314076
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -18.27267026
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -165.8671968
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -0.999990983
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -124.4476643
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 5.089090321e-07
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_conformance_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": false,
+          "threshold": -0.99,
+          "unit": "dBTP",
+          "value": -0.9789159158
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -0.9999919462
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.02107603042
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -0.9789159158
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -2.740851942
+        }
+      },
+      "node_type": "true_peak_limiter",
+      "params": "-1 dBTP ceiling, 2 ms lookahead, 8x"
+    },
+    {
+      "config": "dither",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -109.1575941
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -112.9585598
+        },
+        "asr_inband_worstlevel_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -66.9311612
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -114.8860363
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -93.39308106
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -109.1575941
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 12999.02344
+        },
+        "asr_worstlevel_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -46.02059991
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -0.002042029716
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 1.402400701
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0003964097492
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.001414178303
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.0110395272
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.03539811898
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.03308623493
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -0.01167901356
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.0003805071438
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0.000265068271
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.999419972
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -11.99889146
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -17.99841423
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -23.99798801
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -29.99342357
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -35.98893183
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -44.96556413
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -59.67942036
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -38.38156185
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -46.02059991
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -134.1683695
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 1.956958097e-05
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -146.3405252
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -38.27627705
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -121.5877687
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 4.548840272e-07
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -93.37842445
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 8.329358654e-05
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 131072
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -78.26726871
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.462614528
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.02497456303
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": 2.437639965
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        }
+      },
+      "node_type": "dither",
+      "params": "16-bit, 2 LSB TPDF, no shaping"
+    },
+    {
+      "config": "drive@defaults",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -33.95225838
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -105.1252704
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -260.3473754
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -171.6310562
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -33.95225838
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 19502.92969
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": -2.632200538
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 2.707330075
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.977403856
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.983681933
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.929318993
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.98636604
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.65940638
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": 0.0255467551
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.03159205904
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -3.51805645
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -3.521824555
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -6.760155879
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.18536656
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.04677122
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.0122656
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.00362881
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -39.00096899
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -54.00062527
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -6.020777461
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -266.4291387
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 4.770271156e-12
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -16.25651263
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.006292393111
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -10.82049586
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.651307615
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -10.82049585
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 28.77234155
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -0.7799358384
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.09327874604
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -0.8732145844
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -1.572245703
+        }
+      },
+      "node_type": "drive",
+      "params": "soft clip, node defaults (+6 dB, no bias, 4x)"
+    },
+    {
+      "config": "drive@16x",
+      "linear": false,
+      "metrics": {
+        "asr_collision_free": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": false,
+          "pass": true,
+          "threshold": 1,
+          "unit": "",
+          "value": 1
+        },
+        "asr_fullband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -32.08736721
+        },
+        "asr_inband_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "lower_is_better": true,
+          "pass": true,
+          "threshold": -100,
+          "unit": "dB",
+          "value": -135.7407042
+        },
+        "asr_noise_floor_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -232.4041809
+        },
+        "asr_nonperiodic_residual_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -145.048101
+        },
+        "asr_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "asr_vs_harmonics_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -32.09337019
+        },
+        "asr_worst_f0_hz": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "Hz",
+          "value": 19502.92969
+        },
+        "classified_nonlinear": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "",
+          "value": 1
+        },
+        "fr_gd_1khz_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 3.101184723
+        },
+        "fr_gd_max_samples": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "samples",
+          "value": 75.96525088
+        },
+        "fr_mag_125hz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.725725843
+        },
+        "fr_mag_1khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.710780296
+        },
+        "fr_mag_8khz_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.578772939
+        },
+        "fr_max_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.87983057
+        },
+        "fr_min_mag_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 5.52969783
+        },
+        "fr_phase_1khz_deg": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "deg",
+          "value": -0.7587291304
+        },
+        "fr_pre_arrival_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1138653472
+        },
+        "gain_transfer_+00_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.753604291
+        },
+        "gain_transfer_-06_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.768070683
+        },
+        "gain_transfer_-12_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -8.001783371
+        },
+        "gain_transfer_-18_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -12.27402909
+        },
+        "gain_transfer_-24_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -18.05103953
+        },
+        "gain_transfer_-30_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -24.07768732
+        },
+        "gain_transfer_-36_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -30.12569752
+        },
+        "gain_transfer_-45_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -39.16938974
+        },
+        "gain_transfer_-60_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -54.19244486
+        },
+        "homogeneity_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -6.015697343
+        },
+        "homogeneity_worst_level_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": 0
+        },
+        "imd_d2_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -24.96435985
+        },
+        "imd_d2_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 5.64653478
+        },
+        "imd_d3_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -13.73475993
+        },
+        "superposition_error_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -0.01508041901
+        },
+        "thd_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -8.321620732
+        },
+        "thd_fundamental_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -7.485323954
+        },
+        "thd_n_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": -8.321620707
+        },
+        "thd_percent": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "%",
+          "value": 38.36356548
+        },
+        "thd_settle_frames": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "frames",
+          "value": 32768
+        },
+        "time_invariance_error_db": {
+          "applicable": true,
+          "exactly_zero": true,
+          "unit": "dB",
+          "value": null
+        },
+        "tp_engine_meter_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -5.1631727
+        },
+        "tp_meter_delta_db": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dB",
+          "value": 0.1007976008
+        },
+        "tp_reference_dbtp": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBTP",
+          "value": -5.263970301
+        },
+        "tp_sample_peak_dbfs": {
+          "applicable": true,
+          "exactly_zero": false,
+          "unit": "dBFS",
+          "value": -5.741258304
+        }
+      },
+      "node_type": "drive",
+      "params": "soft clip, +12 dB drive, 16x"
+    }
+  ],
+  "generated_at_utc": "2026-08-04T07:20:24Z",
+  "git_commit": "8559b08",
+  "node_types_in_catalog": 22,
+  "sample_rate_hz": 96000,
+  "schema_version": 1,
+  "self_checks": [
+    {
+      "label": "denormal flushing active",
+      "pass": true,
+      "threshold": 1,
+      "unit": "",
+      "value": 1
+    },
+    {
+      "label": "coherent sampling leakage",
+      "pass": true,
+      "threshold": -220,
+      "unit": "dB",
+      "value": -249.5462704
+    },
+    {
+      "label": "ASR classifier vs a synthetic alias",
+      "pass": true,
+      "threshold": 0.01,
+      "unit": "dB",
+      "value": 7.914024991e-11
+    },
+    {
+      "label": "reference true-peak meter vs analytic",
+      "pass": true,
+      "threshold": 0.01,
+      "unit": "dB",
+      "value": 0.001751047599
+    },
+    {
+      "label": "FFT round-trip error",
+      "pass": true,
+      "threshold": -250,
+      "unit": "dBFS",
+      "value": -261.1392536
+    }
+  ]
+}

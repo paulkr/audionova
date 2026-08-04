@@ -584,7 +584,21 @@ def test_cache_boundary() -> None:
     # estimator assumed 4 characters per token; the constant was later corrected
     # to 2.4 against that measurement and this bound was not moved with it, so
     # the test failed on a prefix that was in fact exactly the right size.
-    R.check(26000 < tokens < 36000,
+    #
+    # THE CEILING MOVES WITH THE NODE SET, and the number below is the second
+    # time it has had to. Every node type adds its parameter schema to the
+    # prefix — measured at about 1,000 estimated tokens each — so the bracket
+    # is a statement about the CACHE DESIGN, not a budget the engine has to fit
+    # inside. It was 36,000 and the prefix was already at 35,388 with twenty
+    # node types, so `multiband_compressor` and `transient_designer` would have
+    # broken it whatever their descriptions said. Raised to 44,000, which is
+    # roughly six more nodes of room.
+    #
+    # Whoever next raises it should check the LIVE cached-token count rather
+    # than this estimate; it has not been re-measured since 30,938, and the
+    # relationship between the two is a 2.4-characters-per-token constant fitted
+    # once. See open-questions.md.
+    R.check(26000 < tokens < 44000,
             f"the prefix is the expected size, roughly {tokens} tokens")
 
     # The user's own words go last, where instructions carry most weight.
