@@ -44,6 +44,7 @@
 
 #include "anv/nodes/Chorus.h"
 #include "anv/nodes/Compressor.h"
+#include "anv/nodes/Console.h"
 #include "anv/nodes/ConvolutionReverb.h"
 #include "anv/nodes/DCBlock.h"
 #include "anv/nodes/Delay.h"
@@ -61,6 +62,7 @@
 #include "anv/nodes/PlateReverb.h"
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
+#include "anv/nodes/Tape.h"
 #include "anv/nodes/TransientDesigner.h"
 #include "anv/nodes/TruePeakLimiter.h"
 #include "anv/nodes/ZeroPhaseEQ.h"
@@ -93,6 +95,8 @@ inline std::unique_ptr<Node> makeNode(const std::string& type) {
   if (type == "gate_expander")      return std::make_unique<GateExpander>();
   if (type == "dynamic_eq")         return std::make_unique<DynamicEQ>();
   if (type == "drive")              return std::make_unique<Drive>();
+  if (type == "tape")               return std::make_unique<Tape>();
+  if (type == "console")            return std::make_unique<Console>();
   if (type == "delay")              return std::make_unique<Delay>();
   if (type == "convolution_reverb") return std::make_unique<ConvolutionReverb>();
   if (type == "plate_reverb")       return std::make_unique<PlateReverb>();

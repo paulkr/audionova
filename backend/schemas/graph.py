@@ -119,6 +119,56 @@ PARAMS: dict[str, tuple[str, float, float, float, str]] = {
                       "chatter on material sitting near the threshold"),
     # drive
     "drive_db": ("dB", 0.0, 30.0, 6.0, "Input drive into the saturator"),
+    # tape. `tape_drive_db` is a separate declaration from `drive_db` and not a
+    # tighter alias of it: the two nodes mean different things by the word. On
+    # `drive` it is how hard the saturator is hit; on `tape` it is where the
+    # signal sits on the machine's level diagram, so backing OFF is meaningful
+    # and negative values are allowed. The upper bound is the aliasing
+    # requirement rather than taste — see the engine header.
+    "tape_drive_db": ("dB", -24.0, 18.0, 0.0,
+                      "Level onto the tape. 0 puts a full-scale peak exactly at "
+                      "the saturation knee, so ordinary programme material sits "
+                      "12-20 dB below it and picks up a fraction of a percent of "
+                      "harmonic. Positive walks the whole signal into the knee"),
+    "speed_ips": ("ips", 3.75, 30.0, 15.0,
+                  "Tape speed. Sets the high-frequency gap loss and nothing "
+                  "else: 30 is nearly flat to 20 kHz, 15 is about -1.8 dB "
+                  "there, 7.5 is about -6. It does NOT move head_bump_hz"),
+    "head_bump_db": ("dB", 0.0, 6.0, 2.0,
+                     "Height of the low-frequency head bump. 0 removes it"),
+    "head_bump_hz": ("Hz", 20.0, 200.0, 50.0,
+                     "Centre of the head bump. Proportional to tape speed in "
+                     "reality but not scaled automatically: roughly 25 Hz at "
+                     "7.5 ips, 50 at 15, 100 at 30"),
+    "wow_percent": ("%", 0.0, 0.5, 0.0,
+                    "Peak slow speed deviation, under a second per cycle. 0.05 "
+                    "is a well-aligned machine, 0.2 is an audible wobble. "
+                    "Defaults to 0 because pitch modulation is the one thing "
+                    "the measurement suite cannot characterise"),
+    "flutter_percent": ("%", 0.0, 0.5, 0.0,
+                        "Peak fast speed deviation, tens of times a second. "
+                        "Reads as a roughening of sustained notes rather than "
+                        "as pitch movement"),
+    # console
+    "console_drive_db": ("dB", -12.0, 12.0, 0.0,
+                         "Trim in front of the bus stage. Works against "
+                         "headroom_db: +6 here is the same as 6 dB less "
+                         "headroom"),
+    "console_headroom_db": ("dB", 6.0, 40.0, 24.0,
+                            "Distance from 0 dBFS to the stage's knee — the "
+                            "level diagram. Third-harmonic distortion goes as "
+                            "the square of the level below it, so 24 dB gives "
+                            "-64 dB, 18 gives -52 and 12 gives -40. This is the "
+                            "only control over how much the node does"),
+    "coupling_hz": ("Hz", 1.0, 40.0, 12.0,
+                    "First-order high-pass from the input coupling capacitor. "
+                    "Inaudible in magnitude and worth several degrees of phase "
+                    "in the bottom octave, which is the point"),
+    "console_bandwidth_hz": ("Hz", 15000.0, 200000.0, 60000.0,
+                             "First-order low-pass from the amplifier's finite "
+                             "gain-bandwidth. 60 kHz is -0.46 dB and -18 "
+                             "degrees at 20 kHz for ONE stage; the phase is "
+                             "what accumulates when several are stacked"),
     "output_trim_db": ("dB", -24.0, 24.0, 0.0,
                        "Applied after saturation. Usually about half the drive, "
                        "negative, to keep the level roughly constant"),
@@ -386,6 +436,47 @@ class DriveParams(_Strict):
     curve: Literal["soft_clip", "hard_clip"] = "soft_clip"
 
 
+class TapeParams(_Strict):
+    """Magnetic tape character: saturation, head bump, gap loss, transport.
+
+    Written from published physics rather than vendored from any existing
+    emulation. The saturation is the anhysteretic magnetisation curve — soft,
+    progressive and asymmetric when biased — and NOT a hysteresis loop, so it
+    has no low-frequency memory term.
+
+    Wow and flutter default to zero. They are a linear, time-varying delay,
+    which generates no harmonics and cannot alias, but they also make a
+    coherent-tone measurement meaningless, so a render that uses them is not
+    covered by the aliasing figure in the engine's report.
+    """
+
+    drive_db: float = _field("tape_drive_db")
+    output_trim_db: float = _field("output_trim_db")
+    bias: float = _field("bias")
+    speed_ips: float = _field("speed_ips")
+    head_bump_db: float = _field("head_bump_db")
+    head_bump_hz: float = _field("head_bump_hz")
+    wow_percent: float = _field("wow_percent")
+    flutter_percent: float = _field("flutter_percent")
+
+
+class ConsoleParams(_Strict):
+    """Summing-bus character: a gentle odd nonlinearity and two analog poles.
+
+    Deliberately almost nothing on its own. One instance at the defaults is
+    -64 dB of third harmonic and half a decibel at 20 kHz; what makes it worth
+    having is that the phase shift from the two poles accumulates across a
+    chain, which is the part of an analog desk that is audible in aggregate and
+    inaudible in isolation.
+    """
+
+    drive_db: float = _field("console_drive_db")
+    output_trim_db: float = _field("output_trim_db")
+    headroom_db: float = _field("console_headroom_db")
+    coupling_hz: float = _field("coupling_hz")
+    bandwidth_hz: float = _field("console_bandwidth_hz")
+
+
 class DelayParams(_Strict):
     time_ms: float = _field("time_ms")
     time_note_division: Literal[
@@ -472,6 +563,8 @@ PARAM_MODELS: dict[str, type[_Strict]] = {
     "transient_designer": TransientDesignerParams,
     "gate_expander": GateExpanderParams,
     "drive": DriveParams,
+    "tape": TapeParams,
+    "console": ConsoleParams,
     "delay": DelayParams,
     "plate_reverb": PlateReverbParams,
     "convolution_reverb": ConvolutionReverbParams,
@@ -489,7 +582,7 @@ NodeType = Literal[
     "gain", "pan", "polarity", "dc_block", "mono_to_stereo", "mid_side",
     "parametric_eq", "zero_phase_eq", "linear_phase_eq", "dynamic_eq",
     "compressor", "multiband_compressor", "transient_designer",
-    "gate_expander", "drive", "delay", "plate_reverb",
+    "gate_expander", "drive", "tape", "console", "delay", "plate_reverb",
     "convolution_reverb", "chorus", "stereo_width", "true_peak_limiter",
     "dither",
 ]

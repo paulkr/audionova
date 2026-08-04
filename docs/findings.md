@@ -505,6 +505,67 @@ bit-exact across six block sizes, independently seeded per channel, and the
 achieved speed deviation read out of the audio by demodulating a probe tone
 rather than out of the node's own state.
 
+### Mutation results for `tape` and `console`
+
+Twenty-three semantic mutations across `Tape.h`, `Console.h`, `AnalogOnePole.h`
+and the shaper in `Adaa.h`. **Twenty of the first twenty-one were caught on the
+first pass**, which breaks the streak this document opens with — but the one
+that survived is the same species as every other survivor recorded here, so the
+streak did not really break.
+
+| mutation | caught | by |
+|---|---|---|
+| curve's cubic term −2/3 → −0.7 | yes | h3/h1 at both amplitudes |
+| curve's quintic term u⁵/5 → u⁵/4 | yes | h3, h5, and a seventh harmonic appearing |
+| bias offset no longer subtracted | yes | silence in → silence out, and the latency centroid |
+| bias never reaches the shaper | yes | second harmonic absent |
+| head bump Q halved | yes | the bump stops being local (0.93 dB two octaves up) |
+| head bump gain 5% high | yes | 3.15 dB against the 3.0 asked for |
+| gap loss at the sinc's first null, not its −3 dB point | yes | corner at 14.1 kHz where the formula says 7.0 |
+| gap loss stops depending on speed | yes | the speed-doubling ratio, and the corner at both speeds |
+| gap loss matched at 10 kHz instead of 20 | yes | 0.39 dB from the analog prototype |
+| textbook prewarp at the corner | yes | nine checks across both nodes |
+| Catmull-Rom slope bound 3.5 → 2.5 | yes | flutter exceeds the speed deviation asked for |
+| spline amplitude bound 1.25 → 1.0 | yes | declared base delay 10 instead of 11 |
+| knot spacing 1/(2·rate) → 1/rate | yes | peak drift past the overshoot bound, and latency |
+| drift evaluated once per block and held | yes | block-size invariance at 1, 7, 64, 1023 |
+| PRNG stops being keyed on the channel | yes | the two channels stop drifting independently |
+| the whole signal back through the oversampler | yes | console's magnitude at 10 and 20 kHz |
+| base delay not declared as latency | yes | the impulse peak, the centroid, and the declared value |
+| console knee half as far from 0 dBFS as stated | yes | d3 at all four headrooms |
+| console coupling high-pass removed | yes | magnitude and phase at 100 Hz |
+| tape oversampling floor 8× → 4× | yes | in-band ASR at +12 and +18 dB of drive |
+| **`drive_db` allowed past +18 dB** | **no** | see below |
+| console `drive_db` allowed past ±12 dB | yes* | the clamp checks added for the survivor |
+| console `headroom_db` floor 6 dB → 2 dB | yes* | the same |
+
+\* added after the survivor, not part of the first pass.
+
+**The survivor is a defence probed only from inside its own range.**
+`tape`'s `drive_db` is bounded above at +18 dB *because* that is where 8×
+oversampling still meets the −100 dB requirement — at +24 dB it measures exactly
+−100.0. Widening the bound to +30 dB walks the node straight out of its own
+headline claim, and all 1943 checks passed, because every test in the suite asks
+for a value inside the bound. `findings.md` already contains this exact lesson
+twice, under the Kaiser window and the crossover spacing: **a defensive measure
+has to be tested at the parameter value where it binds, and a bound only binds
+from outside.**
+
+The fix is bit-exactness rather than another measurement: asking for more than
+the bound must return exactly what asking for the bound returns. Four such
+checks were added — the two drive clamps, the headroom floor, and the
+oversampling floor — and each catches its own mutation and nothing else's.
+
+### ASan caught an off-by-one in the test, not in the node
+
+`harmonicRatios(..., highest)` returns one entry per harmonic starting at the
+fundamental, so harmonic m is at index m−1. The check that the quintic produces
+no seventh harmonic read index 6 from a six-entry vector. It passed at −O2 —
+the read landed inside the vector's allocated capacity and returned a plausible
+small number, which is exactly the shape of "benign-looking garbage that passes
+every functional assertion" this repository built `make san` for. The
+sanitizer build stopped on it immediately.
+
 ### A smoother curve did not alias less
 
 The quintic saturation curve is C2 at its knee where `drive`'s cubic is C1, so

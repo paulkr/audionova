@@ -29,6 +29,7 @@
 #include "anv/dsp/Oversampler.h"
 #include "anv/nodes/Chorus.h"
 #include "anv/nodes/Compressor.h"
+#include "anv/nodes/Console.h"
 #include "anv/nodes/DCBlock.h"
 #include "anv/nodes/ConvolutionReverb.h"
 #include "anv/nodes/Delay.h"
@@ -44,6 +45,7 @@
 #include "anv/nodes/PlateReverb.h"
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
+#include "anv/nodes/Tape.h"
 #include "anv/nodes/TransientDesigner.h"
 #include "anv/nodes/Gain.h"
 #include "anv/nodes/ParametricEQ.h"
@@ -192,6 +194,41 @@ std::vector<NodeSpec> registry() {
         .set("oversample_factor", 4.0);
     p.setStr("curve", "soft_clip");
     v.push_back({"drive", [] { return std::make_unique<Drive>(); }, p});
+  }
+  {
+    // Wow and flutter deliberately NON-ZERO here, even though they default to
+    // zero, because the registry is the one place the modulated path has to be
+    // exercised by every contract test. The tolerance below is why the node
+    // defaults them off: at 0.05% peak speed deviation and a 1 Hz drift rate
+    // the read position wanders +/-9 samples about the declared latency, which
+    // is a real property of a tape transport and not something a latency probe
+    // can pin to the sample.
+    //
+    //   wow      H = 96000/(2*1.0) = 48000 knots, A = 0.0005*48000/3.5 = 6.86
+    //   flutter  H = 96000/(2*12)  =  4000 knots, A = 0.0003*4000/3.5  = 0.34
+    //   swing    1.25 * (6.86 + 0.34) = 9.00, base delay 9 + 2 = 11
+    //
+    // 7.5 ips so the gap-loss corner (14.1 kHz) lands inside the band and the
+    // filter is doing something the frequency tests can see.
+    ParamSet p;
+    p.set("drive_db", 6.0).set("output_trim_db", -3.0).set("bias", 0.12)
+        .set("head_bump_db", 3.0).set("head_bump_hz", 55.0)
+        .set("speed_ips", 7.5).set("wow_percent", 0.05).set("wow_rate_hz", 1.0)
+        .set("flutter_percent", 0.03).set("flutter_rate_hz", 12.0)
+        .set("oversample_factor", 8.0);
+    v.push_back({"tape", [] { return std::make_unique<Tape>(); }, p,
+                 LatencyProbe::Peak, 0, 10});
+  }
+  {
+    // Headroom deliberately at 12 dB rather than the 24 dB default, so the
+    // nonlinearity is large enough for the shared frequency and robustness
+    // probes to see it. A console stage at its own defaults is almost the
+    // identity, which would make every test here pass vacuously.
+    ParamSet p;
+    p.set("drive_db", 2.0).set("output_trim_db", -1.0).set("headroom_db", 12.0)
+        .set("coupling_hz", 20.0).set("bandwidth_hz", 30000.0)
+        .set("oversample_factor", 4.0);
+    v.push_back({"console", [] { return std::make_unique<Console>(); }, p});
   }
   {
     // Non-zero lookahead so the compressor also exercises the PDC path, and a
@@ -5425,6 +5462,1040 @@ void testTransientDesigner() {
   }
 }
 
+// ------------------------------------------------- shared character helpers --
+
+AudioBuffer runCharacter(const std::function<std::unique_ptr<Node>()>& make,
+                         const ParamSet& p, const AudioBuffer& in, int block,
+                         int maxBlock) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "chr";
+  chain.add(make(), p, cfg);
+  chain.prepare(makeSpec(in.channels(), maxBlock, in.frames()));
+  AudioBuffer out;
+  chain.render(in, out, block);
+  return out;
+}
+
+// Aliasing-to-signal ratio for any node, by the same coherent-bin method as
+// test 11 but parameterised over the node rather than hard-wired to `drive`.
+//
+// The analysis window keeps 32768 samples of live tone AFTER it, which test 11
+// does not. Without that the tail of the window is the response decaying into
+// the zero padding the chain feeds past the end of the input, and that decay's
+// rectangular-window skirts land in exactly the bins this measurement reads —
+// findings.md's "the analysis window sat at the end of the stimulus", which
+// cost the measurement suite two nodes' worth of imaginary distortion.
+struct CharacterAsr {
+  double inBandDb = 0.0;
+  double fullBandDb = 0.0;
+  bool collisionFree = true;
+};
+
+CharacterAsr measureCharacterAsr(const std::function<std::unique_ptr<Node>()>& make,
+                                 const ParamSet& params, double amplitude,
+                                 double targetHz) {
+  constexpr size_t kN = 32768;
+  constexpr int64_t kSettle = 32768;
+  constexpr int64_t kPostRoll = 32768;
+
+  int bin = static_cast<int>(std::lround(targetHz * static_cast<double>(kN) /
+                                         kCanonicalSampleRate));
+  if (bin % 2 == 0) ++bin; // odd, so no folded harmonic can hide in a real one
+  const double f0 = static_cast<double>(bin) * kCanonicalSampleRate /
+                    static_cast<double>(kN);
+  const int64_t total = kSettle + static_cast<int64_t>(kN) + kPostRoll;
+
+  AudioBuffer in(1, total);
+  for (int64_t i = 0; i < total; ++i)
+    in.channel(0)[i] = amplitude * std::sin(2.0 * M_PI * f0 *
+                                            static_cast<double>(i) / kCanonicalSampleRate);
+
+  const AudioBuffer out = runCharacter(make, params, in, 1024, 1024);
+  const auto power = powerSpectrum(out.channel(0) + kSettle, kN);
+
+  std::vector<int> role(kN / 2 + 1, 0);
+  CharacterAsr result;
+  for (int m = 1; m <= 400; ++m) {
+    size_t b = (static_cast<size_t>(m) * static_cast<size_t>(bin)) % kN;
+    if (b > kN / 2) b = kN - b;
+    if (b == 0) continue;
+    const bool legitimate =
+        (static_cast<double>(m) * f0) < (kCanonicalSampleRate * 0.5);
+    const int want = legitimate ? 1 : 2;
+    if (role[b] != 0 && role[b] != want) result.collisionFree = false;
+    if (role[b] == 0 || want == 1) role[b] = want;
+  }
+
+  const double hzPerBin = kCanonicalSampleRate / static_cast<double>(kN);
+  double signalPower = 0.0, aliasFull = 0.0, aliasInBand = 0.0;
+  for (size_t b = 1; b <= kN / 2; ++b) {
+    const double hz = static_cast<double>(b) * hzPerBin;
+    if (role[b] == 1) {
+      signalPower += power[b];
+    } else if (role[b] == 2) {
+      aliasFull += power[b];
+      if (hz < 20000.0) aliasInBand += power[b];
+    }
+  }
+  const double denom = std::max(signalPower, 1e-300);
+  result.inBandDb = 10.0 * std::log10(std::max(aliasInBand, 1e-300) / denom);
+  result.fullBandDb = 10.0 * std::log10(std::max(aliasFull, 1e-300) / denom);
+  return result;
+}
+
+// One coherently-sampled bin, complex, so magnitude AND phase are available.
+std::complex<double> binDft(const double* x, size_t n, int k) {
+  std::complex<double> acc(0.0, 0.0);
+  for (size_t i = 0; i < n; ++i) {
+    const double th = -2.0 * M_PI * static_cast<double>(k) *
+                      static_cast<double>(i) / static_cast<double>(n);
+    acc += x[i] * std::complex<double>(std::cos(th), std::sin(th));
+  }
+  return acc;
+}
+
+// Harmonic amplitudes of a node's response to a coherently-sampled tone,
+// relative to the fundamental. Index 0 is the fundamental itself.
+std::vector<double> harmonicRatios(const std::function<std::unique_ptr<Node>()>& make,
+                                   const ParamSet& params, double amplitude,
+                                   double targetHz, int highest) {
+  constexpr size_t kN = 32768;
+  constexpr int64_t kSettle = 32768;
+  constexpr int64_t kPostRoll = 32768;
+  int bin = static_cast<int>(std::lround(targetHz * static_cast<double>(kN) /
+                                         kCanonicalSampleRate));
+  if (bin % 2 == 0) ++bin;
+  const double f0 = static_cast<double>(bin) * kCanonicalSampleRate /
+                    static_cast<double>(kN);
+  const int64_t total = kSettle + static_cast<int64_t>(kN) + kPostRoll;
+
+  AudioBuffer in(1, total);
+  for (int64_t i = 0; i < total; ++i)
+    in.channel(0)[i] = amplitude * std::sin(2.0 * M_PI * f0 *
+                                            static_cast<double>(i) / kCanonicalSampleRate);
+
+  const AudioBuffer out = runCharacter(make, params, in, 1024, 1024);
+  const auto power = powerSpectrum(out.channel(0) + kSettle, kN);
+
+  std::vector<double> ratios;
+  const double fundamental = power[static_cast<size_t>(bin)];
+  for (int m = 1; m <= highest; ++m) {
+    const size_t b = static_cast<size_t>(m * bin);
+    if (b > kN / 2 || fundamental <= 0.0) { ratios.push_back(0.0); continue; }
+    ratios.push_back(std::sqrt(power[b] / fundamental));
+  }
+  return ratios;
+}
+
+// 27. Tape correctness.
+//
+//     Tests 1-9 pass for a "tape" node that is a gentle lowpass and nothing
+//     else. These check the four mechanisms the node claims, each against the
+//     arithmetic that motivated it rather than against the code that
+//     implements it:
+//
+//       (a) the saturation curve's harmonic series, longhand from the quintic
+//       (b) bias makes the curve asymmetric and nothing else does
+//       (c) head bump is the bell it says it is
+//       (d) gap loss lands where the sinc's -3 dB point says, at every speed,
+//           and the in-band realisation matches the analog prototype rather
+//           than the corner
+//       (e) wow and flutter are bit-identical under any block partition, and
+//           are actually doing something while that is asserted
+//       (f) the achieved speed deviation is the requested one
+void testTape() {
+  auto tape = [] { return std::make_unique<Tape>(); };
+
+  // --- (a) the saturation curve's harmonic series --------------------------
+  //
+  // f(u) = u - 2u^3/3 + u^5/5 driven by u = a*sin(theta). Expanding with
+  //
+  //     sin^3 = (3 sin - sin3)/4        sin^5 = (10 sin - 5 sin3 + sin5)/16
+  //
+  // gives, longhand and with nothing imported from the shaper:
+  //
+  //     h1 = a - a^3/2 + a^5/8
+  //     h3 = a^3/6 - a^5/16
+  //     h5 = a^5/80
+  //
+  // At a = 1 those are 0.625, 0.1041667 and 0.0125, so h3/h1 is exactly 1/6
+  // and h5/h1 exactly 1/50. Two amplitudes, because a single one is satisfied
+  // by any curve with the right value there and the whole claim is about the
+  // SHAPE.
+  //
+  // The head bump is off and the speed is 30 ips for this probe, so the two
+  // linear stages cannot colour the harmonics. Gap loss at 30 ips still takes
+  // 0.02 dB off the fifth harmonic, which is inside the tolerance below.
+  {
+    std::printf("       tape harmonics:");
+    const double amps[] = {1.0, 0.5};
+    for (double a : amps) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0).set("bias", 0.0)
+          .set("head_bump_db", 0.0).set("speed_ips", 30.0)
+          .set("wow_percent", 0.0).set("flutter_percent", 0.0);
+
+      // 7, not 6: index m-1 is harmonic m, so the seventh needs seven entries.
+      const auto r = harmonicRatios(tape, p, a, 997.0, 7);
+      const double a3 = a * a * a, a5 = a3 * a * a;
+      const double h1 = a - a3 / 2.0 + a5 / 8.0;
+      const double h3 = a3 / 6.0 - a5 / 16.0;
+      const double h5 = a5 / 80.0;
+      const double want3 = h3 / h1, want5 = h5 / h1;
+
+      std::printf("  a=%.2f h3/h1 %.6f (want %.6f) h5/h1 %.6f (want %.6f)",
+                  a, r[2], want3, r[4], want5);
+      check(std::abs(20.0 * std::log10(r[2] / want3)) < 0.03,
+            "tape: third harmonic at a=" + std::to_string(a) + " is " +
+                std::to_string(r[2]) + ", the quintic says " + std::to_string(want3));
+      check(std::abs(20.0 * std::log10(r[4] / want5)) < 0.10,
+            "tape: fifth harmonic at a=" + std::to_string(a) + " is " +
+                std::to_string(r[4]) + ", the quintic says " + std::to_string(want5));
+      // The curve is a polynomial of degree five, so there is no seventh.
+      check(r[6] < 1e-5,
+            "tape: no seventh harmonic at a=" + std::to_string(a) + " (" +
+                std::to_string(r[6]) + ")");
+    }
+    std::printf("\n");
+  }
+
+  // --- (b) bias is the only source of asymmetry ----------------------------
+  //
+  // An odd curve produces odd harmonics only. Offsetting the operating point
+  // makes the two half-cycles traverse different curvature, which is even
+  // order. Both directions are asserted: without bias the second harmonic must
+  // be absent, or the "bias adds even harmonics" claim is being read off a
+  // node that produces them anyway.
+  {
+    auto second = [&](double bias) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0).set("bias", bias)
+          .set("head_bump_db", 0.0).set("speed_ips", 30.0);
+      return harmonicRatios(tape, p, 0.7, 997.0, 3)[1];
+    };
+    const double none = second(0.0), biased = second(0.3);
+    std::printf("       tape bias: h2/h1 %.2e at bias 0, %.4f at bias 0.3\n",
+                none, biased);
+    check(20.0 * std::log10(std::max(none, 1e-300)) < -140.0,
+          "tape: a symmetric curve produces no second harmonic (" +
+              std::to_string(20.0 * std::log10(std::max(none, 1e-300))) + " dB)");
+    check(biased > 0.02,
+          "tape: bias produces a second harmonic (" + std::to_string(biased) + ")");
+  }
+
+  // --- (c) the head bump is the bell it claims -----------------------------
+  //
+  // Measured against a NULL RENDER — the same node with the bump at 0 dB —
+  // rather than against the input, so the saturation and the gap loss cancel
+  // exactly instead of being subtracted approximately.
+  {
+    const double snapped = snapHz(52.0, 16384);
+    auto atBump = [&](double bumpDb) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0)
+          .set("head_bump_db", bumpDb).set("head_bump_hz", snapped)
+          .set("head_bump_q", 0.8).set("speed_ips", 15.0);
+      return measureNodeGainDb(tape, p, snapped);
+    };
+    const double flat = atBump(0.0);
+    const double lifted = atBump(3.0);
+    // An octave above the bump, where a Q 0.8 bell has fallen a long way. The
+    // point of the second probe is that "the bump is 3 dB" is satisfied by a
+    // broadband 3 dB lift, and a broadband lift is not a head bump.
+    const double snappedUp = snapHz(4.0 * snapped, 16384);
+    auto atOctaves = [&](double bumpDb) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0)
+          .set("head_bump_db", bumpDb).set("head_bump_hz", snapped)
+          .set("head_bump_q", 0.8).set("speed_ips", 15.0);
+      return measureNodeGainDb(tape, p, snappedUp);
+    };
+    const double away = atOctaves(3.0) - atOctaves(0.0);
+    std::printf("       tape head bump: %+.4f dB at %.1f Hz, %+.4f dB two "
+                "octaves up\n", lifted - flat, snapped, away);
+    check(std::abs((lifted - flat) - 3.0) < 0.02,
+          "tape: head bump measures " + std::to_string(lifted - flat) +
+              " dB at its centre, asked for 3.0");
+    check(away < 0.5,
+          "tape: the bump is local, not a broadband lift (" +
+              std::to_string(away) + " dB two octaves up)");
+  }
+
+  // --- (d) gap loss --------------------------------------------------------
+  //
+  // The physical claim is |H| = |sinc(pi g f / v)|, realised as a one-pole at
+  // the sinc's own -3 dB point, x = 1.3915576:
+  //
+  //     f_-3dB = 1.3915576 * v / (pi * g)
+  //
+  // Three things are checked, and they are different claims:
+  //   1. the corner moves with speed exactly as v does
+  //   2. the realisation matches the ANALOG one-pole across the audio band —
+  //      this is what dsp/AnalogOnePole.h exists for
+  //   3. how far the one-pole is from the sinc it stands in for, which is a
+  //      modelling error rather than an implementation one, and is bounded so
+  //      it cannot grow unnoticed
+  {
+    const double gapUm = 6.0;
+    auto corner = [&](double ips) {
+      return 1.3915576 * (ips * 0.0254) / (M_PI * gapUm * 1e-6);
+    };
+
+    auto normalisedResponse = [&](double ips, const std::vector<double>& freqs) {
+      ParamSet p;
+      // -20 dB in, so the shaper is linear to a part in 10^4 and the reading
+      // is the filters and nothing else.
+      p.set("drive_db", -20.0).set("output_trim_db", 0.0)
+          .set("head_bump_db", 0.0).set("speed_ips", ips).set("gap_um", gapUm);
+      const double ref = measureNodeGainDb(tape, p, snapHz(100.0, 16384));
+      std::vector<double> out;
+      for (double f : freqs) out.push_back(measureNodeGainDb(tape, p, f) - ref);
+      return out;
+    };
+
+    // 1. the corner tracks speed. Only speeds whose corner lands INSIDE the
+    //    audio band are probed this way: dsp/AnalogOnePole.h pins the
+    //    realisation to the analog prototype at 20 kHz, so above that the
+    //    digital filter falls away faster and its own -3 dB point is not where
+    //    the sinc's is. Measured at 15 ips it crosses at 25.2 kHz against the
+    //    sinc's 28.1 — which changes nothing anyone can hear, and asserting
+    //    the formula there would be asserting a number about ultrasound.
+    std::printf("       tape gap loss corner:");
+    std::vector<double> corners;
+    for (double ips : {3.75, 7.5}) {
+      const double fc = corner(ips);
+      // Search for the -3 dB crossing by bisection on the measured response.
+      double lo = fc * 0.5, hi = fc * 2.0;
+      for (int it = 0; it < 14; ++it) {
+        const double mid = snapHz(0.5 * (lo + hi), 16384);
+        const double db = normalisedResponse(ips, {mid})[0];
+        if (db > -3.0103) lo = mid; else hi = mid;
+      }
+      const double measured = 0.5 * (lo + hi);
+      corners.push_back(measured);
+      std::printf("  %.2f ips -> %.0f Hz (formula %.0f)", ips, measured, fc);
+      check(std::abs(measured / fc - 1.0) < 0.005,
+            "tape: gap loss at " + std::to_string(ips) + " ips crosses -3 dB at " +
+                std::to_string(measured) + " Hz, the sinc says " + std::to_string(fc));
+    }
+    // The physical claim underneath the formula: every wavelength halves when
+    // the speed halves, so the corner is proportional to speed and to nothing
+    // else. A constant corner with a speed-shaped fudge in front of it would
+    // pass the two absolute checks above and fail this one.
+    std::printf("  ratio %.4f", corners[1] / corners[0]);
+    check(std::abs(corners[1] / corners[0] - 2.0) < 0.01,
+          "tape: doubling the speed doubles the gap-loss corner (ratio " +
+              std::to_string(corners[1] / corners[0]) + ")");
+    std::printf("\n");
+
+    // 2. the realisation against the analog prototype, and against what
+    //    prewarping at the corner would have given. 15 ips puts the corner at
+    //    28.1 kHz, above the band, which is the only place the two differ.
+    {
+      const double ips = 15.0, fc = corner(ips);
+      const std::vector<double> freqs = {
+          snapHz(500.0, 16384),  snapHz(2000.0, 16384), snapHz(5000.0, 16384),
+          snapHz(10000.0, 16384), snapHz(16000.0, 16384), snapHz(20000.0, 16384)};
+      const auto got = normalisedResponse(ips, freqs);
+
+      double worst = 0.0, atTop = 0.0, textbookAtTop = 0.0;
+      for (size_t i = 0; i < freqs.size(); ++i) {
+        const double analog =
+            -10.0 * std::log10(1.0 + (freqs[i] / fc) * (freqs[i] / fc));
+        worst = std::max(worst, std::abs(got[i] - analog));
+        if (i + 1 == freqs.size()) {
+          atTop = got[i];
+          // What the textbook bilinear transform would have produced:
+          // g = tan(pi fc / fs), magnitude 1 / sqrt(1 + (tan(pi f / fs)/g)^2).
+          const double g = std::tan(M_PI * fc / kCanonicalSampleRate);
+          const double t = std::tan(M_PI * freqs[i] / kCanonicalSampleRate);
+          textbookAtTop = -10.0 * std::log10(1.0 + (t / g) * (t / g));
+        }
+      }
+      std::printf("       tape gap loss realisation: worst deviation from the "
+                  "analog prototype %.4f dB; at 20 kHz %+.3f dB against "
+                  "%+.3f dB prewarped at the corner\n",
+                  worst, atTop, textbookAtTop);
+      // 0.15 dB, and the shape of the error is the point: it is ZERO at
+      // 20 kHz and at DC, both by construction, and bulges in between because
+      // the bilinear map's frequency warping cannot be cancelled at more than
+      // one frequency by a filter with one degree of freedom. Putting the
+      // matched point at the top of the band puts the error where the pole
+      // does least. It is also four times smaller than the one-pole's own
+      // departure from the sinc it stands in for, measured below, so it is not
+      // the dominant modelling error.
+      check(worst < 0.15,
+            "tape: the realised gap loss matches the analog one-pole to " +
+                std::to_string(worst) + " dB across 500 Hz-20 kHz");
+      check(std::abs(atTop - textbookAtTop) > 0.35,
+            "tape: and it is NOT what prewarping at the corner gives (" +
+                std::to_string(std::abs(atTop - textbookAtTop)) +
+                " dB apart at 20 kHz)");
+    }
+
+    // 3. how far a one-pole is from the sinc it stands in for. Bounded, not
+    //    asserted to be zero: it is a modelling choice, and the honest thing
+    //    is to know its size and notice if it changes.
+    {
+      std::printf("       tape one-pole vs sinc gap loss, worst over "
+                  "500 Hz-20 kHz:");
+      for (double ips : {7.5, 15.0}) {
+        const double v = ips * 0.0254;
+        const std::vector<double> freqs = {
+            snapHz(500.0, 16384),   snapHz(2000.0, 16384),
+            snapHz(5000.0, 16384),  snapHz(10000.0, 16384),
+            snapHz(16000.0, 16384), snapHz(20000.0, 16384)};
+        const auto got = normalisedResponse(ips, freqs);
+        double worst = 0.0;
+        for (size_t i = 0; i < freqs.size(); ++i) {
+          const double x = M_PI * gapUm * 1e-6 * freqs[i] / v;
+          const double sinc = std::abs(std::sin(x) / x);
+          worst = std::max(worst, std::abs(got[i] - 20.0 * std::log10(sinc)));
+        }
+        std::printf("  %.1f ips %.2f dB", ips, worst);
+        check(worst < 2.5,
+              "tape: the one-pole stands in for the sinc to within " +
+                  std::to_string(worst) + " dB at " + std::to_string(ips) + " ips");
+      }
+      std::printf("\n");
+    }
+  }
+
+  // --- (e) wow and flutter under any block partition -----------------------
+  //
+  // THE PROPERTY MOST LIKELY TO BE QUIETLY BROKEN, and the one an LFO
+  // accumulator would break silently: `phase += rate/fs` gives the right sound
+  // and a different answer for every block size, because floating-point
+  // addition is not associative.
+  //
+  // Two halves, and the second is what stops the first from being decorative.
+  // A node with the modulation switched off is trivially block-size invariant,
+  // so the same stimulus is first shown to be MODULATED — a coherently sampled
+  // carrier loses most of its energy out of its own bin — and only then
+  // compared across partitions.
+  {
+    constexpr size_t kN = 32768;
+    constexpr int64_t kSettle = 32768;
+    // 15 kHz rather than something midrange: the phase deviation a given
+    // speed error produces is proportional to frequency, so the top of the
+    // band is where a transport fault is most visible and where a check that
+    // the modulation is switched ON has the most to work with.
+    const int carrierBin = 5121; // 15003.9 Hz at 96 kHz, odd
+    const double f0 = static_cast<double>(carrierBin) * kCanonicalSampleRate /
+                      static_cast<double>(kN);
+    const int64_t total = kSettle + static_cast<int64_t>(kN);
+
+    AudioBuffer in(2, total);
+    for (int c = 0; c < 2; ++c)
+      for (int64_t i = 0; i < total; ++i)
+        in.channel(c)[i] = 0.3 * std::sin(2.0 * M_PI * f0 *
+                                          static_cast<double>(i) / kCanonicalSampleRate);
+
+    auto carrierFraction = [&](const ParamSet& p) {
+      const AudioBuffer out = runCharacter(tape, p, in, 1024, 4096);
+      const auto pw = powerSpectrum(out.channel(0) + kSettle, kN);
+      double total2 = 0.0;
+      for (size_t b = 1; b <= kN / 2; ++b) total2 += pw[b];
+      return pw[static_cast<size_t>(carrierBin)] / std::max(total2, 1e-300);
+    };
+
+    ParamSet still;
+    still.set("drive_db", -20.0).set("head_bump_db", 0.0).set("speed_ips", 30.0)
+        .set("wow_percent", 0.0).set("flutter_percent", 0.0);
+    ParamSet moving;
+    moving.set("drive_db", -20.0).set("head_bump_db", 0.0).set("speed_ips", 30.0)
+        .set("wow_percent", 0.1).set("wow_rate_hz", 1.0)
+        .set("flutter_percent", 0.05).set("flutter_rate_hz", 14.0);
+
+    const double fStill = carrierFraction(still);
+    const double fMoving = carrierFraction(moving);
+    std::printf("       tape transport: carrier holds %.4f of its energy with a "
+                "perfect transport, %.4f with wow and flutter\n", fStill, fMoving);
+    check(fStill > 0.999,
+          "tape: a perfect transport leaves the carrier intact (" +
+              std::to_string(fStill) + ")");
+    check(fMoving < 0.5,
+          "tape: wow and flutter smear the carrier, so the invariance check "
+          "below is not vacuous (" + std::to_string(fMoving) + ")");
+
+    // Block sizes chosen so none divides the wow knot spacing (48000 samples)
+    // or the flutter's (3429): a partition boundary landing mid-knot is the
+    // case an accumulator gets wrong.
+    const AudioBuffer ref = runCharacter(tape, moving, in, 4096, 4096);
+    for (int bs : {1, 3, 7, 511, 1024, 4096}) {
+      const AudioBuffer got = runCharacter(tape, moving, in, bs, 4096);
+      const double d = maxAbsDiff(ref, got, total);
+      check(d == 0.0, "tape: wow and flutter are bit-identical at block size " +
+                          std::to_string(bs) + " (diff=" + std::to_string(d) + ")");
+    }
+
+    // And the two channels must not share a drift. The PRNG is keyed on the
+    // channel, so a key that dropped the channel would give a mono wobble on a
+    // stereo tape machine, which is not what a transport does.
+    {
+      const AudioBuffer out = runCharacter(tape, moving, in, 1024, 4096);
+      double worst = 0.0;
+      for (int64_t i = kSettle; i < total; ++i)
+        worst = std::max(worst,
+                         std::abs(out.channel(0)[i] - out.channel(1)[i]));
+      check(worst > 1e-3,
+            "tape: the two channels drift independently (worst difference " +
+                std::to_string(worst) + ")");
+    }
+  }
+
+  // --- (f) the achieved speed deviation is the requested one ---------------
+  //
+  // `wow_percent` claims to be the PEAK instantaneous speed deviation. The
+  // claim is derived rather than tuned: a delay of D(n) samples gives a
+  // relative speed deviation of -D'(n), and the Catmull-Rom spline over knots
+  // in [-1, 1] with spacing H has |D'| <= 3.5 A / H, so A = eps H / 3.5.
+  //
+  // Measured out of the AUDIO, by demodulating a 1 kHz probe tone, rather than
+  // out of the node's own state — otherwise this checks that the code agrees
+  // with itself.
+  {
+    // 1 kHz divides 96 kHz exactly, so a moving average of four tone periods
+    // nulls the 2f0 demodulation product and every harmonic exactly.
+    const double f0 = 1000.0;
+    const int period = 96;
+    const int smooth = period * 4;
+
+    auto delayTrace = [&](double percent, double rateHz, bool flutter,
+                          double seconds) {
+      ParamSet p;
+      p.set("drive_db", -20.0).set("output_trim_db", 0.0)
+          .set("head_bump_db", 0.0).set("speed_ips", 30.0);
+      if (flutter) {
+        p.set("wow_percent", 0.0).set("flutter_percent", percent)
+            .set("flutter_rate_hz", rateHz);
+      } else {
+        p.set("wow_percent", percent).set("wow_rate_hz", rateHz)
+            .set("flutter_percent", 0.0);
+      }
+
+      const int64_t settle = 16384;
+      const int64_t frames =
+          static_cast<int64_t>(seconds * kCanonicalSampleRate);
+      const int64_t total = settle + frames;
+      AudioBuffer in(1, total);
+      const double w = 2.0 * M_PI * f0 / kCanonicalSampleRate;
+      for (int64_t i = 0; i < total; ++i)
+        in.channel(0)[i] = 0.2 * std::sin(w * static_cast<double>(i));
+
+      const AudioBuffer out = runCharacter(tape, p, in, 1024, 1024);
+
+      std::vector<double> bufI(static_cast<size_t>(smooth), 0.0);
+      std::vector<double> bufQ(static_cast<size_t>(smooth), 0.0);
+      double sumI = 0.0, sumQ = 0.0;
+      int pos = 0;
+      std::vector<double> trace;
+      trace.reserve(static_cast<size_t>(frames));
+      double prev = 0.0, unwrapped = 0.0;
+      bool have = false;
+      for (int64_t i = 0; i < total; ++i) {
+        const double th = w * static_cast<double>(i);
+        const double vi = out.channel(0)[i] * 2.0 * std::cos(th);
+        const double vq = -out.channel(0)[i] * 2.0 * std::sin(th);
+        sumI += vi - bufI[static_cast<size_t>(pos)];
+        sumQ += vq - bufQ[static_cast<size_t>(pos)];
+        bufI[static_cast<size_t>(pos)] = vi;
+        bufQ[static_cast<size_t>(pos)] = vq;
+        pos = (pos + 1) % smooth;
+        if (i < settle) continue;
+        const double ph = std::atan2(sumI, sumQ);
+        if (have) {
+          double d = ph - prev;
+          while (d > M_PI) d -= 2.0 * M_PI;
+          while (d < -M_PI) d += 2.0 * M_PI;
+          unwrapped += d;
+        } else {
+          unwrapped = ph;
+          have = true;
+        }
+        prev = ph;
+        // phase = 2*pi*f0*delay/fs, so delay in samples is phase * fs / (2 pi f0)
+        trace.push_back(unwrapped * kCanonicalSampleRate / (2.0 * M_PI * f0));
+      }
+      double mean = 0.0;
+      for (double v : trace) mean += v;
+      mean /= static_cast<double>(trace.size());
+      for (double& v : trace) v -= mean;
+      return trace;
+    };
+
+    // Peak |value| and the RMS and peak of the sample-to-sample slope, the
+    // slope taken as a central difference over `span` samples so the readout
+    // is not dominated by the demodulator's own noise floor.
+    auto stats = [](const std::vector<double>& trace, int span) {
+      double peakAbs = 0.0, peakSlope = 0.0, sumSq = 0.0;
+      int64_t n = 0;
+      for (double v : trace) peakAbs = std::max(peakAbs, std::abs(v));
+      for (size_t i = static_cast<size_t>(span);
+           i + static_cast<size_t>(span) < trace.size(); ++i) {
+        const double s = (trace[i + static_cast<size_t>(span)] -
+                          trace[i - static_cast<size_t>(span)]) /
+                         (2.0 * static_cast<double>(span));
+        peakSlope = std::max(peakSlope, std::abs(s));
+        sumSq += s * s;
+        ++n;
+      }
+      return std::make_pair(peakSlope, std::sqrt(sumSq / static_cast<double>(n)));
+    };
+
+    // WOW. 0.1% peak at 1 Hz: H = 96000/2 = 48000 samples,
+    // A = 0.001 * 48000 / 3.5 = 13.714 samples, and the spline may overshoot
+    // its knots by 25%, so |D| <= 17.14.
+    {
+      const auto trace = delayTrace(0.1, 1.0, /*flutter=*/false, 20.0);
+      const auto st = stats(trace, 480);
+      double peakAbs = 0.0;
+      for (double v : trace) peakAbs = std::max(peakAbs, std::abs(v));
+      const double amp = 0.001 * 48000.0 / 3.5;
+      std::printf("       tape wow at 0.1%% / 1 Hz: peak speed deviation "
+                  "%.4f%% (bound 0.1000), rms %.4f%%, peak delay %.2f samples "
+                  "(bound %.2f)\n",
+                  st.first * 100.0, st.second * 100.0, peakAbs, 1.25 * amp);
+      check(st.first <= 0.001,
+            "tape: wow peak speed deviation " + std::to_string(st.first * 100.0) +
+                "% never exceeds the 0.1% asked for");
+      check(st.first > 0.00035,
+            "tape: and it gets within a factor of three of it (" +
+                std::to_string(st.first * 100.0) + "%)");
+      check(peakAbs <= 1.25 * amp,
+            "tape: the drift stays inside the spline's own overshoot bound (" +
+                std::to_string(peakAbs) + " against " +
+                std::to_string(1.25 * amp) + " samples)");
+    }
+
+    // THE DERIVATION IS LINEAR IN eps. Same rate means the same knot spacing
+    // and therefore the same PRNG draws, so doubling `wow_percent` doubles the
+    // drift — no statistics involved, and no dependence on which random
+    // excursion happened to be the largest. This is the sharpest available
+    // check that the amplitude is computed FROM the requested deviation rather
+    // than from anything else that happens to grow with it.
+    //
+    // Read as a ratio of RMS rather than sample by sample. The two
+    // configurations do not have the same base delay — it is sized from the
+    // amplitude — so the fractional part the Lagrange interpolator reads at
+    // differs, and the per-sample residual sits at 5.6e-4 of full scale for
+    // that reason rather than because the scaling is wrong.
+    {
+      const auto a = stats(delayTrace(0.05, 1.0, false, 8.0), 480);
+      const auto b = stats(delayTrace(0.10, 1.0, false, 8.0), 480);
+      const double ratio = b.second / a.second;
+      std::printf("       tape wow scaling: rms speed deviation %.5f%% at "
+                  "0.05%% and %.5f%% at 0.10%%, ratio %.5f\n",
+                  a.second * 100.0, b.second * 100.0, ratio);
+      check(std::abs(ratio - 2.0) < 0.005,
+            "tape: the drift is linear in wow_percent (ratio " +
+                std::to_string(ratio) + ", expected 2)");
+    }
+
+    // FLUTTER, and the rate-invariance the derivation implies. A = eps H / 3.5
+    // with H = fs / (2 rate) means the SLOPE — and therefore the speed
+    // deviation — does not depend on the rate at all. Read as an RMS rather
+    // than a peak, because an RMS over a few hundred knots converges and an
+    // extreme value does not.
+    {
+      const auto slow = stats(delayTrace(0.05, 8.0, true, 10.0), 96);
+      const auto fast = stats(delayTrace(0.05, 20.0, true, 10.0), 96);
+      const double ratio = fast.second / slow.second;
+      std::printf("       tape flutter at 0.05%%: rms speed deviation %.4f%% at "
+                  "8 Hz and %.4f%% at 20 Hz, ratio %.3f\n",
+                  slow.second * 100.0, fast.second * 100.0, ratio);
+      check(slow.first <= 0.0005 && fast.first <= 0.0005,
+            "tape: flutter peak speed deviation never exceeds the 0.05% asked "
+            "for (" + std::to_string(slow.first * 100.0) + "%, " +
+                std::to_string(fast.first * 100.0) + "%)");
+      check(std::abs(ratio - 1.0) < 0.15,
+            "tape: the speed deviation is set by wow/flutter_percent and not by "
+            "the rate (ratio " + std::to_string(ratio) + ")");
+    }
+  }
+
+  // --- (g) a perfect transport declares less latency and has no delay line --
+  //
+  // The same rule as a bandless EQ: a node's declared latency has to describe
+  // what it actually does in the configuration it was prepared for. With both
+  // depths at zero there is no line to read from, so declaring its base delay
+  // would have the chain trim samples off the front of the render.
+  {
+    ParamSet still;
+    still.set("wow_percent", 0.0).set("flutter_percent", 0.0);
+    ParamSet moving;
+    moving.set("wow_percent", 0.05).set("wow_rate_hz", 1.0)
+        .set("flutter_percent", 0.03).set("flutter_rate_hz", 12.0);
+
+    auto declared = [&](const ParamSet& p) {
+      Tape node;
+      node.prepare(makeSpec(2, 1024, 4096));
+      node.setParams(p);
+      return node.latencyFrames();
+    };
+    const int stillLat = declared(still), movingLat = declared(moving);
+    // 1.25 * (0.0005*48000/3.5 + 0.0003*4000/3.5) = 9.00, so 9 + 2 = 11.
+    std::printf("       tape latency: %d frames with a perfect transport, %d "
+                "with wow and flutter\n", stillLat, movingLat);
+    check(movingLat - stillLat == 11,
+          "tape: the modulated path declares its base delay exactly (" +
+              std::to_string(movingLat - stillLat) + ", expected 11)");
+  }
+
+  // --- (h) aliasing where the per-commit suite does not look ---------------
+  //
+  // engine/tests/measurements.cpp measures a node at its own DEFAULTS. The
+  // defaults here are a symmetric curve at unity drive, so nothing in that
+  // report exercises either the asymmetric path or a hard drive — and both
+  // fold differently, the first because even harmonics land on different bins
+  // and the second because there are more of them. The requirement is
+  // -100 dB at 0 dBFS and it is not adjusted here.
+  {
+    struct Case { const char* label; double drive; double bias; };
+    const Case cases[] = {
+        {"defaults", 0.0, 0.0},
+        {"+12 dB drive", 12.0, 0.0},
+        {"+12 dB drive, bias 0.6", 12.0, 0.6},
+        // The top of the accepted drive range, which is where the requirement
+        // binds and where the 8x floor was chosen from.
+        {"+18 dB drive", 18.0, 0.0},
+        {"+18 dB drive, bias 1.0", 18.0, 1.0},
+    };
+    std::printf("       tape in-band ASR at 0 dBFS:");
+    for (const Case& tc : cases) {
+      ParamSet p;
+      p.set("drive_db", tc.drive).set("output_trim_db", 0.0).set("bias", tc.bias)
+          .set("wow_percent", 0.0).set("flutter_percent", 0.0);
+      const CharacterAsr r = measureCharacterAsr(tape, p, 1.0, 19500.0);
+      std::printf("  %s %.1f dB", tc.label, r.inBandDb);
+      check(r.collisionFree, "tape ASR bin classification is unambiguous");
+      check(r.inBandDb <= -100.0,
+            std::string("tape in-band ASR at ") + tc.label + " = " +
+                std::to_string(r.inBandDb) + " dB, requirement -100");
+    }
+    std::printf("\n");
+  }
+
+  // --- (i) the bounds that exist for the requirement actually bind ---------
+  //
+  // MUTATION TESTING ADDED THIS SECTION. Widening `drive_db`'s upper bound from
+  // +18 dB to +30 — which walks the node straight out of the aliasing
+  // requirement, since 8x measures -100.0 dB at +24 — survived the whole suite,
+  // because every test above asks for a value INSIDE the bound. A defence
+  // probed only from within its own range is not probed at all.
+  //
+  // The check is bit-exactness rather than a measurement: asking for more than
+  // the bound must produce exactly what asking for the bound produces.
+  {
+    const AudioBuffer in = testSignal(2, 8192);
+    auto render = [&](double drive, double factor) {
+      ParamSet p;
+      p.set("drive_db", drive).set("oversample_factor", factor)
+          .set("wow_percent", 0.0).set("flutter_percent", 0.0);
+      return runCharacter(tape, p, in, 512, 1024);
+    };
+    const double overDrive = maxAbsDiff(render(18.0, 8.0), render(30.0, 8.0), 8192);
+    check(overDrive == 0.0,
+          "tape: drive_db is clamped at +18 dB, which is where 8x still meets "
+          "the aliasing requirement (diff=" + std::to_string(overDrive) + ")");
+    const double underDrive = maxAbsDiff(render(-24.0, 8.0), render(-60.0, 8.0), 8192);
+    check(underDrive == 0.0,
+          "tape: drive_db is clamped at -24 dB (diff=" +
+              std::to_string(underDrive) + ")");
+    // And the oversampling floor, for the same reason: 4x measures -96 dB at
+    // +12 dB of drive, so a recipe asking for it must get 8x.
+    const double floorOs = maxAbsDiff(render(12.0, 4.0), render(12.0, 8.0), 8192);
+    check(floorOs == 0.0,
+          "tape: oversample_factor is floored at 8, where 4x does not meet the "
+          "requirement (diff=" + std::to_string(floorOs) + ")");
+  }
+}
+
+// 28. Console correctness.
+//
+//     A console stage that did nothing at all would pass tests 1-9 and sound
+//     exactly right on any single instance, which is the whole difficulty with
+//     this node. So every check here is against an arithmetic prediction, and
+//     the last one is the only claim that matters: that what one instance does
+//     is small and what ten do is ten times that.
+void testConsole() {
+  auto console = [] { return std::make_unique<Console>(); };
+
+  // --- (a) distortion is set by headroom, and by the curve ----------------
+  //
+  // With u = a sin(theta) the quintic gives h3/h1 = (a^3/6 - a^5/16) /
+  // (a - a^3/2 + a^5/8), and `headroom_db` sets a = 10^(-headroom/20) for a
+  // full-scale input. Four headrooms, so the a^2 law is exercised rather than
+  // one point on it: 24 dB predicts -63.6 dB of third harmonic and 6 dB
+  // predicts -21.8, and nothing between them is a free parameter.
+  {
+    std::printf("       console d3 against headroom:");
+    for (double headroom : {24.0, 18.0, 12.0, 6.0}) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0)
+          .set("headroom_db", headroom).set("coupling_hz", 12.0)
+          .set("bandwidth_hz", 200000.0);
+      const auto r = harmonicRatios(console, p, 1.0, 997.0, 5);
+
+      const double a = std::pow(10.0, -headroom / 20.0);
+      const double a3 = a * a * a, a5 = a3 * a * a;
+      const double want = (a3 / 6.0 - a5 / 16.0) / (a - a3 / 2.0 + a5 / 8.0);
+      std::printf("  %.0f dB -> %.2f dB (want %.2f)", headroom,
+                  20.0 * std::log10(r[2]), 20.0 * std::log10(want));
+      check(std::abs(20.0 * std::log10(r[2] / want)) < 0.1,
+            "console: third harmonic at " + std::to_string(headroom) +
+                " dB headroom is " + std::to_string(20.0 * std::log10(r[2])) +
+                " dB, the quintic says " + std::to_string(20.0 * std::log10(want)));
+      // Push-pull, so the transfer is symmetric and there is nothing even.
+      check(20.0 * std::log10(std::max(r[1], 1e-300)) < -140.0,
+            "console: no second harmonic at " + std::to_string(headroom) +
+                " dB headroom (" +
+                std::to_string(20.0 * std::log10(std::max(r[1], 1e-300))) + " dB)");
+    }
+    std::printf("\n");
+  }
+
+  // --- (b) the two poles are the analog prototypes ------------------------
+  //
+  // Both magnitude AND phase, because the magnitude is the part that does not
+  // matter: at the defaults one stage is -0.46 dB at 20 kHz, which nobody
+  // would hear, and -18.4 degrees, which is the part that accumulates.
+  //
+  // The expectations are the analog prototype written longhand:
+  //
+  //     low-pass    |H| = 1/sqrt(1 + (f/fc)^2)      arg = -atan(f/fc)
+  //     high-pass   |H| = 1/sqrt(1 + (fc/f)^2)      arg = +atan(fc/f)
+  {
+    constexpr size_t kN = 16384;
+    constexpr int64_t kSettle = 32768;
+    constexpr int64_t kPostRoll = 32768;
+    const double bandwidthHz = 60000.0, couplingHz = 12.0;
+
+    auto probe = [&](int bin, double& magDb, double& phaseDeg) {
+      const double f = static_cast<double>(bin) * kCanonicalSampleRate /
+                       static_cast<double>(kN);
+      const int64_t total = kSettle + static_cast<int64_t>(kN) + kPostRoll;
+      AudioBuffer in(1, total);
+      for (int64_t i = 0; i < total; ++i)
+        in.channel(0)[i] = 0.02 * std::sin(2.0 * M_PI * f *
+                                           static_cast<double>(i) / kCanonicalSampleRate);
+      ParamSet p;
+      // 40 dB of headroom and a tiny input, so the stage is linear to a part
+      // in 10^9 and what is left is the two poles.
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0).set("headroom_db", 40.0)
+          .set("coupling_hz", couplingHz).set("bandwidth_hz", bandwidthHz);
+      const AudioBuffer out = runCharacter(console, p, in, 1024, 1024);
+      const std::complex<double> a = binDft(in.channel(0) + kSettle, kN, bin);
+      const std::complex<double> b = binDft(out.channel(0) + kSettle, kN, bin);
+      const std::complex<double> h = b / a;
+      magDb = 20.0 * std::log10(std::abs(h));
+      phaseDeg = std::arg(h) * 180.0 / M_PI;
+    };
+
+    // TWO EXPECTATIONS PER POINT, AND THEY ARE DIFFERENT CLAIMS.
+    //
+    //   the DESIGN     what dsp/AnalogOnePole.h says it builds: a TPT one-pole
+    //                  whose integrator gain is g = tan(pi fRef/fs) * fc/fRef,
+    //                  giving |H| = 1/sqrt(1 + (tan(pi f/fs)/g)^2) and
+    //                  arg = -atan(tan(pi f/fs)/g). Asserted tightly: this is
+    //                  whether the code builds the filter it documents.
+    //
+    //   the PROTOTYPE  the analog first-order pole the design stands in for.
+    //                  Asserted as a BOUND, because a one-pole has one degree
+    //                  of freedom and the bilinear map's warping can be
+    //                  cancelled at exactly one frequency. Matching at 20 kHz
+    //                  makes both errors zero there and at DC, and the bulge
+    //                  in between is the price.
+    const int bins[] = {17, 1707, 3413}; // ~100 Hz, ~10 kHz, ~20 kHz
+    const double gLp = std::tan(M_PI * 20000.0 / kCanonicalSampleRate) *
+                       (bandwidthHz / 20000.0);
+    const double gHp = std::tan(M_PI * couplingHz / kCanonicalSampleRate);
+    double worstMagErr = 0.0, worstPhaseErr = 0.0;
+    std::printf("       console poles (12 Hz / 60 kHz):\n");
+    for (int bin : bins) {
+      const double f = static_cast<double>(bin) * kCanonicalSampleRate /
+                       static_cast<double>(kN);
+      double magDb = 0.0, phaseDeg = 0.0;
+      probe(bin, magDb, phaseDeg);
+
+      const double t = std::tan(M_PI * f / kCanonicalSampleRate);
+      const double designMag =
+          -10.0 * std::log10(1.0 + (t / gLp) * (t / gLp)) -
+          10.0 * std::log10(1.0 + (gHp / t) * (gHp / t));
+      const double designPhase =
+          (-std::atan(t / gLp) + std::atan(gHp / t)) * 180.0 / M_PI;
+
+      const double protoMag =
+          -10.0 * std::log10(1.0 + (f / bandwidthHz) * (f / bandwidthHz)) -
+          10.0 * std::log10(1.0 + (couplingHz / f) * (couplingHz / f));
+      const double protoPhase = (-std::atan(f / bandwidthHz) +
+                                 std::atan(couplingHz / f)) * 180.0 / M_PI;
+
+      std::printf("         %8.1f Hz  %+.4f dB (design %+.4f, analog %+.4f)  "
+                  "%+.4f deg (design %+.4f, analog %+.4f)\n",
+                  f, magDb, designMag, protoMag, phaseDeg, designPhase, protoPhase);
+      check(std::abs(magDb - designMag) < 0.002,
+            "console: magnitude at " + std::to_string(f) + " Hz is " +
+                std::to_string(magDb) + " dB, the design says " +
+                std::to_string(designMag));
+      check(std::abs(phaseDeg - designPhase) < 0.02,
+            "console: phase at " + std::to_string(f) + " Hz is " +
+                std::to_string(phaseDeg) + " deg, the design says " +
+                std::to_string(designPhase));
+      worstMagErr = std::max(worstMagErr, std::abs(magDb - protoMag));
+      worstPhaseErr = std::max(worstPhaseErr, std::abs(phaseDeg - protoPhase));
+    }
+    std::printf("         worst departure from the analog prototype: %.4f dB, "
+                "%.3f deg\n", worstMagErr, worstPhaseErr);
+    check(worstMagErr < 0.05 && worstPhaseErr < 1.5,
+          "console: the realisation stands in for the analog pole to " +
+              std::to_string(worstMagErr) + " dB and " +
+              std::to_string(worstPhaseErr) + " deg across the band");
+    // And it is exact where it was matched, which is the whole design claim.
+    {
+      double magDb = 0.0, phaseDeg = 0.0;
+      probe(3413, magDb, phaseDeg);
+      const double f = 3413.0 * kCanonicalSampleRate / 16384.0;
+      const double protoMag =
+          -10.0 * std::log10(1.0 + (f / bandwidthHz) * (f / bandwidthHz)) -
+          10.0 * std::log10(1.0 + (couplingHz / f) * (couplingHz / f));
+      check(std::abs(magDb - protoMag) < 0.002,
+            "console: at the matched frequency the realisation IS the analog "
+            "prototype (" + std::to_string(magDb) + " against " +
+                std::to_string(protoMag) + " dB)");
+    }
+
+    // What prewarping at the corner would have given at 20 kHz. 60 kHz is
+    // above the 48 kHz internal Nyquist, so the textbook realisation cannot
+    // even place the corner — it clamps, and the roll-off it exists to model
+    // very nearly disappears.
+    {
+      const double f = 3413.0 * kCanonicalSampleRate / 16384.0;
+      const double clamped = std::min(bandwidthHz, kCanonicalSampleRate * 0.5 * 0.995);
+      const double g = std::tan(M_PI * clamped / kCanonicalSampleRate);
+      const double t = std::tan(M_PI * f / kCanonicalSampleRate);
+      const double textbook = -10.0 * std::log10(1.0 + (t / g) * (t / g));
+      const double analog = -10.0 * std::log10(1.0 + (f / bandwidthHz) * (f / bandwidthHz));
+      std::printf("         prewarped at the corner it would read %+.4f dB "
+                  "against the prototype's %+.4f\n", textbook, analog);
+      check(std::abs(textbook - analog) > 0.4,
+            "console: the corner-prewarped realisation really is a different "
+            "filter in the band (" + std::to_string(std::abs(textbook - analog)) +
+                " dB apart at 20 kHz)");
+    }
+  }
+
+  // --- (c) one is nothing, ten is something -------------------------------
+  //
+  // The whole justification for this node. Ten stages in series must be ten
+  // times one stage in dB and in degrees, or the effect is not the accumulating
+  // one it is sold as.
+  {
+    constexpr size_t kN = 16384;
+    constexpr int64_t kSettle = 32768;
+    constexpr int64_t kPostRoll = 32768;
+    const int bin = 3413; // ~20 kHz
+    const double f = static_cast<double>(bin) * kCanonicalSampleRate /
+                     static_cast<double>(kN);
+    const int64_t total = kSettle + static_cast<int64_t>(kN) + kPostRoll;
+
+    AudioBuffer in(1, total);
+    for (int64_t i = 0; i < total; ++i)
+      in.channel(0)[i] = 0.02 * std::sin(2.0 * M_PI * f *
+                                         static_cast<double>(i) / kCanonicalSampleRate);
+
+    ParamSet p;
+    p.set("drive_db", 0.0).set("output_trim_db", 0.0).set("headroom_db", 40.0)
+        .set("coupling_hz", 12.0).set("bandwidth_hz", 60000.0);
+
+    auto stack = [&](int count, double& magDb, double& phaseDeg) {
+      Chain chain;
+      for (int i = 0; i < count; ++i) {
+        Chain::SlotConfig cfg;
+        cfg.nodeId = "c" + std::to_string(i);
+        chain.add(std::make_unique<Console>(), p, cfg);
+      }
+      chain.prepare(makeSpec(1, 1024, total));
+      AudioBuffer out;
+      chain.render(in, out, 1024);
+      const std::complex<double> a = binDft(in.channel(0) + kSettle, kN, bin);
+      const std::complex<double> b = binDft(out.channel(0) + kSettle, kN, bin);
+      const std::complex<double> h = b / a;
+      magDb = 20.0 * std::log10(std::abs(h));
+      phaseDeg = std::arg(h) * 180.0 / M_PI;
+    };
+
+    double m1 = 0.0, p1 = 0.0, m10 = 0.0, p10 = 0.0;
+    stack(1, m1, p1);
+    stack(10, m10, p10);
+    // arg() wraps into (-180, 180]; ten stages of -18.4 degrees is -184.
+    const double unwrapped10 = p10 > 0.0 ? p10 - 360.0 : p10;
+    std::printf("       console in aggregate at %.0f Hz: 1 stage %+.3f dB "
+                "%+.2f deg, 10 stages %+.3f dB %+.2f deg\n",
+                f, m1, p1, m10, unwrapped10);
+    check(std::abs(m10 - 10.0 * m1) < 0.02,
+          "console: ten stages are ten times one, in dB (" +
+              std::to_string(m10) + " against " + std::to_string(10.0 * m1) + ")");
+    check(std::abs(unwrapped10 - 10.0 * p1) < 0.5,
+          "console: ten stages are ten times one, in degrees (" +
+              std::to_string(unwrapped10) + " against " +
+              std::to_string(10.0 * p1) + ")");
+    // And one stage is genuinely inaudible on its own, which is the other half
+    // of the claim and the reason the node is allowed to exist at all.
+    check(std::abs(m1) < 0.6,
+          "console: one stage is under 0.6 dB at 20 kHz (" +
+              std::to_string(m1) + ")");
+  }
+
+  // --- (d) aliasing at the hardest setting the node allows -----------------
+  //
+  // The per-commit suite measures this node at 24 dB of headroom, where it is
+  // barely nonlinear. 6 dB is the floor `setParams` permits and is where the
+  // aliasing requirement actually binds.
+  {
+    std::printf("       console in-band ASR at 0 dBFS:");
+    for (double headroom : {24.0, 12.0, 6.0}) {
+      ParamSet p;
+      p.set("drive_db", 0.0).set("output_trim_db", 0.0)
+          .set("headroom_db", headroom);
+      const CharacterAsr r = measureCharacterAsr(console, p, 1.0, 19500.0);
+      std::printf("  %.0f dB headroom %.1f dB", headroom, r.inBandDb);
+      check(r.collisionFree, "console ASR bin classification is unambiguous");
+      check(r.inBandDb <= -100.0,
+            "console in-band ASR at " + std::to_string(headroom) +
+                " dB headroom = " + std::to_string(r.inBandDb) +
+                " dB, requirement -100");
+    }
+    std::printf("\n");
+  }
+
+  // --- (e) the bounds bind ------------------------------------------------
+  //
+  // Same reasoning as the tape section: the ASR figures above are stated at the
+  // hardest configuration the node ACCEPTS, so they mean nothing unless asking
+  // for something harder returns the accepted one. Bit-exact, because a clamp
+  // either fires or it does not.
+  {
+    const AudioBuffer in = testSignal(2, 8192);
+    auto render = [&](double drive, double headroom) {
+      ParamSet p;
+      p.set("drive_db", drive).set("headroom_db", headroom);
+      return runCharacter(console, p, in, 512, 1024);
+    };
+    check(maxAbsDiff(render(12.0, 24.0), render(30.0, 24.0), 8192) == 0.0,
+          "console: drive_db is clamped at +12 dB, which with the 6 dB headroom "
+          "floor is the hardest setting the aliasing figure covers");
+    check(maxAbsDiff(render(-12.0, 24.0), render(-40.0, 24.0), 8192) == 0.0,
+          "console: drive_db is clamped at -12 dB");
+    check(maxAbsDiff(render(0.0, 6.0), render(0.0, 2.0), 8192) == 0.0,
+          "console: headroom_db is clamped at 6 dB, below which the node stops "
+          "being a bus stage and becomes a saturator");
+    check(maxAbsDiff(render(0.0, 40.0), render(0.0, 60.0), 8192) == 0.0,
+          "console: headroom_db is clamped at 40 dB");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -5476,6 +6547,8 @@ int main() {
   std::printf("[24] linear-phase EQ\n");      { TIMED("linear-phase EQ"); testLinearPhaseEq(); }
   std::printf("[25] multiband compressor\n"); { TIMED("multiband compressor"); testMultibandCompressor(); }
   std::printf("[26] transient designer\n");   { TIMED("transient designer"); testTransientDesigner(); }
+  std::printf("[27] tape\n");                 { TIMED("tape"); testTape(); }
+  std::printf("[28] console\n");              { TIMED("console"); testConsole(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
