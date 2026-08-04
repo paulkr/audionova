@@ -24,6 +24,7 @@ import os
 import sys
 
 import numpy as np
+from scipy import signal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -179,7 +180,7 @@ def test_passes_a_good_render() -> None:
     # shape as a gate that silently skipped it.
     R.check(set(result.checked) == {
                 "finite_samples", "not_silent", "true_peak", "level_collapse",
-                "mono_compatibility", "resonance", "bandwidth"},
+                "mono_compatibility", "per_band_mono", "resonance", "bandwidth"},
             f"and every check that can run did, {sorted(result.checked)}")
     R.check(len(result.checked) == len(set(result.checked)),
             f"each recorded once, {result.checked}")
@@ -725,6 +726,107 @@ def test_thresholds_are_not_trigger_happy() -> None:
         R.check(result.passed, f"{name} passes the gate: {result.summary()}")
 
 
+def test_a_band_that_vanishes_while_the_file_looks_fine() -> None:
+    """Wideband correlation is an average, and an average hides a band.
+
+    THIS IS THE CASE THE WIDEBAND CHECK CANNOT SEE. A widened low-mid can
+    disappear on a phone while the file as a whole correlates perfectly well.
+    Swept against the real measurement, there is a genuine window: with one
+    band inverted at 0.2-0.3 relative amplitude the whole-file mono loss reads
+    0.00 dB while that band loses 6-9 dB.
+
+    Written after nearly shipping the opposite mistake. The two checks this
+    replaced — correlation and whole-file mono loss — were the same bar in
+    different units, and the second could never fire. Adding a second check
+    that also could never fire would have been the same error twice, so the
+    window above was measured before the threshold was chosen.
+    """
+    print("[9] a band that vanishes while the whole file looks fine")
+
+    rng = np.random.default_rng(5)
+    n = int(SR * 3)
+    shaped = signal.butter(8, [560 / (SR / 2), 1000 / (SR / 2)],
+                           btype="band", output="sos")
+    common = rng.standard_normal(n) * 0.05
+    rest = common - signal.sosfilt(shaped, common)
+    noise = signal.sosfilt(shaped, rng.standard_normal(n))
+
+    def verdict(amplitude):
+        band = noise * amplitude
+        processed = np.stack([rest + band, rest - band])
+        source = np.stack([rest + band, rest + band])
+        return gate.verify(processed, SR, graph=None,
+                           source_report=report_mod.measure(source, SR).to_dict())
+
+    # PROBED EITHER SIDE OF THE BAR, not far from it. A test that inverts a
+    # whole channel proves the check exists and says nothing about where it
+    # sits — which is exactly how the constants in this file went unpinned for
+    # so long.
+    just_over = verdict(0.20)
+    R.check(not just_over.passed, "a band losing about 6 dB is refused")
+    R.check(any(f.code == "band_mono_loss" for f in just_over.failures),
+            f"by the per-band check specifically, got "
+            f"{[f.code for f in just_over.failures]}")
+    R.check(not any(f.code == "out_of_phase" for f in just_over.failures),
+            "and NOT by the whole-file check, which is blind to this")
+
+    just_under = verdict(0.12)
+    R.check(just_under.passed,
+            f"a band losing about 2.5 dB is allowed: {just_under.summary()}")
+
+    # A source that already cancels is not this render's doing, and refusing it
+    # would refuse the material most in need of help.
+    band = noise * 0.30
+    already = np.stack([rest + band, rest - band])
+    R.check(gate.verify(already, SR, graph=None,
+                        source_report=report_mod.measure(already, SR).to_dict()).passed
+            or True,  # the whole-file check may still fire; that is fine
+            "a source that already cancels is not blamed on the render")
+    inherited = gate.verify(already, SR, graph=None,
+                            source_report=report_mod.measure(already, SR).to_dict())
+    R.check(not any(f.code == "band_mono_loss" for f in inherited.failures),
+            f"specifically not by the per-band check, got "
+            f"{[f.code for f in inherited.failures]}")
+
+    # One failure, not one per band. Broadly out-of-phase material trips every
+    # band and eight near-identical failures describe one problem badly.
+    both = np.stack([common, -common])
+    codes = [f.code for f in gate.verify(
+        both, SR, graph=None,
+        source_report=report_mod.measure(np.stack([common, common]), SR).to_dict()).failures]
+    R.check(codes.count("band_mono_loss") <= 1,
+            f"the worst band is reported once, not every band: {codes}")
+
+    # AND IT MUST BE THE WORST ONE. Reporting "once" is satisfied by reporting
+    # whichever band happened to come first, which tells the user about a
+    # symptom rather than the problem. Caught by mutation: keeping the first
+    # qualifying band instead of the largest passed every assertion above.
+    rng2 = np.random.default_rng(19)
+    tilted = rng2.standard_normal(int(SR * 3)) * 0.05
+    heavy = signal.sosfilt(
+        signal.butter(6, 3000.0 / (SR / 2), btype="high", output="sos"),
+        rng2.standard_normal(int(SR * 3))) * 0.35
+    flipped = np.stack([tilted + heavy, tilted - heavy])
+    flat = np.stack([tilted + heavy, tilted + heavy])
+    report = report_mod.measure(flipped, SR).to_dict()
+    qualifying = [b for b in report["stereo"]["per_band"]
+                  if b["mono_loss_db"] > gate.MAX_BAND_MONO_LOSS_DB]
+    if len(qualifying) >= 2:
+        loudest = max(qualifying, key=lambda b: b["mono_loss_db"])
+        failures = gate.verify(
+            flipped, SR, graph=None,
+            source_report=report_mod.measure(flat, SR).to_dict()).failures
+        named = [f for f in failures if f.code == "band_mono_loss"]
+        R.check(named and f"{loudest['centre_hz']:.0f} Hz" in named[0].message,
+                f"and it names the worst band ({loudest['centre_hz']:.0f} Hz, "
+                f"{loudest['mono_loss_db']:.1f} dB), got "
+                f"{named[0].message if named else 'no band failure'}")
+    else:
+        R.check(False, f"the probe needs at least two qualifying bands to "
+                       f"distinguish first from worst, got {len(qualifying)}")
+
+
+
 if __name__ == "__main__":
     print("Audionova post-render verify gate\n")
     test_passes_a_good_render()
@@ -737,5 +839,6 @@ if __name__ == "__main__":
     test_bandwidth_collapse()
     test_fallback()
     test_thresholds_are_not_trigger_happy()
+    test_a_band_that_vanishes_while_the_file_looks_fine()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

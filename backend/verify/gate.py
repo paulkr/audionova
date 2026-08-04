@@ -48,7 +48,15 @@ LOUDNESS_TOLERANCE_LU = 0.5
 MIN_CORRELATION = -0.2
 
 # Beyond the arithmetic 3 dB. One dB of real cancellation is audible on a phone.
+#
+# MIN_CORRELATION above is the same bar in different units and is kept only for
+# the message text: for equal-power channels a correlation of -0.2 IS a mono
+# loss of 0.969 dB. Do not add a second check on it.
 MAX_MONO_LOSS_DB = 1.0
+
+# Per band, deliberately looser. Any stereo widening costs a band a decibel or
+# two on mono; six is the band disappearing rather than thinning.
+MAX_BAND_MONO_LOSS_DB = 6.0
 
 # A band standing this far above BOTH its neighbours, in the output and not in
 # the source, is a resonance rather than a tonal choice. Deliberately high: a
@@ -95,6 +103,30 @@ def _limiter_ceiling(graph: Any) -> float | None:
         if node.type == "true_peak_limiter" and not node.bypass:
             return float(node.params.get("ceiling_dbtp", -1.0))
     return None
+
+
+def _source_band_loss(source_report: dict[str, Any] | None,
+                      centre_hz: float) -> float | None:
+    """The source's own mono loss in the band nearest `centre_hz`.
+
+    Matched by nearest centre rather than by index, because the two reports are
+    only guaranteed to use the same band layout as long as nobody changes it,
+    and an index match would silently compare different frequencies the day
+    somebody does.
+    """
+    bands = ((source_report or {}).get("stereo") or {}).get("per_band") or []
+    best, best_gap = None, float("inf")
+    for band in bands:
+        their_centre = band.get("centre_hz")
+        if their_centre is None or band.get("mono_loss_db") is None:
+            continue
+        gap = abs(their_centre - centre_hz)
+        if gap < best_gap:
+            best, best_gap = band, gap
+    # A quarter octave. Further apart than that and it is not the same band.
+    if best is None or best_gap > centre_hz * 0.19:
+        return None
+    return float(best["mono_loss_db"])
 
 
 def _expected_gain_db(graph: Any) -> float:
@@ -256,14 +288,68 @@ def verify(
         correlation = stereo.get("correlation")
         mono_loss = stereo.get("mono_loss_db")
 
-        if correlation is not None and correlation < MIN_CORRELATION:
-            fail("out_of_phase",
-                 f"channel correlation is {correlation:+.2f}",
+        # ONE CHECK, NOT TWO. These used to be a correlation test and a mono-loss
+        # test in an if/elif, which read as two independent safeguards and was
+        # not: for equal-power channels the two quantities are the same number
+        # in different units. At exactly the correlation bar of -0.2 the mono
+        # loss is 0.969 dB, against a bar of 1.0 — so the second branch could
+        # never run. Verified by sweep as well as algebraically, and unequal
+        # channel powers only shrink the cross term, which makes it less
+        # reachable rather than more.
+        #
+        # Two checks that are secretly one are worse than one check, because
+        # they make a coverage list look longer than it is.
+        #
+        # The surviving test is expressed in mono loss, because that is the
+        # audible consequence — decibels missing on a phone — and correlation is
+        # reported alongside as the reason.
+        if mono_loss is not None and mono_loss > MAX_MONO_LOSS_DB:
+            detail = (f"summing to mono loses {mono_loss:.1f} dB beyond the "
+                      f"arithmetic 3")
+            if correlation is not None:
+                detail += f", with channel correlation {correlation:+.2f}"
+            fail("out_of_phase", detail,
                  "The processed audio would partly cancel on mono playback.")
-        elif mono_loss is not None and mono_loss > MAX_MONO_LOSS_DB:
-            fail("mono_loss",
-                 f"summing to mono loses {mono_loss:.1f} dB beyond the arithmetic 3",
-                 "The processed audio would lose level on mono playback.")
+
+    # --- a band that cancels while the whole file looks fine ----------------
+    #
+    # GENUINELY A DIFFERENT CHECK, unlike the one above. Wideband correlation is
+    # an average, and an average hides a band: a widened low-mid can vanish on a
+    # phone while the file as a whole correlates perfectly well. This is the
+    # case a mastering engineer actually worries about, and nothing was looking
+    # for it.
+    #
+    # The bar is deliberately looser than the wideband one. A single narrow band
+    # losing 2 dB is a normal consequence of any stereo widening; losing 6 dB is
+    # the band disappearing.
+    bands = (report.get("stereo") or {}).get("per_band") or []
+    if bands:
+        result.checked.append("per_band_mono")
+        # THE WORST BAND, not every band. Material that is broadly out of phase
+        # trips all of them, and eight near-identical failures describe one
+        # problem worse than one failure does.
+        worst: tuple[float, float, float | None] | None = None
+        for band in bands:
+            loss = band.get("mono_loss_db")
+            centre = band.get("centre_hz")
+            if loss is None or centre is None or loss <= MAX_BAND_MONO_LOSS_DB:
+                continue
+            # Only if the SOURCE did not already have it. Cancellation that
+            # arrived with the file is not something this render did, and
+            # refusing to process already-phasey material would be refusing the
+            # material most in need of help.
+            source_loss = _source_band_loss(source_report, centre)
+            if source_loss is not None and loss <= source_loss + 1.0:
+                continue
+            if worst is None or loss > worst[1]:
+                worst = (float(centre), float(loss), source_loss)
+        if worst is not None:
+            centre, loss, source_loss = worst
+            fail("band_mono_loss",
+                 f"the {centre:.0f} Hz band loses {loss:.1f} dB summing to mono"
+                 + (f", against {source_loss:.1f} dB in the source"
+                    if source_loss is not None else ""),
+                 "Part of the processed audio would disappear on mono playback.")
 
     # --- a resonance the processing introduced ------------------------------
     result.checked.append("resonance")
