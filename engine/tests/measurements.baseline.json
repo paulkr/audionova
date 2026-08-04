@@ -136,7 +136,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -367,7 +367,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -829,7 +829,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -1291,7 +1291,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -2818,7 +2818,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": null
+          "value": -20
         },
         "imd_d2_db": {
           "applicable": true,
@@ -3102,7 +3102,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": null
+          "value": -33.97940009
         },
         "imd_d2_db": {
           "applicable": true,
@@ -6001,8 +6001,8 @@
       "params": "soft clip, +12 dB drive, 16x"
     }
   ],
-  "generated_at_utc": "2026-08-04T11:59:58Z",
-  "git_commit": "c72773c",
+  "generated_at_utc": "2026-08-04T12:28:04Z",
+  "git_commit": "48d3929",
   "node_types_in_catalog": 22,
   "sample_rate_hz": 96000,
   "schema_version": 1,

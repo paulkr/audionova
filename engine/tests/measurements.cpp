@@ -1386,20 +1386,25 @@ struct LinearityResult {
 
   double worstDb() const { return std::max(homogeneityDb, superpositionDb); }
 
-  // WHICH LEVEL WAS WORST IS NOT A MEASUREMENT WHEN THE LEVELS ARE TIED, and
-  // for a linear node they are: homogeneity error is zero at every amplitude,
-  // so the winner is decided by whichever float rounded a hair differently.
+  // WHICH LEVEL WAS WORST IS NOT A MEASUREMENT UNLESS THE NODE IS NONLINEAR.
+  // For a linear node the homogeneity error is zero at every amplitude, so the
+  // winner is decided by whichever float rounded a hair differently — and that
+  // differs by platform. CI reported dc_block moving from -33.979 to -20.000
+  // dBFS between x86-64 and arm64: linear nodes swapping tie-break winners,
+  // looking for all the world like a numeric regression.
   //
-  // That made it platform-dependent, which is exactly how it was found. The
-  // metric was gated in CI and reported dc_block moving from -33.979 to -20.000
-  // dBFS between x86-64 and arm64 — three linear nodes swapping tie-break
-  // winners, looking for all the world like a numeric regression.
+  // The first attempt at this gated on the SPREAD between levels being at
+  // least 3 dB, and that was wrong for a reason worth keeping: the spread is
+  // measured in dB of a quantity sitting at the float noise floor, where -320
+  // and -280 dB are forty decibels apart and both mean zero. It passed
+  // locally, failed on the other architecture, and failed for exactly the
+  // reason it was written to fix.
   //
-  // The honest answer for a linear node is that there is no worst level. A
-  // spread of 3 dB is far above the float noise that produced those swaps and
-  // far below any real level-dependence, which by definition is nonlinearity.
-  bool worstLevelIsMeaningful() const {
-    return measured && levelSpreadDb >= 3.0;
+  // Level-dependence IS nonlinearity. So the question "which level was worst"
+  // is only well posed for a node that has already been measured nonlinear,
+  // and for a linear one the honest answer is that there is no worst level.
+  bool worstLevelIsMeaningful(double thresholdDb) const {
+    return measured && worstDb() > thresholdDb;
   }
 };
 
@@ -2019,8 +2024,8 @@ int main(int argc, char** argv) {
                   lin.timeInvarianceMeasured ? Value::of(lin.timeInvarianceDb)
                                              : Value::none()));
     rep.add(plain("homogeneity_worst_level_dbfs", "worst at", "dBFS",
-                  lin.worstLevelIsMeaningful() ? Value::of(lin.worstAtDbfs)
-                                               : Value::none()));
+                  lin.worstLevelIsMeaningful(kLinearityThresholdDb)
+                      ? Value::of(lin.worstAtDbfs) : Value::none()));
     {
       Metric m = plain("classified_nonlinear", "classified", "",
                        Value::of(rep.linear ? 0.0 : 1.0));
