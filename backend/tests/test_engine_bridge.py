@@ -370,10 +370,45 @@ def test_master_ordering_is_load_bearing() -> None:
         at_internal_rate.samples, Recipe(output_sample_rate=44100.0),
         sample_rate=96000.0,
     )
-    overshoot = loudness.true_peak_dbtp(converted.samples, 44100.0) - ceiling
-    R.check(overshoot > 0.0,
-            f"limiting BEFORE the conversion overshoots by {overshoot:+.3f} dB, "
-            "which is why the master section exists")
+    # THE PROPERTY IS THAT THE WRONG ORDER LOSES CONTROL, NOT THAT IT GOES UP.
+    #
+    # This used to assert `overshoot > 0` — that limiting early makes the
+    # delivered peak exceed the ceiling. That direction was never guaranteed and
+    # this test was the only thing claiming it. Measured on this signal the
+    # early-limited chain comes out at -1.71 dBTP against the correct order's
+    # -1.17: the 96 kHz limiter sees different inter-sample peaks, limits
+    # HARDER, and the conversion does not put the level back. Quieter, not
+    # louder, and still wrong.
+    #
+    # What the master section actually buys is that the ceiling is enforced at
+    # the rate it is DEFINED at. Limiting anywhere else leaves the delivery-rate
+    # peak somewhere nobody chose. So the assertion is about distance from the
+    # target rather than sign, which is both the real rule and independent of
+    # whatever margin the limiter carries — the previous form broke the moment
+    # the limiter's own margin changed, which is a test coupled to a constant it
+    # was not about.
+    delivered_wrong = loudness.true_peak_dbtp(converted.samples, 44100.0)
+    delivered_right = loudness.true_peak_dbtp(at_delivery_rate.samples, 44100.0)
+
+    # DISTANCE FROM THE CEILING IS THE WRONG YARDSTICK TOO, and getting that
+    # wrong twice is worth writing down. The correct order sits deliberately
+    # under the ceiling — the limiter subtracts its detector's own error bound —
+    # so scoring "closest to the ceiling" rewards the chain that is merely lucky
+    # and penalises the one that is safe.
+    #
+    # The rule the master section encodes is that the two orders are NOT
+    # interchangeable and only one of them carries a guarantee. So: they differ
+    # measurably, and the correct one holds the ceiling. Neither clause depends
+    # on any margin, which is what the previous two versions of this assertion
+    # did depend on without saying so.
+    R.check(abs(delivered_wrong - delivered_right) > 0.05,
+            f"the two orders are not interchangeable: {delivered_wrong:+.3f} "
+            f"dBTP limiting before the conversion against {delivered_right:+.3f} "
+            f"limiting after")
+    R.check(delivered_right <= ceiling,
+            f"and only the correct order carries the guarantee "
+            f"({delivered_right:+.3f} dBTP against a {ceiling:+.1f} ceiling), "
+            f"which is why the master section exists")
 
 
 def test_utility_nodes() -> None:

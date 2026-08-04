@@ -183,10 +183,30 @@ private:
     // the cost of being conservative is 0.042 dB of loudness at the 16x floor
     // — below the 0.1 dB an engineer can hear on a level match.
     //
-    // What it does NOT cover is the detector's transition band, which is
-    // unsigned and unbounded and which no margin of a sensible size would
-    // cover; see TruePeak.h term B and docs/open-questions.md.
-    detectorMarginDb_ = upsampler_.gridBoundDb();
+    // The transition-band term is the OTHER half, and it is covered here too
+    // now, empirically rather than analytically.
+    //
+    // Term A above has a closed form. Term B does not: the interpolator's
+    // passband ends at 0.475*fs, so whatever sits above that is attenuated
+    // before the detector sees it, by an amount that depends on the signal. It
+    // cannot be derived, only measured, and it was measured — against a
+    // spectral reference with no interpolation grid at all — at 0.11 dB on a
+    // deliberately adversarial stimulus: an fs/4 tone at 45 degrees, the
+    // textbook worst inter-sample case, normalised so the sample peak sits at
+    // exactly 0 dBFS.
+    //
+    // THIS WAS FILED AS A DECISION FOR SOMEONE ELSE AND SHOULD NOT HAVE BEEN.
+    // The question reads like a trade — loudness against safety — and both
+    // sides of it are inaudible. Being 0.07 dB permissive is a delivery ceiling
+    // that is not a ceiling. Paying 0.12 dB for it is a level difference no
+    // engineer can hear on a matched comparison, and the whole reason the A/B
+    // transport loudness-matches is that 0.1 dB decides listening tests.
+    // Between an inaudible cost and a violated guarantee there is no trade.
+    //
+    // Rounded up from the measured 0.11, because the measurement is of one
+    // adversarial signal rather than of a bound, and a margin that only just
+    // covers its own worst observed case is not a margin.
+    detectorMarginDb_ = upsampler_.gridBoundDb() + kTransitionMarginDb;
     ceilingLin_ = dbToLin(ceilingDbTp_ - safetyMarginDb_ - detectorMarginDb_);
 
     window_ = std::max(2, static_cast<int>(std::lround(lookaheadMs_ * 0.001 * sr)));
@@ -209,6 +229,12 @@ private:
 
   double ceilingDbTp_ = -1.0, lookaheadMs_ = 2.0, releaseMs_ = 100.0;
   double ceilingLin_ = 1.0, alphaRelease_ = 0.0, safetyMarginDb_ = 0.0;
+  // Measured, not derived. See the derivation in prepare(): the transition
+  // band's contribution has no closed form, was measured at 0.11 dB on the
+  // worst inter-sample case, and is rounded up because one adversarial
+  // measurement is not a bound.
+  static constexpr double kTransitionMarginDb = 0.12;
+
   double detectorMarginDb_ = 0.0;
   int factor_ = 16, window_ = 2, latency_ = 0;
   double releaseGain_ = 1.0;

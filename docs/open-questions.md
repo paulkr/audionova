@@ -672,20 +672,103 @@ itself.
 
 ### The listening harness has never been used by a person
 
-Every property of it is tested and none of it is validated. The tests establish
-that the mapping is not recoverable, that clips are matched, that rho is
-arithmetically right — they establish nothing about whether a working engineer
-can complete a session, whether the two scales mean to them what the labels say,
-or whether thirty trials is past the point of fatigue.
+**The plumbing has now been driven end to end; the ears have not.** A full
+30-trial session was built from real stems with the rule planner, served, taken
+by four synthetic listeners over HTTP, scored and correlated — see the
+integration-pass section of [findings.md](findings.md) and the recipe in
+[listening-protocol.md](listening-protocol.md). That closed three defects and
+found several gaps that are recorded as their own entries below. It establishes
+nothing at all about the part that needs a person.
 
-The specific risks a test cannot reach: an 8 ms gain ramp that turns out to be
-audible as a click on percussive material; a `decodeAudioData` failure on some
-browser's 24-bit WAV handling; and a session length nobody has sat through.
+Still unvalidated, and unreachable without one: whether a working engineer can
+complete a session, whether the two scales mean to them what the labels say, and
+whether thirty trials is past the point of fatigue. The specific risks a test
+cannot reach: an 8 ms gain ramp that turns out to be audible as a click on
+percussive material; a `decodeAudioData` failure on some browser's 24-bit WAV
+handling (the wire format is now known exactly — see the next entry); and a
+session length nobody has sat through.
 
 Resolves by running one session with one colleague before booking three
 engineers. Cost of skipping it: the panel is the expensive, hard-to-repeat step,
 and discovering the interface is unusable during it wastes the only three
 engineers who agreed.
+
+### The clips go out as `WAVE_FORMAT_EXTENSIBLE`, and no browser has decoded one
+
+Re-read off the wire, every served clip is a 24-bit PCM WAV with format tag
+`0xFFFE` (`WAVE_FORMAT_EXTENSIBLE`), a 40-byte `fmt ` chunk, `valid_bits` 24,
+`SubFormat` `KSDATAFORMAT_SUBTYPE_PCM`, and **`channel_mask` 0x00000000**. Only
+`fmt ` and `data` chunks are present, so there is no metadata channel through
+which the blinding could leak — that part is now verified rather than assumed.
+
+The open half is `decodeAudioData`. Chrome and Firefox handle 24-bit extensible
+WAV; Safari's handling of it is the specific thing the previous entry names as
+untestable here, and a zero channel mask is the kind of detail a strict decoder
+refuses. An HTTP client cannot tell you: `httpx` fetched all 360 clips without
+complaint because it never decoded one.
+
+Resolves by opening the interface in Safari, Chrome and Firefox once, on any
+built session, and confirming a trial plays. That is five minutes and it has not
+been done. Cost of being wrong: the panel discovers it, on the day, on the one
+machine that matters. If it does fail, the lever is `bit_depth` in
+`match.match_group` — 16-bit is universally decodable and is 45 dB below
+anything the matcher resolves.
+
+### A listener who presses A thirty times is caught only by luck
+
+`consistency_of` catches a side-presser because A/B is independently
+re-randomised between the two occurrences of a repeat, so pressing A reverses
+them on half of their repeat pairs. That works, and it was confirmed on a
+synthetic always-A listener who came out at 4 of 6 reversed. But it is
+probabilistic, and the probability is not small: **P(a side-presser shows zero
+reversals) = 2^-(repeat pairs)**, measured at 0.122 for the Phase 0 shape of
+ten items and three repeats, 0.029 at five repeats, 0.017 at six.
+
+Worse than the miss rate is the reporting. Even when caught, a side-presser's
+line is a reversal rate indistinguishable from an honest listener answering at
+chance, and nothing in `SessionScores.report()` prints the one number that
+separates them — how many times that listener chose each side. It is a count
+over data already in hand.
+
+Not fixed, because adding a `side_bias` field to `Consistency` changes what the
+scorer reports and that deserves a decision rather than a drive-by. Recorded so
+it is decided. Meanwhile [listening-protocol.md](listening-protocol.md) tells
+whoever runs the panel to use six repeats and to grep the response file. Cost of
+being wrong: one bored panellist out of three, undetected, is a third of the
+sample answering at chance on the measurement that decides the product.
+
+### `score` does not compute the Phase 0 gate's criterion
+
+The gate is "prefer-or-tie on at least 6 of 10 items". `SessionScores` has no
+per-item breakdown of anything: `report()` prints one pooled prefer-or-tie rate
+over every trial of every listener, which is a different statistic and a more
+flattering one — it lets a strong result on three items carry seven weak ones.
+`item_points` does aggregate per item, but only for one rating scale at a time
+and not for preferences at all, because it exists for the correlation path.
+
+So the harness built to run the Phase 0 gate does not report the Phase 0 gate,
+and whoever runs the panel has to count it out of the raw response files against
+the key. Resolves with a per-item preference tally on `SessionScores`. Cost of
+not doing it: the number that decides stop-or-go is computed by hand, once,
+under pressure, by someone who has just spent three engineer-hours.
+
+### The screen can be built but not taken
+
+`build_screening` renders the stimulus, matches it and writes
+`screening.json` + `screening_key.json`, and `score_screening` scores an
+answer dictionary. **Nothing joins them to a listener.** `serve.SessionStore`
+opens `session.json`, so pointing `serve` at a screening directory is a
+`FileNotFoundError`; `interface.html` only knows the two-scale session; and
+`run_session` has no `score-screen` subcommand. Taking the screen today means
+writing a player and calling the library by hand.
+
+The screen is the *first* step of the panel and the only defence against a
+listener who cannot hear the difference, so this is the widest gap in the
+harness. Resolves with a screening route on the server and a 2AFC page, or — the
+cheaper honest option — by deciding the screen is administered informally and
+recording the result by hand. Cost of leaving it: it gets skipped, and a listener
+who cannot hear a 2 dB bell contributes noise centred on chance to a
+three-person mean.
 
 ### The request text can reveal a repeat trial
 
@@ -737,6 +820,16 @@ a CI gate, which is the proxy-metric capture the plan names as its top risk.
 point. The Phase 0 gate is three engineers on ten files: ten points, three
 ratings each. Both axes fail, by a factor of five on one of them.
 
+The two axes are not equally movable, and the integration run made the
+difference concrete. Twenty-four comparisons across two conditions gave
+**48 paired points** — the first axis cleared comfortably, just by rendering
+more material. The second did not move at all: every listener rates every
+`item::condition` exactly once, so `min_ratings` is the **listener count**, and
+fifteen ratings per point means **fifteen people**. Every proxy in that run,
+including one whose rho was +1.000 by construction, came back `NOT USABLE` for
+that reason alone. "A larger panel" is therefore not a matter of degree; it is a
+different kind of exercise from the Phase 0 gate and needs a different budget.
+
 That is the honest answer — ten points cannot support a correlation — but it
 means the harness will refuse to bless anything on the data the plan actually
 budgets for. Whoever runs the panel needs to know that calibrating a proxy is a
@@ -745,6 +838,49 @@ done with one session.
 
 Resolves by deciding the calibration panel's size on purpose. Cost of not
 deciding: someone reads `NOT USABLE` as a harness bug and lowers the constant.
+
+### The interface has no resume, no back, and no retry on submit
+
+Thirty trials is thirty to forty-five minutes, and all of it lives in one
+JavaScript `Map` in one tab. Three consequences, none of them tested by anything
+because they are all browser-side:
+
+- **A reload loses the session.** `boot()` starts at trial 0 with an empty
+  `answers` map; nothing is written to `localStorage` and nothing is posted until
+  the last trial. A misplaced Cmd-R at trial 28 costs the whole sitting.
+- **There is no way back.** `state.index += 1` is the only navigation, so a
+  mis-clicked "next trial" locks an answer the listener wanted to change.
+- **`submit()` has no error handling.** It is `async`, it is wired straight to
+  the button's `onclick`, and a failed `fetch` or a non-JSON body rejects into
+  nothing. The page reads "submitting…" forever, the answers are still in the
+  tab, and there is no retry.
+
+The last is the one that loses data, and it is the cheapest to fix: a
+`try/catch` that repaints the panel with a retry button. The first would want a
+per-trial POST or a `localStorage` mirror, both of which are more design than
+they look — a per-trial POST makes a partially-taken session a thing the scorer
+has to have an opinion about. Recorded rather than fixed for that reason.
+Cost of being wrong: one engineer, one afternoon, twice.
+
+### The server accepts any JSON object as a submission and answers 200
+
+`POST /responses` checks that the body is JSON and is an object, and then writes
+it. It does not check that `responses` exists, that trial ids are in the key,
+that the listener matches, or that the session is complete. `{"hello":"world"}`
+is saved and acknowledged with `{"saved": "unknown-1785859513.json"}`.
+
+Everything is caught later — `score_session` refuses an unknown trial id, a
+listener/trial mismatch and a duplicate answer, each with a good message, and
+`_read_responses` now names the file. But "later" means after the panel has gone
+home, and the failure the listener saw was the word "saved".
+
+The argument for leaving it is real: the server holds the key and the whole
+security model is that it has the smallest possible surface, so teaching it the
+response schema moves scoring logic into the process that must not be
+interesting. The counter-argument is that it already knows every valid trial id
+for every listener, and rejecting a body that names none of them is one lookup.
+Recorded as a decision to make. Cost of leaving it: a silent bad submission is
+discovered at scoring time, when it cannot be retaken.
 
 ### The identifier-collision check cannot be made to fire
 

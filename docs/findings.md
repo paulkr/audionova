@@ -2075,6 +2075,206 @@ the identifier-collision check, discussed above and recorded in
 
 The suite went from 198 checks to 242 over the exercise.
 
+## Findings from taking the harness end to end
+
+The suite above tests every property of the harness and validates none of them,
+which its own closing note said in those words. This is the first run of the
+whole thing as a sequence: 24 comparisons rendered from real stems by the
+rule-based planner, a 30-trial session built and served, four synthetic
+listeners with four different behaviours submitting over HTTP, then score and
+correlate. No ears — everything mechanical, which is the half a test client can
+reach. Local-only: the stems are gitignored, so none of this reproduces from a
+clean checkout.
+
+Nothing about the audio was wrong. **Every defect found was a refusal that
+worked and could not be acted on, or a success that was not one.**
+
+### The screen died on the first file anyone would reach for
+
+`build_screening` cuts ten consecutive 8-second segments from frame zero.
+`audio/stems/01-Rhythm Guitar-consolidated.wav` — the obvious guitar source for
+a guitar-DI panel — opens with eight seconds of lead-in, so segment 0 is digital
+silence and the build stopped on:
+
+```
+UnmeasurableLoudness: clip 0 measures -inf LUFS — it has no programme material
+above the absolute gate, so there is no loudness to match it by
+```
+
+Correct, and unusable. It names neither the file, nor which of the ten trials,
+nor the one thing that would fix it. The cause is structural rather than a
+missing string: `GainSolver` is `Callable[[Sequence[float]], list[float]]`
+precisely so it can be unit-tested without audio, so the solver genuinely has
+nothing but indices — while `match_group`, one frame up, already holds both the
+input paths and the caller's `what`. **A seam that exists to make something
+testable will also make its errors anonymous, and the fix belongs on the far
+side of the seam, not inside it.** `match_group` now re-raises the same type
+with the same reason plus the context it already had, and `screen.py` passes the
+segment's time range rather than its index, so the message reads
+`screening trial 0 (0.0-8.0 s of the source): ...`.
+
+The failed build also left `_unmatched/` and a partial `clips/` behind, because
+the cleanup only runs on success.
+
+### Two submissions in the same second, one file
+
+`SessionStore.record` named files `{listener}-{int(time.time())}.json`. Two
+writes inside one second — a POST retried after a timeout, a second tab, two
+listeners finishing together on one machine — produced the same name, and the
+first file was overwritten. Both requests got `200 {"saved": ...}`.
+
+Reproduced in three lines, so it is not a race that needs losing:
+
+```
+first : L1-1785859875.json
+second: L1-1785859875.json
+files in responses/: ['L1-1785859875.json']
+```
+
+A completed session is thirty trials of somebody's afternoon and the interface
+holds all of it in memory until the last one, so this is the most expensive
+possible thing to drop. It is also the worst *shape* of failure available to
+this process: **data loss reported as success**, which nobody looks for until
+scoring, by which time the panel has left. Now a counter under a lock — a lock
+because `ThreadingHTTPServer` really does serve concurrently, and an `exists()`
+check without one is the same bug with a smaller window.
+
+### The parser reports a position in a file it does not name
+
+Two deliberately malformed bodies were POSTed to `/responses` — the server took
+both — and `score` then refused the entire session with:
+
+```
+ResponseError: expected a list of responses, got str
+```
+
+`parse_responses` is right to report a position within one payload; that is all
+it is given. But `_read_responses` is iterating over a directory holding one
+file per listener per submission, and one bad file refuses **all** of them.
+Without the path, the person who ran the panel opens files one at a time. Now
+prefixed with the path, for the parse error and for a file that is not JSON at
+all.
+
+### The loudness match was doing 7.3 dB of work and reporting 0.0000
+
+`build` prints `matched to 0.0000 LU` for every comparison, and after
+re-measuring the delivered bytes off the wire the spread really is 0.00000 LU on
+all 24 — the matcher is exact and the verification passes. The number is
+therefore also a constant, and a constant is not evidence.
+
+The quantity that shows the match mattered is in the key and is not printed: the
+gains actually applied spanned up to **7.30 dB within a single comparison**
+(worst case `[0.0, -2.27, -4.31]` and similar throughout), because the rule
+planner's chain ends in a limiter to −1 dBTP while the null-render reference does
+not. An unmatched version of this session would have been a level test with a
+7 dB handicap, which is the entire failure `match.py` exists to prevent — and the
+line that proves it is the one the CLI does not show. The protocol document now
+points at `key.json` for it.
+
+### What the wire actually carries
+
+Re-measured from the HTTP response bodies rather than from disk, over all 360
+clip fetches: spread 0.00000 LU per group against the 0.1 bar, worst true peak
+−3.31 dBTP against the −1.0 ceiling, and the builder's reported LUFS agreeing
+with the re-measured served bytes to 4.8e−5 — which is exactly the rounding in
+`key.json`, not a measurement.
+
+The format is 24-bit PCM with format tag **`0xFFFE`**, a 40-byte `fmt ` chunk,
+`SubFormat` `KSDATAFORMAT_SUBTYPE_PCM` and `channel_mask` **0x00000000**; only
+`fmt ` and `data` chunks are present, so there is no metadata channel that could
+leak the blinding. `WAVE_FORMAT_EXTENSIBLE` with a zero channel mask is the
+detail most likely to trip a strict `decodeAudioData`, and an HTTP client cannot
+see it fail — `httpx` fetched 725 MB without ever decoding a sample.
+`open-questions.md` carries this as the one thing a five-minute browser check
+would settle.
+
+### Every traversal probe was already closed, including the undotted one
+
+Thirty-eight probes against the running server — `/key.json`,
+**`/clip/key.json`**, `/clip/key`, `/clip/key.json.wav`, percent-encoded and
+double-encoded traversal, `....//`, a NUL byte, uppercase hex, `.WAV`,
+`/clip/<valid-id>/../key.json`, `/interface.html`, `/etc/passwd` — all 404, no
+body containing a condition name. The `/clip/key.json` case that `findings.md`
+records as the one that mattered stays closed. Two conclusions worth keeping:
+the shape-then-membership check makes the whole class unreachable rather than
+individually handled, and the probe list is now long enough that the next person
+adding a route has something to run.
+
+### Rho is right, and every proxy was refused anyway
+
+Seven proxies with known relationships to the human scores, 48 paired points:
+identity (+1.000), reversed (−1.000), a monotone cube (+1.000 — Pearson would
+have said +0.885, which is the whole reason it is Spearman), a constant (NaN,
+not zero), a shuffle (−0.060), noise (+0.805) and a coarsely-tied version
+(+0.932). Every one agreed with `scipy.stats.spearmanr` to better than 1e−12,
+including the tied series, and every interval matched a hand-computed
+Bonett–Wright to the same precision.
+
+And every single one came back `NOT USABLE`, including the two that are
+correlated with the humans by construction, because the thinnest point rested on
+4 ratings against `MIN_N = 15`. That is the documented behaviour working as
+designed, and seeing it fire on a rho of exactly +1.000 is the clearest possible
+statement of what `open-questions.md` means when it says the calibration panel is
+a separate exercise: `min_ratings` is the **listener count**, so fifteen ratings
+per point is fifteen people, not more files.
+
+### The always-A listener is caught, at 2^-repeats
+
+Four synthetic listeners, one behaviour each:
+
+```
+96 scored trial(s), 24 repeat trial(s) held back for consistency
+  audionova/quality: 3.67 [3.04, 4.29] n=4 listeners, 96 ratings
+  engineer/quality:  2.67 [1.49, 3.85] n=4 listeners, 96 ratings
+  L1: 0/6 reversed, 0/6 changed at all      (discriminating, answers by condition)
+  L2: 1/6 reversed, 4/6 changed at all      (chance)
+  L3: 6/6 reversed, 6/6 changed at all      (deliberately inconsistent)
+  L4: 4/6 reversed, 4/6 changed at all      (pressed A thirty times)
+```
+
+The scoring separates all four, and L4 is caught by the mechanism
+`consistency_of`'s docstring claims: sides are re-randomised between the two
+occurrences of a repeat, so pressing A reverses half the time. Measured over
+4000 seeded plans, **P(a side-presser shows zero reversals) = 2^-(repeat
+pairs)** — 0.122 at the Phase 0 shape of ten items and three repeats, 0.017 at
+six. So the catch is real and probabilistic, it is indistinguishable from an
+honest listener at chance, and `report()` never prints the count that would
+settle it. Recorded in `open-questions.md` rather than fixed, because adding a
+field to `Consistency` changes what the scorer says and that is a decision.
+
+### Wall clock, for a session nobody had timed
+
+Build: 60 s to render 72 clips through the engine for 24 comparisons, then 35 s
+to match, verify and write them. Screen: 17 s for ten trials.
+
+Serving is not the constraint and is worth stating because it looked like it
+might be: one listener's 30 trials is 90 clip fetches and **181 MB**, delivered
+in **0.47 s** over loopback — 16 ms per trial. All four listeners' 360 distinct
+clips is 726 MB in 2.0 s. The interface fetches with `cache: "no-store"` and
+re-fetches on every trial entry with no prefetch, which is free on loopback and
+would be a visible stall per trial over a network; on the same machine, which is
+what `serve` binds for by default, it does not matter.
+
+The constraint is the person. Thirty trials at six clicks minimum each, with
+switching and listening, is 30–45 minutes with no pause, no back and no resume.
+That is plausible for one sitting and it is the upper end of one, and it is the
+number `open-questions.md` says nobody has sat through.
+
+### Mutation results
+
+Seven mutations against the three fixes: dropping the re-raise entirely, keeping
+the context but dropping the filenames, keeping the filenames but dropping the
+reason, removing the uniqueness loop, computing a unique name and writing the
+old one, and dropping the path from each of the two `_read_responses` messages.
+**Seven of seven caught by a named failure, none as a crash.** The suite went
+from 242 checks to 251.
+
+The three "keep one half, drop the other" mutations are the ones worth having.
+An error-message test that only asserts the exception type is the failure mode
+`findings.md` already records twice; asserting that the message names *both* the
+context and the reason is what makes it a test of the message rather than a test
+that a message exists.
+
 ---
 
 ## Frontend findings

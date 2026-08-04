@@ -2285,8 +2285,17 @@ void testTruePeakLimiter() {
             "a signal whose true peak is known analytically (delivered " +
             std::to_string(worstDeliveredDb) + " dBTP)");
       // Conservative, but not so conservative that the node is just an
-      // attenuator. The whole margin is the detector's grid bound at 16x.
-      check(worstDeliveredDb >= ceiling - 0.15,
+      // attenuator. The margin is now the detector's grid bound at 16x (0.042
+      // dB, analytic) PLUS the transition-band allowance (0.12 dB, measured),
+      // so the floor moved with it — and it is expressed as a sum of the two
+      // named terms rather than as a number, so it cannot silently absorb a
+      // third one.
+      //
+      // A test whose bound is a bare literal drifts to wherever the code
+      // happens to be. This one fails if either margin changes without someone
+      // deciding it should.
+      constexpr double kDeclaredMarginDb = 0.042 + 0.12;
+      check(worstDeliveredDb >= ceiling - kDeclaredMarginDb - 0.03,
             "and it still reaches its ceiling rather than hiding under it "
             "(delivered " + std::to_string(worstDeliveredDb) + " dBTP)");
     }
@@ -2315,7 +2324,9 @@ void testTruePeakLimiter() {
             "the limiter honours its default -1 dBTP ceiling with no "
             "parameters written (delivered " + std::to_string(linToDb(gain)) +
             " dBTP)");
-      check(linToDb(gain) >= -1.15,
+      // Same two named margins as above: -1.0 ceiling less the grid bound and
+      // the transition allowance, plus a little slack for the probe itself.
+      check(linToDb(gain) >= -1.0 - 0.042 - 0.12 - 0.03,
             "and the default oversampling is fine enough not to over-limit "
             "(delivered " + std::to_string(linToDb(gain)) + " dBTP)");
     }

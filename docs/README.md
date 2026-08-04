@@ -18,6 +18,7 @@ Everything in these documents optimises for that.
 | [measurement.md](measurement.md) | Every field of the measurement report and what it means |
 | [planner.md](planner.md) | The graph contract, validators, prompt cache, ladder, glossary |
 | [evaluation.md](evaluation.md) | The four test harnesses and how to read their numbers |
+| [listening-protocol.md](listening-protocol.md) | How to run a listening panel, start to finish |
 | [findings.md](findings.md) | Every bug found and lesson learned, with the evidence |
 | [open-questions.md](open-questions.md) | Everything currently flagged: risks, gaps, unverified claims |
 | [licensing.md](licensing.md) | What we may and may not depend on, and why |
@@ -79,10 +80,13 @@ Not built:
 - **CLASSIFY**.
 - **The Phase 0 listening gate.** Three engineers, ten guitar DIs, prefer-or-tie
   in at least 6 of 10. This is the plan's explicit stop-or-go point and has not
-  been attempted. **The harness for running it now exists** (`backend/listen/`,
-  `make listen`); what is missing is three engineers, their own chains, and ten
-  guitar DIs. No session has ever been taken by a person, so the interface is
-  tested and unused.
+  been attempted. **The harness for running it now exists** (`backend/listen/`;
+  its suite is `cd backend && make listen`); what is missing is three engineers,
+  their own chains, and ten guitar DIs. The whole sequence has been driven end
+  to end once by a test client — built from real stems, served, answered by four
+  synthetic listeners, scored, correlated — so the plumbing is validated.
+  **No session has ever been taken by a person.**
+  [listening-protocol.md](listening-protocol.md) is the recipe for running one.
 - **Presets.** Zero authored. The plan budgets 4–6 person-weeks for twelve and
   notes this is not an engineering task.
 - **The platform.** No API, no queue, no storage, no auth.
