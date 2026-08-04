@@ -9,6 +9,7 @@ They are cheap to check and expensive to discover late.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -142,11 +143,113 @@ def problems_in_claims() -> list[str]:
     return found
 
 
+# The standard library, so a stdlib import is not mistaken for a missing
+# dependency. Built from the interpreter rather than hand-listed, because a
+# hand-list goes stale and the failure mode is a false alarm nobody trusts.
+_STDLIB = set(getattr(sys, "stdlib_module_names", ()))
+
+# Import name -> distribution name, for the handful where they differ.
+_DISTRIBUTION_OF = {
+    "multipart": "python-multipart",
+    "yaml": "pyyaml",
+    "PIL": "pillow",
+    "dotenv": "python-dotenv",
+}
+
+
+def problems_in_declared_dependencies() -> list[str]:
+    """Every third-party import under backend/ must be in requirements.txt.
+
+    THE GATE THAT WOULD HAVE CAUGHT THREE FAILURES IN ONE DAY. fastapi, httpx
+    and python-multipart were all imported by shipped code, all absent from
+    requirements.txt, and all present in the developer's virtualenv because
+    something had installed them transitively. Every local run passed. CI built
+    its environment from requirements.txt and failed three times running.
+
+    The licence gate did not catch it and structurally could not: it enumerates
+    what is INSTALLED and checks the licences of those distributions. A
+    dependency that is installed everywhere it is tested and declared nowhere is
+    exactly what it is blind to.
+
+    Test files count. A test that cannot run in a clean environment is a test
+    that only its author can run.
+
+    WHAT THIS CANNOT CATCH, stated because a gate whose limits are unwritten
+    gets trusted past them. It reads import statements, so it only sees
+    dependencies our own code names. Two of the three failures above are
+    invisible to it and were confirmed so by mutation:
+
+      httpx             required by fastapi.testclient, never imported by name
+      python-multipart  imported by FastAPI itself, as `multipart`, when a
+                        route with an UploadFile is constructed
+
+    Removing either from requirements.txt passes this check and breaks CI. The
+    only thing that catches those is building an environment from the
+    requirements file and running the suite, which is what CI does — so the loop
+    is closed, and this gate exists to move the common case from "eleven minutes
+    into CI" to "before the commit".
+    """
+    problems: list[str] = []
+    declared = set()
+    requirements = os.path.join(ROOT, "backend", "requirements.txt")
+    if os.path.exists(requirements):
+        with open(requirements) as handle:
+            for line in handle:
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                name = re.split(r"[<>=!\[;]", line)[0].strip().lower()
+                if name:
+                    declared.add(name.replace("_", "-"))
+
+    imported: dict[str, str] = {}
+    for base, _dirs, files in os.walk(os.path.join(ROOT, "backend")):
+        if "__pycache__" in base:
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(base, name)
+            with open(path) as handle:
+                source = handle.read()
+            try:
+                tree = ast.parse(source, filename=path)
+            except SyntaxError as error:
+                problems.append(f"{os.path.relpath(path, ROOT)}: {error}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    roots = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    # Relative imports have no module of their own to resolve.
+                    if node.level or not node.module:
+                        continue
+                    roots = [node.module.split(".")[0]]
+                else:
+                    continue
+                for root in roots:
+                    imported.setdefault(root, os.path.relpath(path, ROOT))
+
+    for root, where in sorted(imported.items()):
+        if root in _STDLIB or root == "backend":
+            continue
+        distribution = _DISTRIBUTION_OF.get(root, root).lower().replace("_", "-")
+        if distribution not in declared:
+            problems.append(
+                f"{where} imports {root!r} (distribution {distribution!r}), "
+                f"which is not in backend/requirements.txt. It works here "
+                f"because it is installed; it will not work anywhere built "
+                f"from the requirements file.")
+    return problems
+
+
+
 CHECKS = (
     ("undeclared vendoring", problems_in_vendoring),
     ("engine dependencies", problems_in_engine_includes),
     ("no audio through Next.js", problems_in_frontend),
     ("marketing claims", problems_in_claims),
+    ("declared dependencies", problems_in_declared_dependencies),
 )
 
 
