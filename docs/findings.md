@@ -34,6 +34,18 @@ implementations so that breaking one leaves the other holding it up. Details
 under "the rectification that was already being done twice" and "the crossover
 spacing that binds on one input nobody had written" below.
 
+And then a fifth, found only because the nodes were rebuilt to fix their
+aliasing: **oversampling a node moves its ballistics to a different sample
+rate, and nothing in either test suite measured a time constant in
+milliseconds.** The multiband's timing was pinned entirely by a bit-exact
+comparison against `compressor` — which runs at `oversample_factor` 1, where
+the base rate and the oversampled rate are the same number, so a mutation
+deriving the coefficients from the wrong one was invisible. Every attack in the
+node could have been four times too fast. The fix is a test that measures the
+attack in milliseconds on a burst confined to one band, which is the test that
+should have existed from the start; the proxy was cheaper to write and could
+not see the thing it was standing in for.
+
 Second recurring lesson, arrived at later: **synthetic test material is more
 flattering than real audio, twice in a row and in the same direction.** The codec
 detector and the drive analysis both passed on synthetic signals and were wrong
@@ -298,7 +310,7 @@ sustained tone is gain-modulated at twice its own frequency. The expectation was
 that this would be bad enough to need a fix — a detector high-pass, or a
 mean-square envelope.
 
-Measured with both controls at +12 dB: a steady 1 kHz tone moves **0.034 dB**
+Measured with both controls at +12 dB: a steady 1 kHz tone moves **0.033 dB**
 and a steady 60 Hz tone **0.59 dB**. The reason it is that small is the
 decoupled detector's release branch, which holds the peak between cycles instead
 of following the rectified waveform down; the ripple that survives is what the
@@ -306,6 +318,100 @@ of following the rectified waveform down; the ripple that survives is what the
 around, so it is documented and the contract test asserts it as a ratio to the
 1 kHz figure rather than as an absolute — the shape of the limit is the claim,
 not the number.
+
+### The rectifier, not the gain, was what aliased
+
+`transient_designer` measured **−66.4 dB** in-band ASR against a −100 dB
+requirement — 34 dB short, and by a distance the worst node in the engine. The
+obvious diagnosis is the one the plan's guidance suggests: a gain that changes
+fast has broadband content, so multiplying by it at the base rate folds
+everything above Nyquist. That is true and it is not the dominant term.
+
+The dominant term is `abs()`. A full-wave rectifier has a corner at every zero
+crossing, so a tone at f0 comes out with an infinite series of even harmonics
+falling only as 1/m² — and the ones past Nyquist fold **before any envelope
+filter exists to remove them**. The evidence is in which sweep steps were worst:
+3202 Hz and 9003 Hz, and 96000/3202 = 29.98 while 96000/9003 = 10.66. Both are
+frequencies whose 30th and 32nd harmonics land within ~90 Hz of DC after
+folding, where the envelope filter's response is 0 dB and it modulates the
+entire signal. The good steps are the ones whose nearest fold lands hundreds of
+Hz up, where the filter attenuates it.
+
+Once the mechanism is the rectifier, the fix has to be the rate, and the
+measured curve is the 1/m² law in disguise — doubling the rate doubles the order
+of the lowest-folding harmonic, which is 12 dB:
+
+| 1× | 4× | 8× | 16× |
+|---|---|---|---|
+| −66.4 dB | −85.0 dB | −101.8 dB | −104.7 dB |
+
+**And the second guess was wrong too.** `findings.md` already records that for
+`drive` the oversampling FILTER's stopband is the binding constraint rather than
+the ratio — mutating it from 120 dB to 40 dB costs 32 dB of ASR. The natural
+next move was therefore to buy the last few dB with a better filter instead of a
+higher rate. Sweeping the halfband stopband 120 → 150 → 170 dB changed the
+result by **0.00 dB at both 4× and 8×**, to every digit printed. The two nodes
+fail for different reasons and the lever that works on one does nothing on the
+other.
+
+### Oversampling a multiband is nearly free, and oversampling a transient
+designer is not
+
+Same requirement, same fix, wildly different returns. `multiband_compressor`
+went from −98.6 dB to **−152.0 dB at 4×**, and 8× bought nothing further.
+`transient_designer` needed 8× to reach −101.8 dB.
+
+The difference is how much of the folded spectrum each node's detector passes.
+The multiband's fastest ballistic is a 5 ms attack — a 32 Hz corner, which
+attenuates a fold landing at a few kHz by 40 dB or more. The transient
+designer's reference envelope is 0.5 ms, a 318 Hz corner, and passes the same
+component at −26 dB. Measured directly on the multiband: at factor 1, dropping
+every band's attack from 5 ms to 0.1 ms costs **7.8 dB of ASR** (−98.6 →
+−90.8), and at 4× the same change costs **0.0 dB**, because the fold has moved
+above the audio band and the decimator removes it regardless.
+
+**The general shape:** the aliasing penalty of an envelope-driven gain is set by
+the detector's own bandwidth, not by how nonlinear the gain law looks. A fast
+detector is a wide-open door to whatever folded.
+
+### Oversampling a node with an exact identity has to be opt-out, not opt-in
+
+Both nodes have a configuration in which they are provably a pure delay:
+`multiband_compressor` with every band at 1:1, `transient_designer` with both
+controls at zero. In both cases the gain is a constant — exactly 1.0 — and
+multiplying by a constant is linear, so there is nothing for an oversampler to
+prevent.
+
+Wrapping the whole node unconditionally would have traded the multiband's
+**−319 dB** unity null for the resampler's round trip, which is around −140 dB.
+That is a 180 dB regression in the property the node's whole crossover design
+exists to deliver, bought to fix aliasing in a configuration that has none.
+
+The multiband resolves it without a second code path: the effective factor is 1
+unless some band's ratio exceeds 1, and an `Oversampler` at factor 1 is a pair
+of `std::copy` calls with zero declared latency. Same code, bit-exact result.
+The transient designer does take a branch, because with nothing to shape there
+is no reason to run the detectors at all — and that branch is the same rule as a
+bandless EQ declaring no latency, not a special case.
+
+### An oversampled compressor is not the same compressor
+
+Oversampling `multiband_compressor` was expected to change its output by about
+the resampler's own error — a round trip through halfband filters designed to
+120 dB. Measured against the identical settings at the base rate, a single band
+differs by **−31 dB**, which is four orders larger.
+
+It is not an error. At 4× the detector reads an *upsampled* signal, and the
+reconstructed inter-sample peaks of band-limited audio are genuinely higher than
+the sample peaks the base-rate detector saw — the same fact that makes a
+true-peak meter read above a sample-peak meter. The oversampled node therefore
+compresses slightly harder, and is the more correct of the two.
+
+Worth stating because it sets what a test can claim. "One band is bit-identical
+to `compressor`" is true and worth asserting, but only at `oversample_factor` 1;
+at 4× the same assertion would have to be loosened to −31 dB, at which point it
+is no longer testing the identity it was written for. The check stays pinned at
+factor 1 and the behavioural difference is printed rather than asserted away.
 
 ### The bed's own onset read exactly like lookahead
 

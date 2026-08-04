@@ -228,7 +228,7 @@ std::vector<NodeSpec> registry() {
     // without ever exercising the crossover's reconstruction.
     ParamSet p;
     p.set("lookahead_ms", 3.0).set("stereo_link", 0.8)
-        .set("crossover_stopband_db", 80.0);
+        .set("crossover_stopband_db", 80.0).set("oversample_factor", 4.0);
     ParamSet b1; b1.set("crossover_hz", 800.0).set("threshold_dbfs", -24.0)
                    .set("ratio_to_1", 3.0).set("knee_db", 6.0)
                    .set("attack_ms", 30.0).set("release_ms", 250.0)
@@ -251,7 +251,8 @@ std::vector<NodeSpec> registry() {
     // every contract test while doing nothing at all.
     ParamSet p;
     p.set("attack_db", 6.0).set("sustain_db", -4.0).set("attack_ms", 20.0)
-        .set("sustain_ms", 250.0).set("lookahead_ms", 2.0).set("stereo_link", 1.0);
+        .set("sustain_ms", 250.0).set("lookahead_ms", 2.0).set("stereo_link", 1.0)
+        .set("oversample_factor", 8.0);
     v.push_back({"transient_designer",
                  [] { return std::make_unique<TransientDesigner>(); }, p});
   }
@@ -4459,9 +4460,17 @@ void testMultibandCompressor() {
   // the right signal: feed it the delayed audio instead of the undelayed band
   // and the lookahead stops anticipating, which no spectrum-shaped assertion
   // would notice but this does immediately.
+  //
+  // AT `oversample_factor` 1, deliberately. The node oversamples 4x by default
+  // and the round trip is not bit-exact, so the identity would be hidden behind
+  // a resampler. Factor 1 is not a special case invented for the test: it is
+  // exactly `compressor`'s own arithmetic, which is the thing being claimed —
+  // and `compressor` is not oversampled either, which is why it passes the
+  // aliasing requirement at -104 dB while three of these summed do not.
   {
-    const ParamSet single = mbParams({mbBand(-999.0, -24.0, 4.0, 6.0, 5.0, 150.0, 3.0)},
-                                     4.0, 0.8);
+    ParamSet single = mbParams({mbBand(-999.0, -24.0, 4.0, 6.0, 5.0, 150.0, 3.0)},
+                               4.0, 0.8);
+    single.set("oversample_factor", 1.0);
     const AudioBuffer mbOut = runMultiband(single, in);
 
     ParamSet wide = compressorParams(-24.0, 4.0, 6.0, 5.0, 150.0, 4.0);
@@ -4478,10 +4487,87 @@ void testMultibandCompressor() {
     check(diff == 0.0,
           "multiband: a single band is bit-identical to the plain compressor "
           "(diff " + std::to_string(diff) + ")");
+
+    // AND OVERSAMPLING IS NOT TRANSPARENT, which is worth printing rather than
+    // asserting away. At 4x the detector reads an UPSAMPLED signal, whose
+    // reconstructed inter-sample peaks are genuinely higher than the sample
+    // peaks the base-rate detector saw — so the oversampled node compresses a
+    // little harder. That is a true-peak detector behaving like one, not an
+    // error, and it is why the bit-exact comparison above is pinned at
+    // factor 1.
+    ParamSet oversampled = single;
+    oversampled.set("oversample_factor", 4.0);
+    const AudioBuffer osOut = runMultiband(oversampled, in);
+    std::printf("       multiband at 4x differs from the base-rate compressor by "
+                "%.1f dB — inter-sample peaks the base rate could not see\n",
+                20.0 * std::log10(std::max(maxAbsDiff(osOut, wideOut, n), 1e-300)));
     check(mbLatency(single) == mbLatency(single, 1) &&
               mbLatency(single) == static_cast<int>(std::lround(4.0 * 96.0)),
           "multiband: and declares only the lookahead, " +
               std::to_string(mbLatency(single)) + " frames");
+  }
+
+  // --- (d2) each band's attack time is the one it was given ----------------
+  //
+  // MEASURED IN MILLISECONDS, because nothing else in this section can see it.
+  // Attack and release are coefficients per SAMPLE, so a detector running at 4x
+  // whose coefficients were derived from the base rate has every time constant
+  // four times too fast — a completely different-sounding compressor. The
+  // bit-exact comparison above cannot catch it (at factor 1 the two rates are
+  // the same number) and neither can any spectrum, so this measures the
+  // ballistic directly: time to reach 63% of the final gain reduction on a
+  // burst that lives entirely in one band.
+  {
+    const double attackMs = 20.0;
+    const int64_t onset = 8192;
+    const int64_t total = onset + static_cast<int64_t>(0.5 * kCanonicalSampleRate);
+    const double toneHz = 3000.0, amp = 0.5;
+
+    AudioBuffer burst(1, total);
+    for (int64_t i = onset; i < total; ++i)
+      burst.channel(0)[i] = amp * std::sin(2.0 * M_PI * toneHz *
+                                           static_cast<double>(i - onset) /
+                                           kCanonicalSampleRate);
+
+    // Band 0 passive, band 1 (everything above 500 Hz) doing the work.
+    const ParamSet p = mbParams({mbBand(500.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                 mbBand(-999.0, -20.0, 4.0, 0.0, attackMs, 200.0, 0.0)},
+                                0.0);
+    const ParamSet flat = mbParams({mbBand(500.0, -18.0, 1.0, 0.0, 20.0, 200.0, 0.0),
+                                    mbBand(-999.0, -20.0, 1.0, 0.0, attackMs, 200.0, 0.0)},
+                                   0.0);
+    const AudioBuffer out = runMultiband(p, burst);
+    const AudioBuffer ref = runMultiband(flat, burst);
+
+    // Gain per cycle, from the peak of each 32-sample period. A tone's
+    // instantaneous sample ratio is meaningless near a zero crossing.
+    const int64_t period = static_cast<int64_t>(kCanonicalSampleRate / toneHz);
+    auto grAt = [&](int64_t from) {
+      double a = 0.0, b = 0.0;
+      for (int64_t i = from; i < from + period && i < total; ++i) {
+        a = std::max(a, std::abs(out.channel(0)[i]));
+        b = std::max(b, std::abs(ref.channel(0)[i]));
+      }
+      return (b > 1e-12) ? -20.0 * std::log10(std::max(a / b, 1e-12)) : 0.0;
+    };
+
+    const double finalGr = grAt(total - 2 * period);
+    int64_t reached = -1;
+    for (int64_t i = onset; i + period < total; i += period)
+      if (grAt(i) >= 0.632 * finalGr) { reached = i - onset; break; }
+    const double measuredMs =
+        static_cast<double>(reached) * 1000.0 / kCanonicalSampleRate;
+    std::printf("       multiband band attack: %.1f ms measured against %.1f ms "
+                "specified, final reduction %.2f dB\n",
+                measuredMs, attackMs, finalGr);
+
+    check(finalGr > 3.0,
+          "multiband: the burst produces measurable gain reduction (" +
+              std::to_string(finalGr) + " dB)");
+    check(reached > 0 && measuredMs > attackMs * 0.5 && measuredMs < attackMs * 1.7,
+          "multiband: a band's attack takes the time it was given (" +
+              std::to_string(measuredMs) + " ms against " +
+              std::to_string(attackMs) + ")");
   }
 
   // --- (e) the bands are time-aligned with each other ----------------------
@@ -4531,7 +4617,9 @@ void testMultibandCompressor() {
     // declared a fixed number would pass every other check here.
     const int low = mbLatency(twoBandsAt(100.0, 0.0));
     const int high = mbLatency(twoBandsAt(4000.0, 0.0));
-    std::printf("       multiband crossover latency: 100 Hz -> %d frames, "
+    // These totals include the oversampler's fixed round trip, which is the
+    // same for all three and therefore cannot produce the ratio below.
+    std::printf("       multiband declared latency: 100 Hz -> %d frames, "
                 "1 kHz -> %d, 4 kHz -> %d\n", low, noLook, high);
     check(low > 5 * high,
           "multiband: a low crossover declares proportionally more latency (" +
@@ -4870,19 +4958,40 @@ void testTransientDesigner() {
   // quiet bed running under the hit, because a boost applied to the silence
   // before an onset multiplies zero and is invisible.
   {
-    for (double lookMs : {0.0, 1.0, 2.5, 5.0}) {
+    auto latencyOf = [](double lookMs, double attackDb) {
       Chain chain;
       Chain::SlotConfig cfg;
       cfg.nodeId = "td";
       chain.add(std::make_unique<TransientDesigner>(),
-                tdParams(6.0, 0.0, 20.0, 250.0, lookMs), cfg);
+                tdParams(attackDb, 0.0, 20.0, 250.0, lookMs), cfg);
       chain.prepare(makeSpec(1, 1024, 4096));
+      return chain.totalLatencyFrames();
+    };
+
+    // The node declares the oversampler's round trip plus the lookahead. The
+    // round trip is a fixed integer, so the lookahead must show up in the
+    // declared latency sample for sample on top of it.
+    const int base = latencyOf(0.0, 6.0);
+    for (double lookMs : {1.0, 2.5, 5.0}) {
       const int want = static_cast<int>(std::lround(lookMs * 0.001 * kCanonicalSampleRate));
-      check(chain.totalLatencyFrames() == want,
+      check(latencyOf(lookMs, 6.0) - base == want,
             "transient designer: " + std::to_string(lookMs) +
-                " ms of lookahead is exactly " + std::to_string(want) +
-                " frames (got " + std::to_string(chain.totalLatencyFrames()) + ")");
+                " ms of lookahead adds exactly " + std::to_string(want) +
+                " frames (got " + std::to_string(latencyOf(lookMs, 6.0) - base) + ")");
     }
+    std::printf("       transient designer: oversampler round trip %d frames\n", base);
+    check(base > 0, "transient designer: and the oversampler declares its own "
+                    "round trip (" + std::to_string(base) + " frames)");
+
+    // WITH NOTHING TO SHAPE THERE IS NO OVERSAMPLER, so the node is a bare
+    // delay and declares only the lookahead. This is the same rule as a
+    // bandless EQ: a node that does nothing declares nothing, and paying an
+    // oversampler's round trip to multiply by one would be strictly worse than
+    // not doing it.
+    check(latencyOf(0.0, 0.0) == 0 && latencyOf(2.5, 0.0) == 240,
+          "transient designer: with both controls at zero it declares only the "
+          "lookahead (" + std::to_string(latencyOf(0.0, 0.0)) + ", " +
+              std::to_string(latencyOf(2.5, 0.0)) + ")");
 
     // The hit sits 340 ms into the bed, not 85 ms. THE BED'S OWN ONSET IS A
     // TRANSIENT: with `attack_ms` at 20 the slow envelope needs about five time
@@ -4904,13 +5013,21 @@ void testTransientDesigner() {
     const double none = preOnsetLiftDb(0.0);
     const double look4 = preOnsetLiftDb(4.0);
     std::printf("       transient lookahead: the 4 ms before the hit are lifted "
-                "%+.4f dB with no lookahead and %+.2f dB with 4 ms\n", none, look4);
-    check(std::abs(none) < 0.02,
-          "transient designer: with no lookahead nothing happens before the hit (" +
-              std::to_string(none) + " dB)");
-    check(look4 > 3.0,
-          "transient designer: with 4 ms of lookahead the boost has already "
-          "started when the hit lands (" + std::to_string(look4) + " dB)");
+                "%+.3f dB with no lookahead and %+.2f dB with 4 ms\n", none, look4);
+    // NOT ZERO WITH NO LOOKAHEAD, and the reason is the oversampler rather than
+    // the node. Its halfband stages are symmetric linear-phase FIRs, so a step
+    // arrives with as much pre-ring as post-ring and the detector sees the hit
+    // beginning slightly before it does. That is inherent to linear-phase
+    // oversampling — every oversampled plugin does it — and it is an order of
+    // magnitude smaller than the effect being measured, which is the only claim
+    // this needs to support.
+    check(std::abs(none) < 1.0,
+          "transient designer: with no lookahead only the oversampler's own "
+          "pre-ring precedes the hit (" + std::to_string(none) + " dB)");
+    check(look4 > 5.0 * std::abs(none) && look4 > 3.0,
+          "transient designer: and 4 ms of lookahead starts the boost well "
+          "before the hit lands (" + std::to_string(look4) + " dB against " +
+              std::to_string(none) + ")");
   }
 
   // --- (g) attack_ms decides what counts as a transient --------------------
@@ -5009,13 +5126,33 @@ void testTransientDesigner() {
     addHit(hard, 20000, 0.2, 0.4);
     const AudioBuffer flat = runTransient(tdParams(0.0, 0.0, 20.0, 250.0, 0.0), hard);
     const AudioBuffer lifted = runTransient(tdParams(0.0, 6.0, 20.0, 250.0, 0.0), hard);
-    int64_t below = 0;
-    for (int64_t i = 0; i < frames; ++i)
-      if (std::abs(lifted.channel(0)[i]) < std::abs(flat.channel(0)[i])) ++below;
-    check(below == 0,
-          "transient designer: a positive sustain_db never attenuates any "
-          "sample (" + std::to_string(below) + " of " + std::to_string(frames) +
-              " went the wrong way)");
+
+    // MEASURED IN WINDOWS, NOT PER SAMPLE, and the reason is worth stating
+    // because the per-sample version is what a first draft writes and it is
+    // wrong for a reason that has nothing to do with the property. The gain is
+    // applied at the OVERSAMPLED rate and the result is then decimated, so the
+    // output sample at index i is a filtered combination of oversampled samples
+    // either side of it — and a linear filter of a signal that grew everywhere
+    // can still produce individual samples that shrank. The claim lives in the
+    // envelope, so it is checked in the envelope.
+    const int64_t win = 512;
+    int64_t below = 0, windows = 0;
+    double worstDb = 0.0;
+    for (int64_t from = 0; from + win <= frames; from += win) {
+      const double a = windowRmsDb(lifted, 0, from, from + win);
+      const double b = windowRmsDb(flat, 0, from, from + win);
+      if (b < -200.0) continue; // nothing there to compare
+      ++windows;
+      if (a < b) ++below;
+      worstDb = std::min(worstDb, a - b);
+    }
+    std::printf("       transient sustain sign: %lld windows, worst change "
+                "%+.4f dB\n", (long long)windows, worstDb);
+    check(windows > 50 && below == 0,
+          "transient designer: a positive sustain_db never attenuates (" +
+              std::to_string(below) + " of " + std::to_string(windows) +
+              " windows went the wrong way, worst " + std::to_string(worstDb) +
+              " dB)");
   }
 
   // --- (j) stereo linking holds the image still ----------------------------

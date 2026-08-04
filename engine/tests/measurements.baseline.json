@@ -2369,28 +2369,28 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -98.60776355
+          "value": -151.957175
         },
         "asr_inband_db": {
           "applicable": true,
           "exactly_zero": false,
           "lower_is_better": true,
-          "pass": false,
+          "pass": true,
           "threshold": -100,
           "unit": "dB",
-          "value": -98.60776357
+          "value": -151.9572958
         },
         "asr_noise_floor_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -195.6264473
+          "value": -195.8609984
         },
         "asr_nonperiodic_residual_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -124.445177
+          "value": -125.6626358
         },
         "asr_settle_frames": {
           "applicable": true,
@@ -2402,7 +2402,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -98.60776355
+          "value": -151.957175
         },
         "asr_worst_f0_hz": {
           "applicable": true,
@@ -2420,115 +2420,115 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "samples",
-          "value": -4.130763253e-07
+          "value": -4.103705677e-07
         },
         "fr_gd_max_samples": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "samples",
-          "value": 1.645353444e-05
+          "value": 1.645324516e-05
         },
         "fr_mag_125hz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -1.614881209e-07
+          "value": -1.254299973e-07
         },
         "fr_mag_1khz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -3.171178576e-06
+          "value": -2.880118689e-06
         },
         "fr_mag_8khz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 1.00000898
+          "value": 0.99997577
         },
         "fr_max_mag_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 1.000094948
+          "value": 1.000083528
         },
         "fr_min_mag_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -0.0001909935816
+          "value": -0.0001911543356
         },
         "fr_phase_1khz_deg": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "deg",
-          "value": -4.689690213e-07
+          "value": -4.691515489e-07
         },
         "fr_pre_arrival_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -3.464257151e-06
+          "value": -3.443765186e-06
         },
         "gain_transfer_+00_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -10.80199994
+          "value": -10.80202067
         },
         "gain_transfer_-06_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -13.20203439
+          "value": -13.20205511
         },
         "gain_transfer_-12_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -15.60205718
+          "value": -15.60207791
         },
         "gain_transfer_-18_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -18.45113741
+          "value": -18.45114773
         },
         "gain_transfer_-24_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -23.99999997
+          "value": -23.99999967
         },
         "gain_transfer_-30_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -29.99999997
+          "value": -29.99999967
         },
         "gain_transfer_-36_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -35.99999997
+          "value": -35.99999967
         },
         "gain_transfer_-45_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -44.99999997
+          "value": -44.99999967
         },
         "gain_transfer_-60_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -59.99999997
+          "value": -59.99999967
         },
         "homogeneity_error_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -9.409386257
+          "value": -9.408321051
         },
         "homogeneity_worst_level_dbfs": {
           "applicable": true,
@@ -2540,49 +2540,49 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -249.8225347
+          "value": -249.7811486
         },
         "imd_d2_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 3.227552115e-11
+          "value": 3.242967298e-11
         },
         "imd_d3_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -129.6427479
+          "value": -139.1336633
         },
         "superposition_error_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -5.987405962
+          "value": -5.98229438
         },
         "thd_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -221.1543443
+          "value": -227.6909701
         },
         "thd_fundamental_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -10.79991934
+          "value": -10.79992649
         },
         "thd_n_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -134.8607143
+          "value": -147.0828464
         },
         "thd_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 8.755536983e-10
+          "value": 4.125261585e-10
         },
         "thd_settle_frames": {
           "applicable": true,
@@ -2600,25 +2600,25 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": -8.004101295
+          "value": -8.835550661
         },
         "tp_meter_delta_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 0.01529490626
+          "value": 0.008309457147
         },
         "tp_reference_dbtp": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": -8.019396201
+          "value": -8.843860118
         },
         "tp_sample_peak_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -9.103612721
+          "value": -9.737285497
         }
       },
       "node_type": "multiband_compressor",
@@ -2641,34 +2641,34 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -66.41570342
+          "value": -101.7198785
         },
         "asr_inband_db": {
           "applicable": true,
           "exactly_zero": false,
           "lower_is_better": true,
-          "pass": false,
+          "pass": true,
           "threshold": -100,
           "unit": "dB",
-          "value": -66.41577592
+          "value": -101.8325697
         },
         "asr_inband_worstlevel_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -66.41577592
+          "value": -101.8325697
         },
         "asr_noise_floor_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -199.8637427
+          "value": -221.9513025
         },
         "asr_nonperiodic_residual_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -105.7656268
+          "value": -113.5509631
         },
         "asr_settle_frames": {
           "applicable": true,
@@ -2680,13 +2680,13 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -66.41570342
+          "value": -101.7198785
         },
         "asr_worst_f0_hz": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "Hz",
-          "value": 3202.148438
+          "value": 9002.929688
         },
         "asr_worstlevel_dbfs": {
           "applicable": true,
@@ -2704,109 +2704,109 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "samples",
-          "value": 6.177736821
+          "value": 6.095387394
         },
         "fr_gd_max_samples": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "samples",
-          "value": 226.0653072
+          "value": 226.1085533
         },
         "fr_mag_125hz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 0.0404334926
+          "value": 0.04223804904
         },
         "fr_mag_1khz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -0.02673445808
+          "value": -0.02643017454
         },
         "fr_mag_8khz_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -0.02086929489
+          "value": -0.001588022338
         },
         "fr_max_mag_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 3.23530087
+          "value": 3.235977859
         },
         "fr_min_mag_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -0.6718624983
+          "value": -0.6723396795
         },
         "fr_phase_1khz_deg": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "deg",
-          "value": -0.08221030256
+          "value": -0.07563155506
         },
         "fr_pre_arrival_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 4.231998982
+          "value": 4.232007432
         },
         "gain_transfer_+00_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -0.01231551986
+          "value": -0.01229620328
         },
         "gain_transfer_-06_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -6.01231552
+          "value": -6.012296203
         },
         "gain_transfer_-12_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -12.01231552
+          "value": -12.0122962
         },
         "gain_transfer_-18_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -18.01231552
+          "value": -18.0122962
         },
         "gain_transfer_-24_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -24.01231552
+          "value": -24.0122962
         },
         "gain_transfer_-30_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -30.01231552
+          "value": -30.0122962
         },
         "gain_transfer_-36_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -36.01231552
+          "value": -36.0122962
         },
         "gain_transfer_-45_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -45.01231552
+          "value": -45.0122962
         },
         "gain_transfer_-60_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -60.01231552
+          "value": -60.0122962
         },
         "homogeneity_error_db": {
           "applicable": true,
@@ -2824,55 +2824,55 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -266.7591361
+          "value": -266.4783134
         },
         "imd_d2_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 4.592436863e-12
+          "value": 4.743340827e-12
         },
         "imd_d3_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -63.10921278
+          "value": -64.43621542
         },
         "superposition_error_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -31.25790432
+          "value": -31.17444361
         },
         "thd_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -75.61028523
+          "value": -75.77979979
         },
         "thd_fundamental_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -0.01082017353
+          "value": -0.010709827
         },
         "thd_n_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": -75.42845236
+          "value": -75.77970986
         },
         "thd_percent": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "%",
-          "value": 0.01657622902
+          "value": 0.01625586224
         },
         "thd_settle_frames": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "frames",
-          "value": 131072
+          "value": 32768
         },
         "time_invariance_error_db": {
           "applicable": true,
@@ -2884,25 +2884,25 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": 6.745208654
+          "value": 6.832213616
         },
         "tp_meter_delta_db": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dB",
-          "value": 0.02508444833
+          "value": 0.01538643079
         },
         "tp_reference_dbtp": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBTP",
-          "value": 6.720124205
+          "value": 6.816827185
         },
         "tp_sample_peak_dbfs": {
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 4.725776025
+          "value": 4.500015854
         }
       },
       "node_type": "transient_designer",
@@ -6001,8 +6001,8 @@
       "params": "soft clip, +12 dB drive, 16x"
     }
   ],
-  "generated_at_utc": "2026-08-04T07:20:24Z",
-  "git_commit": "8559b08",
+  "generated_at_utc": "2026-08-04T08:21:52Z",
+  "git_commit": "274e6b7",
   "node_types_in_catalog": 22,
   "sample_rate_hz": 96000,
   "schema_version": 1,

@@ -39,9 +39,34 @@
 // latency, and re-aligning after compression is the mistake above. One number,
 // declared once, and every band's detector anticipates by the same amount.
 //
-// Latency is exactly (sum of the crossover stages) + lookahead. Both terms are
-// integer sample counts by construction: the convolver's latency is one whole
-// partition and the FIR's group delay is (N-1)/2 for an odd N.
+// OVERSAMPLED 4x, BUT ONLY WHEN A BAND IS ACTUALLY COMPRESSING.
+//
+// An envelope-driven gain aliases, and this node's gain comes from a full-wave
+// rectifier per band, so three bands sum three copies of the same fold-down —
+// measured at -98.6 dB in-band ASR against a -100 dB requirement, which is
+// almost exactly `compressor`'s own -104.2 dB plus 10*log10(3). At 4x it is
+// -152.0 dB and 8x buys nothing further; the node's slowest-moving detectors
+// filter out most of what folds, which is why it needs half the rate
+// `transient_designer` does. See findings.md.
+//
+// A band at 1:1 is a different case entirely. Its gain is dbToLin(makeup) at
+// every sample — a CONSTANT — and multiplying by a constant is linear, so there
+// is nothing for an oversampler to prevent. Wrapping it anyway would trade the
+// -319 dB unity null for the resampler's round trip at around -140 dB, which is
+// a 180 dB regression in the property the whole crossover exists to deliver,
+// bought to fix aliasing that a transparent configuration does not have.
+//
+// So the effective factor is 1 unless some band's ratio exceeds 1 — and an
+// Oversampler at factor 1 is a pair of copies with zero declared latency, so
+// the transparent case runs the SAME code path and stays bit exact. No second
+// branch to get wrong.
+//
+// Latency is exactly (sum of the crossover stages) + oversampler round trip +
+// lookahead. Every term is an integer sample count at the base rate by
+// construction: the convolver's latency is one whole partition, the FIR's group
+// delay is (N-1)/2 for an odd N, the oversampler's round trip is integer by
+// design (see Oversampler.h), and `lookahead * factor` oversampled samples is
+// `lookahead` base samples.
 #pragma once
 
 #include <algorithm>
@@ -53,6 +78,7 @@
 #include "anv/dsp/DelayLine.h"
 #include "anv/dsp/Dynamics.h"
 #include "anv/dsp/FirDesign.h"
+#include "anv/dsp/Oversampler.h"
 
 namespace anv {
 
@@ -70,6 +96,7 @@ public:
       for (auto& cv : st.lp) cv.reset();
       st.align.reset();
     }
+    os_.reset();
     for (auto& bd : bands_) {
       bd.align.reset();
       bd.look.reset();
@@ -88,6 +115,15 @@ public:
     lookaheadMs_ = std::clamp(p.num("lookahead_ms", 5.0), 0.0, 200.0);
     stereoLink_ = std::clamp(p.num("stereo_link", 1.0), 0.0, 1.0);
     stopbandDb_ = std::clamp(p.num("crossover_stopband_db", 80.0), 40.0, 120.0);
+    // 4x, measured: the un-oversampled node is -98.6 dB in-band ASR at 0 dBFS
+    // and 4x takes it past the -100 dB requirement with room to spare. A
+    // factor of 1 is allowed because it is exactly the plain `compressor`'s
+    // arithmetic per band, which is what the contract test compares against.
+    int f = static_cast<int>(p.num("oversample_factor", 4.0));
+    f = std::clamp(f, 1, 16);
+    int pow2 = 1;
+    while (pow2 * 2 <= f) pow2 *= 2;
+    factor_ = pow2;
     params_ = p;
     if (spec_.numChannels > 0) rebuild();
   }
@@ -145,27 +181,38 @@ public:
       std::copy(res_[cc].data(), res_[cc].data() + n, bands_.back().sig[cc].data());
     }
 
-    // Align every band to the common total, then hold each band's audio back by
-    // the shared lookahead while its detector reads the undelayed band.
-    for (Band& bd : bands_) {
+    // Align every band to the common total, then take each band up to the
+    // oversampled rate. `effFactor_` is 1 whenever no band is compressing, and
+    // an Oversampler at factor 1 is a pair of copies — so the unity case stays
+    // bit exact while running exactly the same code as every other case.
+    const int m = n * effFactor_;
+    for (size_t k = 0; k < bands_.size(); ++k) {
+      Band& bd = bands_[k];
       for (int c = 0; c < ch; ++c) {
         const size_t cc = static_cast<size_t>(c);
         bd.sigPtr[cc] = bd.sig[cc].data();
         bd.sigConst[cc] = bd.sig[cc].data();
-        bd.dlyPtr[cc] = bd.dly[cc].data();
       }
       bd.align.process(bd.sigConst.data(), bd.sigPtr.data(), n);
-      bd.look.process(bd.sigConst.data(), bd.dlyPtr.data(), n);
+
+      for (int c = 0; c < ch; ++c) {
+        const size_t cc = static_cast<size_t>(c);
+        bd.work[cc] = os_.up(bd.sig[cc].data(), n, osChannel(k, c));
+        bd.workConst[cc] = bd.work[cc];
+        bd.dlyPtr[cc] = bd.dly[cc].data();
+      }
+      // Lookahead at the oversampled rate: `lookahead * factor` there is
+      // exactly `lookahead` base samples, so the declared latency stays an
+      // integer and the detector still reads the undelayed band.
+      bd.look.process(bd.workConst.data(), bd.dlyPtr.data(), m);
     }
 
-    for (int c = 0; c < ch; ++c) std::fill(ctx.out[c], ctx.out[c] + n, 0.0);
-
     for (Band& bd : bands_) {
-      for (int i = 0; i < n; ++i) {
+      for (int i = 0; i < m; ++i) {
         double linked = 0.0;
         for (int c = 0; c < ch; ++c) {
           const size_t cc = static_cast<size_t>(c);
-          const double level = std::abs(bd.sig[cc][static_cast<size_t>(i)]);
+          const double level = std::abs(bd.work[cc][i]);
           bd.chLevel[cc] = level;
           linked = std::max(linked, level);
         }
@@ -184,9 +231,18 @@ public:
           // zero on every branch of the knee; the detector of a constant zero
           // is zero; and pow(10, 0/20) is 1. The unity null is therefore the
           // crossover's arithmetic floor and nothing else.
-          ctx.out[c][i] +=
+          bd.work[cc][i] =
               bd.dly[cc][static_cast<size_t>(i)] * dbToLin(bd.makeupDb - smoothed);
         }
+      }
+    }
+
+    for (int c = 0; c < ch; ++c) std::fill(ctx.out[c], ctx.out[c] + n, 0.0);
+    for (size_t k = 0; k < bands_.size(); ++k) {
+      for (int c = 0; c < ch; ++c) {
+        os_.down(bandOut_[static_cast<size_t>(c)].data(), n, osChannel(k, c));
+        const Sample* src = bandOut_[static_cast<size_t>(c)].data();
+        for (int i = 0; i < n; ++i) ctx.out[c][i] += src[i];
       }
     }
   }
@@ -216,15 +272,20 @@ private:
     GainComputer comp;
     double makeupDb = 0.0;
     double alphaAttack = 0.0, alphaRelease = 0.0;
-    DelayLine align; // up to the common crossover total
-    DelayLine look;  // the shared lookahead
+    DelayLine align; // up to the common crossover total, at the base rate
+    DelayLine look;  // the shared lookahead, at the oversampled rate
     std::vector<DecoupledPeakDetector> det;
     std::vector<RunningMax> rmax;
     std::vector<double> chLevel;
     std::vector<std::vector<Sample>> sig, dly;
-    std::vector<Sample*> sigPtr, dlyPtr;
-    std::vector<const Sample*> sigConst;
+    std::vector<Sample*> sigPtr, dlyPtr, work;
+    std::vector<const Sample*> sigConst, workConst;
   };
+
+  // The oversampler carries every (band, channel) pair as one of its channels.
+  int osChannel(size_t band, int c) const {
+    return static_cast<int>(band) * spec_.numChannels + c;
+  }
 
   void rebuild() {
     const int ch = spec_.numChannels;
@@ -291,7 +352,42 @@ private:
       stages_.push_back(std::move(st));
     }
     cumulative[static_cast<size_t>(numBands) - 1] = total;
-    latency_ = total + lookaheadSamples_;
+
+    // ONLY OVERSAMPLE IF SOMETHING IS ACTUALLY COMPRESSING.
+    //
+    // A band at 1:1 has a gain of exactly dbToLin(makeup) at every sample — a
+    // constant. Multiplying by a constant is linear, and a linear operation
+    // cannot alias, so there is nothing for an oversampler to prevent. Running
+    // one anyway would trade the crossover's -319 dB unity null for the
+    // resampler's -140 dB round trip and charge latency for the privilege.
+    //
+    // `effFactor_` is therefore 1 unless some band's ratio exceeds 1. An
+    // Oversampler at factor 1 is a pair of std::copy calls with zero declared
+    // latency, so the transparent case runs the SAME code path as every other
+    // case and is still bit exact — no second branch to get wrong.
+    bool compressing = false;
+    for (int k = 0; k < numBands; ++k)
+      if (std::max(1.0, items[static_cast<size_t>(k)].num("ratio_to_1", 2.0)) > 1.0)
+        compressing = true;
+    effFactor_ = compressing ? factor_ : 1;
+
+    // Wideband, for the same reason as `transient_designer`: what is being
+    // oversampled is a rectifier, and its folded products land wherever the
+    // arithmetic puts them rather than politely above 22 kHz.
+    os_.prepare(effFactor_, numBands * ch, static_cast<int>(block),
+                OsProfile::Wideband);
+
+    // Every term is an exact integer at the base rate: the crossover stages by
+    // construction, the oversampler's round trip by construction, and the
+    // lookahead because `lookahead * factor` oversampled samples is `lookahead`
+    // base samples.
+    latency_ = total + os_.latencyFrames() + lookaheadSamples_;
+
+    // Ballistics are per sample, so they follow the oversampled rate. Derived
+    // from the base rate they would be `factor` times too fast, which would
+    // make the oversampling change the node's sound rather than only its
+    // aliasing.
+    const double osRate = sr * static_cast<double>(effFactor_);
 
     bands_.resize(static_cast<size_t>(numBands));
     for (int k = 0; k < numBands; ++k) {
@@ -303,25 +399,29 @@ private:
       bd.makeupDb = clampDb(b.num("makeup_gain_db", 0.0));
       const double attackMs = std::clamp(b.num("attack_ms", 10.0), 0.01, 10000.0);
       const double releaseMs = std::clamp(b.num("release_ms", 120.0), 1.0, 10000.0);
-      bd.alphaAttack = timeConstantAlpha(attackMs * 0.001, sr);
-      bd.alphaRelease = timeConstantAlpha(releaseMs * 0.001, sr);
+      bd.alphaAttack = timeConstantAlpha(attackMs * 0.001, osRate);
+      bd.alphaRelease = timeConstantAlpha(releaseMs * 0.001, osRate);
 
       bd.align.prepare(ch, total - cumulative[static_cast<size_t>(k)]);
-      bd.look.prepare(ch, lookaheadSamples_);
+      bd.look.prepare(ch, lookaheadSamples_ * effFactor_);
       bd.det.assign(chs, DecoupledPeakDetector{});
       bd.rmax.assign(chs, RunningMax{});
-      for (auto& r : bd.rmax) r.prepare(lookaheadSamples_ + 1);
+      for (auto& r : bd.rmax) r.prepare(lookaheadSamples_ * effFactor_ + 1);
       bd.chLevel.assign(chs, 0.0);
       bd.sig.assign(chs, std::vector<Sample>(block, 0.0));
-      bd.dly.assign(chs, std::vector<Sample>(block, 0.0));
+      bd.dly.assign(chs,
+                    std::vector<Sample>(block * static_cast<size_t>(effFactor_), 0.0));
       bd.sigPtr.assign(chs, nullptr);
       bd.dlyPtr.assign(chs, nullptr);
+      bd.work.assign(chs, nullptr);
       bd.sigConst.assign(chs, nullptr);
+      bd.workConst.assign(chs, nullptr);
     }
 
     res_.assign(chs, std::vector<Sample>(block, 0.0));
     resPtr_.assign(chs, nullptr);
     resConst_.assign(chs, nullptr);
+    bandOut_.assign(chs, std::vector<Sample>(block, 0.0));
 
     reset();
   }
@@ -330,11 +430,13 @@ private:
   bool active_ = false;
   double lookaheadMs_ = 5.0, stereoLink_ = 1.0, stopbandDb_ = 80.0;
   int latency_ = 0, lookaheadSamples_ = 0;
+  int factor_ = 4, effFactor_ = 1;
 
   std::vector<Stage> stages_;
   std::vector<Band> bands_;
   std::vector<double> cross_;
-  std::vector<std::vector<Sample>> res_;
+  Oversampler os_;
+  std::vector<std::vector<Sample>> res_, bandOut_;
   std::vector<Sample*> resPtr_;
   std::vector<const Sample*> resConst_;
 };

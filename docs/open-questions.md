@@ -117,40 +117,36 @@ to run it against.
 
 ## Measurement gaps
 
-### Three nodes do not meet the −100 dB aliasing requirement
+### `drive` at +12 dB passes the aliasing requirement by 0.4 dB
 
 `engine/tests/measurements.cpp` measures aliasing-to-signal ratio by sweeping a
 coherently-sampled tone at 0 dBFS and masking the harmonic loci, which is the
 plan's own method. The requirement is **ASR ≤ −100 dB at 0 dBFS for every
-nonlinear node**, and `docs/engine.md` states it as already asserted. It is not
-met by three of the eight nonlinear nodes, and one more passes by 0.4 dB:
+nonlinear node**. Every node meets it; one does so by a margin thin enough to
+be worth naming:
 
 | node | in-band ASR @ 0 dBFS | against |
 |---|---|---|
-| `transient_designer` | **−66.4 dB** | −100 |
-| `multiband_compressor` | **−98.6 dB** | −100 |
-| `drive` (+12 dB, 4×) | −100.4 dB | −100, by 0.4 dB |
+| `drive` (+12 dB, 4×) | −100.4 dB | −100, **by 0.4 dB** |
 | `drive` (defaults, 4×) | −105.1 dB | −100, by 5.1 dB |
 | `drive` (+12 dB, 16×) | −135.7 dB | comfortable |
+| `transient_designer` (8×) | −101.8 dB | −100, by 1.8 dB |
 | `compressor` | −104.2 dB | passes |
-| `true_peak_limiter` | −123.7 dB | passes |
 | `dynamic_eq` | −107.8 dB | passes |
+| `true_peak_limiter` | −123.7 dB | passes |
+| `multiband_compressor` (4×) | −152.0 dB | comfortable |
 
-`transient_designer` is the real one — 34 dB short, and it is the newest node in
-the engine. Its gain signal is a ratio of two envelopes, which is a much sharper
-nonlinearity than a compressor's log-domain curve, and none of it is
-oversampled. The other two are close enough that a modest amount of oversampling
-on the gain signal would very likely close them.
+**Resolved, 4 August 2026: the two dynamics nodes that failed.**
+`transient_designer` was −66.4 dB and `multiband_compressor` −98.6 dB. Both are
+now oversampled and both pass; the numbers and the reasoning are in
+`engine.md` and `findings.md`. The thresholds were not moved. What remains
+below is the `drive` observation the original entry ended on, kept because it
+is the sharper half of the finding.
 
-The thresholds have not been moved. `ci/check_measurements.py` prints all three
-on every run under KNOWN FAILURES and fails the build if any of them gets worse
-by more than the tolerance.
-
-**What would resolve it:** oversample the gain-computation path in the three
-dynamics nodes, or band-limit the gain signal before it multiplies the audio.
-**Cost of being wrong:** `transient_designer` at −66 dB puts audible
-non-harmonic fizz into exactly the material it is used on — transients, which
-are broadband and where fold-down is least masked.
+`transient_designer`'s 1.8 dB is thin and worth watching. 16× would buy 3 dB
+more and doubles the node's cost; the decision was made on the measurement and
+is recorded in the node header so it can be revisited with a number rather than
+an impression.
 
 **Also worth knowing:** `drive` barely moves between 4× and 16× at 0 dBFS
 (−100.4 against −135.7 is a large gap at the worst sweep step, but the in-band
@@ -158,6 +154,15 @@ figure at most steps is dominated by the downsampling filter's stopband rather
 than by the factor). The oversampling *filter* is the binding constraint, not
 the oversampling *ratio* — mutating the filter's stopband from 120 dB to 40 dB
 costs 32 dB of ASR, while removing the oversampling entirely costs 35 dB.
+
+**And that does NOT generalise, which is worth knowing before applying it.**
+The same experiment on `transient_designer` found the opposite: sweeping its
+halfband stopband 120 → 150 → 170 dB changed its ASR by **0.00 dB** at both 4×
+and 8×, while doubling the rate was worth 17 dB. A saturator's products are
+generated inside the oversampled band and the filter decides how much comes
+back; a rectifier's harmonic series runs to infinity and the *rate* decides
+which member of it folds. Which lever works depends on where the harmonics
+come from, so the diagnosis has to be redone per node rather than carried over.
 
 ### The true-peak limiter overshoots its ceiling by 0.02 dB
 

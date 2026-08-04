@@ -253,6 +253,7 @@ signature even with every band neutral.
 | `lookahead_ms` | 0…200, shared by every band | 5 |
 | `stereo_link` | 0…1 | 1 |
 | `crossover_stopband_db` | 40…120 | 80 |
+| `oversample_factor` | 1…16 | 4 |
 
 Per band: `crossover_hz` (40…18000), `threshold_dbfs` (±80), `ratio_to_1` (≥ 1),
 `knee_db` (≥ 0), `attack_ms` (0.01…10000), `release_ms` (1…10000),
@@ -271,18 +272,24 @@ Per band: `crossover_hz` (40…18000), `threshold_dbfs` (±80), `ratio_to_1` (�
   measure correctly on its own.
 - **Lookahead is shared**, because per-band lookahead means per-band latency and
   re-aligning after compression is the mistake above.
-- Latency is exactly the sum of the crossover stages plus the lookahead, both
-  integers. Measured: a 100 Hz corner declares 4456 frames, 1 kHz 370, 4 kHz
-  125. A bandless node declares 0.
+- Latency is exactly the crossover stages plus the oversampler's round trip plus
+  the lookahead, every term an integer at the base rate. Measured with two bands
+  and no lookahead: a 100 Hz corner declares 4563 frames, 1 kHz 477, 4 kHz 232.
+  A bandless node declares 0.
 - **Cost is in the crossover, not the compressors.** The FIR's tap count grows
   as 1/f, so a 40 Hz corner is ~12 000 taps. Corners are clamped to 40 Hz for
   that reason; below that it is a rumble filter, not a band split.
-- A **one-band** multiband is bit-identical to `compressor` at the same
-  settings, which is the sharpest available statement that the detector reads
-  the right signal.
-- Measured in-band ASR at 0 dBFS is **−98.6 dB**, 1.4 dB short of the −100 dB
-  requirement below — same cause as `transient_designer` and much closer to it.
-  Tracked in `open-questions.md`.
+- A **one-band** multiband at `oversample_factor` 1 is bit-identical to
+  `compressor` at the same settings, which is the sharpest available statement
+  that the detector reads the right signal.
+- **Oversampled 4×, but only when a band is actually compressing.** A band at
+  1:1 has a constant gain, and a constant gain is linear, so there is nothing
+  for an oversampler to prevent — running one anyway would trade the −319 dB
+  unity null for the resampler's round trip. The effective factor is 1 when no
+  band's ratio exceeds 1, and an `Oversampler` at factor 1 is a pair of copies,
+  so the transparent case runs the same code path and stays bit exact.
+  Measured in-band ASR at 0 dBFS: **−98.6 dB** un-oversampled, **−152.0 dB**
+  at 4×. 8× buys nothing further.
 
 **`transient_designer`** — attack and sustain shaped by the *difference* between
 envelope followers of different time constants.
@@ -290,8 +297,9 @@ envelope followers of different time constants.
 **Not a compressor, and not a substitute for one.** A compressor's gain is a
 function of how loud the signal is; this node's is a function of how fast the
 level is *changing*. There is no threshold and adding one would be a category
-error: a hit 40 dB quieter is shaped identically, measured to **2.7e−15 dB**.
-The same two hits through a compressor differ by 9.3 dB.
+error: a hit 40 dB quieter is shaped identically, measured to **4e−14 dB** on
+both the peak and the body. The same two hits through a compressor differ by
+9.3 dB.
 
 | Parameter | Range | Default |
 |---|---|---|
@@ -301,6 +309,7 @@ The same two hits through a compressor differ by 9.3 dB.
 | `sustain_ms` | 50…3000 | 250 |
 | `lookahead_ms` | 0…200 | 2 |
 | `stereo_link` | 0…1 | 1 |
+| `oversample_factor` | 8…16 | 8 |
 
 Three detectors, and which coefficient each pair shares is the whole design:
 
@@ -311,9 +320,10 @@ gain_dB = attack_db * A + sustain_db * S
 ```
 
 - **Both controls at zero is a bit-exact delay**, not "no measurable change":
-  the gain is `pow(10, 0/20)` and multiplying by one is the identity. There is
-  no early-out branch, so this is a property of the arithmetic rather than of a
-  special case no test can reach.
+  the gain is `pow(10, 0/20)` and multiplying by one is the identity. The node
+  takes an unoversampled path there — see below — but that is a consequence of
+  the identity rather than an approximation of it: inside the shaping path the
+  same arithmetic produces the same one.
 - **Ratios, not dB differences.** Both differentials live in [0, 1) by
   construction. A dB differential is unbounded and behaves worst exactly where
   it matters — a hit rising out of silence puts the fast envelope 20–50 dB above
@@ -333,15 +343,31 @@ gain_dB = attack_db * A + sustain_db * S
 - **Known limit:** the detector is broadband, so once a waveform's period
   approaches the fast envelope's release the envelope follows the *waveform*
   rather than the envelope. With both controls at +12 dB a steady 1 kHz tone
-  moves **0.034 dB** and a steady 60 Hz tone moves **0.59 dB**. Send bass-led
+  moves **0.033 dB** and a steady 60 Hz tone moves **0.59 dB**. Send bass-led
   material to `multiband_compressor`.
-- **This node does NOT meet the −100 dB aliasing requirement stated below.**
-  Measured in-band ASR at 0 dBFS is **−66.4 dB**, 34 dB short: the gain is a
-  ratio of two envelopes taken from a full-wave rectifier running at the base
-  rate, which is a sharper nonlinearity than a compressor's log-domain curve and
-  none of it is oversampled. Tracked in `open-questions.md`, gated as a known
-  failure in `ci/check_measurements.py`, and **not yet fixed**. It is the one
-  place this node is currently below the bar the rest of the engine holds.
+- **Oversampled 8×, and that is the floor rather than a round number.** The
+  gain comes from a full-wave rectifier, whose harmonic series falls only as
+  1/m² and folds *before* any envelope filter exists to remove it; whichever
+  harmonic lands nearest DC is then passed at full gain and modulates
+  everything. Measured in-band ASR at 0 dBFS:
+
+  | 1× | 4× | 8× | 16× |
+  |---|---|---|---|
+  | −66.4 dB | −85.0 dB | **−101.8 dB** | −104.7 dB |
+
+  The requirement is −100, so 4× does not meet it and 16× costs twice as much
+  for 3 dB. Unlike `drive`, the oversampling *filter* is not the binding
+  constraint here — sweeping the halfband stopband 120 → 150 → 170 dB changed
+  the result by 0.00 dB at both 4× and 8×. The rectifier's own series is the
+  limit and the only lever on it is the rate.
+- **Zero shaping is still bit exact.** With both controls at zero the gain is
+  exactly one, so the node takes an unoversampled path, declares only the
+  lookahead, and returns its input bit-for-bit — and costs nothing.
+
+Measured on 10 s of 48 kHz stereo rendered at 96 kHz internal: an empty recipe
+is 0.29 s, `multiband_compressor` adds **1.83 s** (three crossover FIRs plus 4×
+oversampling on six band-channels), `transient_designer` adds **0.68 s** at 8×
+and **0.00 s** with both controls at zero.
 
 ### Character
 
@@ -358,10 +384,12 @@ piecewise polynomials rather than `tanh`.
 | `oversample_factor` | — | 4 |
 
 Aliasing-to-signal ratio is **measured** for every nonlinear node — the target
-is ≤ −100 dB at 0 dBFS, and **three nodes do not currently meet it**:
-`transient_designer` at −66.4 dB, `multiband_compressor` at −98.6, and `drive`
-at +12 dB into 4× oversampling scraping past at −100.4. See
-`docs/open-questions.md`.
+is ≤ −100 dB at 0 dBFS. Every node now meets it, and one does so by very little:
+`drive` at +12 dB into 4× oversampling scrapes past at **−100.4 dB**. The two
+that did not — `transient_designer` at −66.4 dB and `multiband_compressor` at
+−98.6 — are now oversampled and measure −101.8 and −152.0; the thresholds were
+not moved. See `docs/open-questions.md` for the `drive` margin and
+`findings.md` for why a rectifier aliases the way it does.
 
 This paragraph used to say the requirement was "asserted for every nonlinear
 node". It was not, and had never been: the only node under an ASR gate was
