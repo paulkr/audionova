@@ -83,6 +83,15 @@ export type RenderResult = {
   failures?: { code: string; message: string }[];
 };
 
+export type EditResult = {
+  graph_id: string;
+  parent: string;
+  origin: "user_edit";
+  changed: string;
+  repairs: string[];
+  nodes: GraphNode[];
+};
+
 export type RefineResult = {
   graph_id?: string;
   parent?: string;
@@ -154,6 +163,40 @@ export function refine(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ intent, quantifier }),
+  });
+}
+
+// A manual edit is one parameter at a time and lands on the same recipe tree as
+// a planned graph, with origin "user_edit". That is what lets the next model
+// turn treat the correction as its parent rather than re-planning over it.
+export function editGraph(
+  id: string,
+  graphId: string,
+  edit: { node_id: string; param: string; value: number | boolean;
+          band_index?: number },
+) {
+  return request<EditResult>(`/api/projects/${id}/graphs/${graphId}/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(edit),
+  });
+}
+
+// A recipe is the graph plus the engine version that rendered it. The version
+// is what makes it portable rather than merely copyable: bit-identical
+// re-rendering is only promised within one (engine_version, arch).
+export function recipeUrl(id: string, graphId: string) {
+  return `${API_BASE}/api/projects/${id}/graphs/${graphId}/recipe`;
+}
+
+export function importRecipe(id: string, recipe: unknown) {
+  return request<{
+    graph_id: string; origin: string; warnings: string[];
+    repairs: string[]; nodes: GraphNode[];
+  }>(`/api/projects/${id}/recipes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(recipe),
   });
 }
 

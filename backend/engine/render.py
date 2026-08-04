@@ -33,6 +33,9 @@ class RenderError(RuntimeError):
     """The engine refused to render, and said why."""
 
 
+ENGINE_VERSION = "0.1.0"
+
+
 @dataclass
 class Recipe:
     """The render description, mirroring engine/include/anv/io/Recipe.h.
@@ -53,7 +56,7 @@ class Recipe:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "engine_version": "0.1.0",
+            "engine_version": ENGINE_VERSION,
             "internal_sample_rate": self.internal_sample_rate,
             "seed": self.seed,
             "output": {

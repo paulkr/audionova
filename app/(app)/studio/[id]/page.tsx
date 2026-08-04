@@ -127,6 +127,56 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
+  // A hand edit is a first-class turn, not a local tweak. It creates a graph on
+  // the same tree with the same parent semantics as a refinement, so undo steps
+  // through it and the next model turn sees the correction as what it is
+  // refining. Anything else would let the planner quietly overwrite a decision
+  // the user made deliberately.
+  async function applyEdit(nodeId: string, param: string, value: number,
+                           bandIndex?: number) {
+    if (!graphId) return;
+    setBusy(`setting ${param.replace(/_/g, " ")}`);
+    setError(null);
+    try {
+      const result = await api.editGraph(id, graphId, {
+        node_id: nodeId, param, value, band_index: bandIndex,
+      });
+      setGraphId(result.graph_id);
+      setHistory((h) => [...h, result.graph_id]);
+      setPlan((p) => (p ? { ...p, nodes: result.nodes } : p));
+      setBusy("rendering");
+      setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      // The server's refusal names the actual bound for this parameter on this
+      // node type. Rewording it here would only make it vaguer.
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // An imported recipe is validated exactly like a planned one. It may predate
+  // a validator, or have been edited in a text editor on the way through, and
+  // arriving as a file earns it no extra trust.
+  async function loadRecipe(file: File) {
+    setBusy("importing the recipe");
+    setError(null);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = await api.importRecipe(id, parsed);
+      setGraphId(result.graph_id);
+      setHistory((h) => [...h, result.graph_id]);
+      setPlan((p) => (p ? { ...p, nodes: result.nodes } : p));
+      if (result.warnings.length) setError(result.warnings.join(" "));
+      setBusy("rendering");
+      setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // Everything above this point runs on a 20-second excerpt, which is what
   // makes iterating feel instant. The download is the one action that has to
   // touch the whole file, so it renders it on demand rather than keeping a
@@ -245,7 +295,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </p>
             <div className="space-y-3">
               {plan.nodes.map((node) => (
-                <NodeCard key={node.id} node={node} />
+                <NodeCard key={node.id} node={node} disabled={!!busy}
+                          onEdit={(param, value, bandIndex) =>
+                            applyEdit(node.id, param, value, bandIndex)} />
               ))}
             </div>
             {plan.declined && plan.declined.length > 0 && (
@@ -311,12 +363,37 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 match the original&rsquo;s loudness so the comparison is fair. This
                 is the chain&rsquo;s own output, at its own level.
               </p>
-              <button onClick={downloadFull} disabled={!!busy}
-                      className="pill-filled px-6 py-2 text-[14px] disabled:opacity-40">
-                {busy?.startsWith("rendering the full")
-                  ? `${busy} · ${elapsed}s`
-                  : "Download processed WAV"}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button onClick={downloadFull} disabled={!!busy}
+                        className="pill-filled px-6 py-2 text-[14px] disabled:opacity-40">
+                  {busy?.startsWith("rendering the full")
+                    ? `${busy} · ${elapsed}s`
+                    : "Download processed WAV"}
+                </button>
+                {graphId && (
+                  <a href={api.recipeUrl(id, graphId)} download
+                     className="text-[13px] text-white/45 underline underline-offset-4
+                                hover:text-white/70">
+                    export recipe
+                  </a>
+                )}
+                <label className="cursor-pointer text-[13px] text-white/45 underline
+                                  underline-offset-4 hover:text-white/70">
+                  import recipe
+                  <input type="file" accept="application/json,.json" className="hidden"
+                         onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           e.target.value = "";
+                           if (file) void loadRecipe(file);
+                         }} />
+                </label>
+              </div>
+              <p className="mt-3 text-[12px] leading-[1.5] text-white/30">
+                A recipe carries the chain and the engine version that rendered
+                it. Re-importing one onto the same file reproduces the render
+                bit for bit; onto a different file it is a starting point, not a
+                guarantee.
+              </p>
             </Section>
           )}
 
@@ -450,7 +527,69 @@ function Spectrum({ bands, after }: {
   );
 }
 
-function NodeCard({ node }: { node: api.GraphNode }) {
+// A number you can retype.
+//
+// READ-ONLY WAS THE WRONG DEFAULT. The inspector's whole claim is that an
+// engineer decides whether to trust this by reading it — and someone who can
+// read "-3.2 dB at 340 Hz" and disagree wants to type "-2.4" rather than
+// describe the change in words and hope. Every value the server will accept an
+// edit for is editable here.
+//
+// It stays looking like text until focused, because a chain of forty input
+// boxes reads as a form and the point is that it reads as a decision.
+function Editable({ value, unit, onCommit, disabled }: {
+  value: number;
+  unit?: string;
+  disabled?: boolean;
+  onCommit: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (draft === null) {
+    return (
+      <button
+        disabled={disabled}
+        onClick={() => setDraft(String(value))}
+        className="rounded px-1 tabular-nums underline decoration-dotted
+                   decoration-white/20 underline-offset-4 hover:bg-white/8
+                   hover:decoration-white/50 disabled:opacity-40"
+      >
+        {value}{unit ? ` ${unit}` : ""}
+      </button>
+    );
+  }
+
+  const commit = () => {
+    const parsed = Number(draft);
+    setDraft(null);
+    // NaN and no-change both mean "do nothing". Sending an unchanged value
+    // would still mint a new graph, so undo would step through edits that
+    // never altered anything.
+    if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
+  };
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      inputMode="decimal"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setDraft(null);
+      }}
+      className="w-20 rounded border border-white/25 bg-white/10 px-1
+                 tabular-nums outline-none"
+    />
+  );
+}
+
+function NodeCard({ node, onEdit, disabled }: {
+  node: api.GraphNode;
+  disabled?: boolean;
+  onEdit: (param: string, value: number, bandIndex?: number) => void;
+}) {
   const bands = node.params.bands;
   const scalars = Object.entries(node.params).filter(
     ([k, v]) => k !== "bands" && typeof v !== "object",
@@ -482,13 +621,14 @@ function NodeCard({ node }: { node: api.GraphNode }) {
           {bands.map((band, i) => (
             <li key={i} className="text-[13px] tabular-nums text-white/70">
               {band.filter_type}{" "}
-              {band.center_freq_hz >= 1000
-                ? `${(band.center_freq_hz / 1000).toFixed(2)} kHz`
-                : `${band.center_freq_hz} Hz`}
-              {band.gain_db !== 0 && (
-                <> · {band.gain_db > 0 ? "+" : ""}{band.gain_db} dB</>
-              )}{" "}
-              · Q {band.q_factor}
+              <Editable value={band.center_freq_hz} unit="Hz" disabled={disabled}
+                        onCommit={(v) => onEdit("center_freq_hz", v, i)} />
+              {" · "}
+              <Editable value={band.gain_db} unit="dB" disabled={disabled}
+                        onCommit={(v) => onEdit("gain_db", v, i)} />
+              {" · Q "}
+              <Editable value={band.q_factor} disabled={disabled}
+                        onCommit={(v) => onEdit("q_factor", v, i)} />
             </li>
           ))}
         </ul>
@@ -499,7 +639,12 @@ function NodeCard({ node }: { node: api.GraphNode }) {
           {scalars.map(([key, value]) => (
             <span key={key} className="text-[12px] tabular-nums text-white/55">
               <span className="text-white/30">{key.replace(/_/g, " ")}</span>{" "}
-              {String(value)}
+              {typeof value === "number" ? (
+                <Editable value={value} disabled={disabled}
+                          onCommit={(v) => onEdit(key, v)} />
+              ) : (
+                String(value)
+              )}
             </span>
           ))}
         </div>

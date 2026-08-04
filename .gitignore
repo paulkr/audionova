@@ -1,6 +1,9 @@
 # Next.js
 node_modules/
 .next/
+# TypeScript incremental build state. Regenerated on every build, so tracking
+# it means every commit carries an unrelated diff nobody reads.
+*.tsbuildinfo
 out/
 .env*.local
 
