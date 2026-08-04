@@ -226,6 +226,35 @@ blocked, so the landing page has only ever been seen at mobile width in-session.
   soundalike *output* well; analysing a copyrighted master is unsettled.
 - Counsel review of the artist-alias routing table before it ships.
 
+### A model plan takes about two minutes, and the DoD says 45 seconds
+
+Measured through the API on a real acoustic guitar excerpt: **128.7 s** for one
+model plan, request *"warm it up a little and tighten the low end"*, one attempt,
+no repairs. The gate passed and the chain is sound. The problem is only the wait.
+
+Phase 1's definition of done is **p50 ≤ 45 s, p95 ≤ 120 s** prompt to audible.
+A single sample is not a p95, but one sample already exceeding the p95 target
+means the budget is wrong somewhere rather than merely tight.
+
+Where the time goes is not yet measured, and that is the next step rather than a
+guess. Two stages run serially — Opus reasoning unconstrained, then Sonnet
+transcribing — and the reasoning stage is high-effort by design because that is
+the half that earns the model its 200-700x cost premium over the DSP.
+
+Candidate moves, none taken yet:
+- Time the two stages separately. If EMIT is a meaningful share, it is pure
+  transcription and can be a smaller model or a smaller prefix.
+- The known per-model cache defect below is worth roughly 31k tokens of
+  prefill on the EMIT call. Fixing it is a latency win as well as a cost win.
+- Stream stage 1, so the user reads the reasoning as it arrives instead of
+  watching a spinner. This is the SSE work the plan already schedules, and it
+  changes the *felt* latency without changing the number.
+
+Mitigated in the UI rather than hidden: the button counts seconds up, and says
+a model plan takes a minute or two before it starts. Do not let that stand in
+for fixing it.
+
+
 ---
 
 ## Resolved

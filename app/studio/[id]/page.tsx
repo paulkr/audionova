@@ -37,6 +37,20 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { intents: { id: string; label: string }[]; quantifiers: string[] } | null
   >(null);
 
+  // A model plan measured 128 s on a real file — past the plan's own p95 target
+  // of 120 s. A label that does not move for two minutes reads as a hang, so the
+  // seconds tick. This is the honest stand-in for the SSE progress stream, which
+  // is Phase 1 platform work and is not built: it proves the request is alive
+  // without claiming to know how far along it is.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) return setElapsed(0);
+    const started = Date.now();
+    const timer = setInterval(
+      () => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+
   const [tab, setTab] = useState<Tab>("A");
   const [playing, setPlaying] = useState(false);
   const sourceRef = useRef<HTMLAudioElement>(null);
@@ -183,7 +197,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           />
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={runPlan} disabled={!!busy} className="pill-filled px-5 py-2 text-[14px]">
-              {busy ?? "Plan"}
+              {busy ? `${busy} · ${elapsed}s` : "Plan"}
             </button>
             <label className="flex items-center gap-2 text-[13px] text-white/45">
               <input type="checkbox" checked={planner === "rules"}
