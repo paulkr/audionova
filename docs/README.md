@@ -34,8 +34,8 @@ only in a commit message.
 
 Built and verified:
 
-- **Engine** — 22 DSP nodes, float64, 96 kHz internal, exact integer latency.
-  1636 contract checks + 139 I/O checks.
+- **Engine** — 24 DSP nodes, float64, 96 kHz internal, exact integer latency.
+  1943 contract checks + 139 I/O checks.
 - **Render CLI** — `anv_render`, WAV/RF64 in and out, hand-written resampler.
 - **Measurement layer** — BS.1770 loudness validated against EBU conformance
   signals, gated spectrum, dynamics, stereo, hygiene. 148 checks.
@@ -68,7 +68,7 @@ Built and verified:
   matching verified on the written files at a 0.1 LU bar, the plan's 3 kHz
   screen rendered by the real engine, two rating scales with listener-clustered
   intervals, and Spearman rho that refuses to print without its interval.
-  239 checks. See `evaluation.md`.
+  242 checks, and 94 of 95 mutations caught. See `evaluation.md`.
 
 Not built:
 

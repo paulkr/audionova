@@ -11,7 +11,7 @@ because each is meaningless without the one before it.
 | Sensitivity | Can the report see what the engine does? | 101 |
 | Chain recovery | Can a chain be read back out of the deltas? | 615 |
 | Loudness + measurement | Are the measurements right? | 148 |
-| Listening harness | Can human judgement be collected without bias? | 225 |
+| Listening harness | Can human judgement be collected without bias? | 242 |
 
 ```sh
 cd engine  && make check
@@ -345,7 +345,7 @@ number in this document and being calibrated against a person.
 
 ## The listening harness
 
-`backend/listen/`, `backend/tests/test_listen.py`, `make listen`. 225 checks.
+`backend/listen/`, `backend/tests/test_listen.py`, `make listen`. 242 checks, and 94 of 95 mutations caught.
 
 Nothing here measures audio quality. It measures whether a *person's* judgement
 of audio quality can be collected without the four things that would make it

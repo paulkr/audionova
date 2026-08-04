@@ -42,6 +42,19 @@ anthropic>=0.40
 fastapi>=0.115
 uvicorn>=0.30
 httpx>=0.27
+# NOTHING NEW FOR THE LISTENING HARNESS, and that is a decision rather than an
+# accident. backend/listen/ serves its interface from `http.server` instead of
+# reusing the FastAPI app, because that process holds the answer key and the
+# smallest surface between it and a browser is the point — and because a
+# listening panel should be runnable from a laptop with nothing installed but
+# what is already declared here. The interface is one self-contained HTML file
+# with no CDN, no framework and no fonts, for the same reason.
+#
+# NOT pingouin / statsmodels for the Spearman interval: the Bonett-Wright
+# standard error is one line, and a dependency whose licence has to be reviewed
+# is a poor trade for it. The rank correlation is checked against
+# scipy.stats.spearmanr in the tests as an independent reference, which is the
+# part that needed a second implementation.
 # python-multipart  Apache-2.0
 #
 # FastAPI needs it to accept an UploadFile at all, and raises only when a route

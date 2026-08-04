@@ -397,6 +397,136 @@ result by **0.00 dB at both 4× and 8×**, to every digit printed. The two nodes
 fail for different reasons and the lever that works on one does nothing on the
 other.
 
+### ADAA2 applied to a linear function is exactly a three-point moving average
+
+The largest surprise from building `tape` and `console`, found because
+`console`'s frequency response came out 0.31 dB low at 20 kHz against an
+expectation computed by hand — and the expectation was right.
+
+Substituting f(x) = x, so F2(x) = x³/6, into the engine's ADAA2 operator:
+
+```
+(F2(a) - F2(b)) / (a - b) = (a² + ab + b²) / 6
+```
+
+and the outer difference factorises as `(x0 - x2)(x0 + x1 + x2)/6`, cancelling
+the outer denominator exactly. The operator collapses to `(x0 + x1 + x2)/3` — a
+rectangular three-tap FIR at the OVERSAMPLED rate, whose magnitude is
+`|1 + 2cos(2π f / (factor·fs))| / 3`:
+
+| at 20 kHz, 96 kHz base | 4× | 8× | 16× |
+|---|---|---|---|
+| droop | **−0.313 dB** | −0.078 | −0.019 |
+
+This is a real high-frequency loss on **every ADAA node in the engine**,
+including `drive`, and it has never been written down. It was invisible there
+because a saturator's high-frequency response is not something anyone had a
+prediction for; it became visible the moment a node claimed a specific
+sub-decibel roll-off. At 4× it is larger than the entire frequency-dependent
+shift `console` exists to produce, and it corrupted the gap-loss curve `tape`
+claims to reproduce — measured −2.089 dB at 20 kHz against the sinc's −1.777.
+
+**The fix is topological, not numerical.** Both nodes now compute `y = u + g(u)`
+with `g = f − identity`, send only `g` through the oversampler and the ADAA
+operator, and delay the linear term by exactly the same integer number of
+base-rate samples. The round trip's errors then scale with the node's DEPARTURE
+from unity instead of with the signal: a 0.31 dB tilt on a residual sitting
+60 dB down is 0.0003 dB on the output. Aliasing is unaffected, because
+everything that could fold is in the residual and it is still oversampled and
+still antialiased — measured, `console`'s in-band ASR went from −131.9 dB to
+−173.9 and `tape`'s +12 dB case from −94.6 to −96.2.
+
+Two things fell out of writing it. The residual has to be written out in closed
+form rather than computed as `f(x) - x`, because for |u| ≪ 1 the subtraction
+discards every significant bit and keeps the round-off — and a console stage at
+24 dB of headroom operates at exactly that amplitude, so the regime where the
+cancellation is worst is the regime the node lives in. And `drive` is left
+alone: 0.31 dB of high-frequency softening on a saturator is a colour rather
+than an error, and changing it would move every `drive` fingerprint in the
+measurement baseline for no stated benefit. It is recorded here so the next
+person to predict that node's response has the number.
+
+### The textbook bilinear transform is the wrong realisation for a pole above the band
+
+Both new nodes model analog first-order poles that sit ABOVE the audio band — a
+tape head's gap-loss knee at 28 kHz, a summing amplifier's gain-bandwidth
+roll-off at 60 kHz — and that is precisely where the standard prewarp stops
+describing the prototype. The bilinear map compresses the whole infinite analog
+axis into [0, Nyquist), so a corner near Nyquist drags the in-band response down
+with it. Measured at the 96 kHz internal rate, a 40 kHz analog corner read at
+20 kHz:
+
+| | at 20 kHz |
+|---|---|
+| analog prototype | −0.969 dB |
+| bilinear, prewarped at the corner | **−0.180 dB** |
+| prewarped at 20 kHz and scaled | −0.969 dB |
+
+Five times too little, in the one part of the band the parameter exists to
+shape. `console`'s 60 kHz pole is above the internal Nyquist and the textbook
+method cannot place it at all — `tan(π f/fs)` has to be clamped, and the
+roll-off very nearly disappears: measured −0.0002 dB at 20 kHz against the
+prototype's −0.458.
+
+`dsp/AnalogOnePole.h` prewarps at `min(fc, 20 kHz)` instead, which degenerates
+to the textbook case when the corner is in the band. One degree of freedom can
+only be exact at one frequency, so the residual error is zero at 20 kHz and at
+DC and bulges in between: 0.026 dB and 1.07° worst for `console`, 0.124 dB for
+`tape`'s gap loss. Putting the matched point at the top of the band puts the
+error where the pole does least.
+
+### Wow and flutter cannot be measured by anything in the measurement suite
+
+`tape` defaults its transport modulation to zero, and the reason is worth
+stating because "the default makes the number look good" is the obvious and
+wrong reading of it.
+
+Every gated measurement in `engine/tests/measurements.cpp` is a coherently
+sampled tone. The whole method rests on a periodic input producing a periodic
+output, so every harmonic — legitimate or folded — lands in exactly one bin with
+zero leakage. Pitch modulation is exactly what breaks that. At 19.5 kHz a 0.05%
+peak speed deviation moves the phase by tens of radians within one 32768-sample
+analysis window, so the fundamental smears across many bins, the denominator of
+the ratio collapses, and the number that comes out describes the analysis window
+rather than the node. To be below −120 dB of non-periodic residual the delay
+would have to be stationary to about 1.6e−6 samples, which is not a tape
+machine.
+
+The suite already records the same effect from the other side: `chorus` and
+`plate_reverb` measure −74 and −85 dB of "distortion" on a stimulus neither can
+possibly distort, and it correctly exempts them from the aliasing requirement
+because they are LINEAR and time-varying. The modulation here is the same thing
+— a linear time-varying delay generates no harmonics and has nothing to fold —
+so measuring this node's aliasing with the transport perfect is not a dodge. It
+is the only experiment that isolates the term the requirement is about.
+
+What the contract suite does instead is measure the modulation on its own terms:
+bit-exact across six block sizes, independently seeded per channel, and the
+achieved speed deviation read out of the audio by demodulating a probe tone
+rather than out of the node's own state.
+
+### A smoother curve did not alias less
+
+The quintic saturation curve is C2 at its knee where `drive`'s cubic is C1, so
+its harmonic series falls as 1/n⁴ rather than 1/n³. The obvious prediction is
+that it aliases less at the same oversampling factor and the same drive.
+
+Measured at 4× with a 19.5 kHz probe at 0 dBFS, in-band ASR:
+
+| | +12 dB drive |
+|---|---|
+| `drive`, cubic soft clip | −100.4 dB |
+| `tape`, quintic | **−96.2 dB** |
+
+Four decibels worse. The continuity argument is about the harmonic series far
+above the knee and it is true; what it leaves out is that the two curves are not
+at the same operating point for the same `drive_db`. The quintic's incremental
+gain is `(1 − u²)²`, already −5.0 dB at half scale where the cubic is −2.5, so
+at any given drive setting it is producing considerably more distortion to begin
+with. A tail that decays faster from a larger starting value is not necessarily
+smaller. `tape` runs at 8× for that reason and the factor was chosen from the
+measured table rather than from the argument.
+
 ### Oversampling a multiband is nearly free, and oversampling a transient
 designer is not
 
@@ -1716,6 +1846,173 @@ sorted set instead of the predicted sequence changes nothing on any input: the
 rank correlation is taken over *paired* index lists, and permuting both the same
 way leaves it unchanged. It is written down in the code so the next person to
 notice does not go looking for the test that should have caught it.
+
+---
+
+## Findings from the blinded listening harness
+
+`backend/listen/`. The first piece of this project whose subject is a person
+rather than a signal, and the failure modes are correspondingly different: every
+bug here produces data that looks like human judgement and is something else.
+
+### Loudness matching moves the screening stimulus by six times the bar
+
+The plan's listener screen is a 2 dB Q=1 bell at 3 kHz. It reads as a pure
+frequency-discrimination test, and it is not: measured on pink noise, the bell
+alone moves integrated loudness by **0.58 LU**, against a 0.1 LU matching bar.
+
+Unmatched, a listener with no frequency discrimination at all passes the screen
+by picking the louder clip every time. The screen would then select for exactly
+the bias the rest of the harness exists to remove, and it would do so
+invisibly — a listener who "passed" is thereafter trusted.
+
+The general shape: **a stimulus designed to differ in one dimension usually
+differs in others too, and level is the one that decides a blind comparison.**
+Anything a listener chooses between goes through the matcher, including the
+material used to decide who is allowed to listen.
+
+### Verifying the match needs a mechanism where prediction and measurement differ
+
+Applying `target − measured` dB is exact against K-weighted loudness, so a
+verification that recomputes the prediction agrees with itself perfectly and
+proves nothing. The first version of the test asserted that the matcher's
+reported LUFS equalled an independent re-read of the written file — which is the
+right assertion and, at 24 bits, is satisfied to about 1e−12 by a matcher that
+never opened the file. **A tolerance that generous does not distinguish the two
+implementations.**
+
+The mechanism that does is BS.1770's **absolute** gate. It sits at −70 LUFS and
+is not relative to the programme, so a group attenuated across it loses whole
+blocks from the integration. A pair at −68 LUFS pushed to a nominal −73 is
+arithmetically matched and measures `-inf` on both sides. That case is now the
+test, and it kills the mutation that the tolerance-based one let through.
+
+Two other mechanisms exist and were rejected as too weak to test with: 24-bit
+quantisation moves loudness by around 4e−12 dB at working levels, and PCM
+clamping requires a construction where one clip of a pair clips and the other
+does not, which needs two different crest factors and is fragile.
+
+### A refusal backed up by a second refusal is a refusal no test can falsify
+
+Three mutations survived the first round for the same reason, and it is
+`findings.md`'s own "a property with two implementations" in a new place:
+
+- substituting `-70.0` for a non-finite loudness inside the gain solver was
+  invisible, because the *written* clip is still silent and `verify_matched`
+  refuses it after the fact;
+- accepting duplicate listener ids was invisible, because two listeners with the
+  same id derive the same random stream and are caught by the
+  identifier-collision check further down.
+
+In both cases the test asserted "something was raised" and was satisfied by the
+wrong check, with the wrong message, after a fabricated gain had already been
+computed. Fixed two ways: the solvers are now unit-tested directly, and
+`R.raises` takes a `contains=` argument so a refusal has to be the refusal it
+claims. **Asserting an exception type is not asserting a reason.**
+
+### The post-write ceiling check could not fire, and was deleted
+
+`match_group` computes a common offset of `min(0, ceiling − highest_true_peak)`
+over the scaled arrays, so every clip is at or under the ceiling before it is
+written, and quantising to PCM moves a true peak by well under a thousandth of a
+decibel. A guard after the write therefore had no reachable input, and widening
+its threshold from 0.05 dB to 6.0 dB passed every test.
+
+Deleted rather than tested, on the same reasoning as `TransientDesigner`'s
+sustain rectification: a guard that cannot fire tells the next reader that the
+quantity can go over when it cannot. The invariant is asserted from outside
+instead, and at a **non-default** ceiling as well as the default one — because
+"every clip is under −1.0 dBTP" is also satisfied by a matcher that ignores its
+`ceiling_dbtp` argument entirely, which was a separate surviving mutation until
+the −12 dBTP case was added.
+
+The identifier-collision check in `plan_session` is the same shape and was
+**kept**, which is worth stating because the two decisions look inconsistent.
+The ceiling guard protects an invariant provable from three lines above it; the
+collision check protects an assumption about a random number generator, and the
+failure it prevents is two listeners' answers silently merging.
+
+### The mapping was checked against the map
+
+The strongest blinding assertions in the suite — no condition name in the
+payload, byte-identical payloads when the two conditions are written the other
+way round — say nothing about whether the clip a trial *serves* is the condition
+the key says it is. Swapping the two sides while building the clip map is a
+silent, total inversion of every result the panel would produce, and it passed
+everything.
+
+Fixed by giving each condition an unmistakable spectral signature — a marker
+tone at 1 kHz or 5 kHz — and reading the served file back to ask which condition
+it is. That is the only assertion in the file that does not consult the
+dictionary under test.
+
+The same trick pays twice: the screening key's `bell_side` is verified by
+measuring which clip carries the boost, so a key that recorded the wrong side
+produces a negative delta and an argmax in the wrong band.
+
+### An identifier is a key, never a path fragment
+
+The server's traversal probes were `/clip/../key.json`, `/clip/../../key.json`
+and friends, all of which 404 under a resolver that joins the identifier onto
+the session directory — because the key is not *above* the clips, it is beside
+them. The probe that matters needs no traversal at all: **`/clip/key.json`**.
+
+A mutation replacing the map lookup with a filesystem join served the answer key
+over HTTP and passed the entire suite. The probe list now starts with the
+undotted case.
+
+### The interval a three-person panel actually earns
+
+Ratings are not independent observations, and a t-interval over pooled ratings
+treats thirty ratings from three people as thirty draws. On the suite's fixture
+the pooled half-width is 0.86 against 1.43 clustered by listener — a factor of
+1.7 of invented precision, on the metric that decides whether the product is
+good. The clustered interval spans about 2.9 points of a 5-point scale. That is
+what three listeners buys, and a narrower number is a claim about an assumption.
+
+### Mutation results
+
+Ninety-five semantic mutations in the final set; the first round ran
+ninety-two of them against the first version of the suite, and three more were
+added afterwards for code the first round's fixes had changed.
+
+| | mutations | survived first exposure | caught only as a crash | survived after |
+|---|---|---|---|---|
+| `match.py` | 21 | **5** | 4 | 0 |
+| `session.py` | 20 | **3** | 2 | 1 |
+| `screen.py` | 15 | 0 | 1 | 0 |
+| `score.py` | 18 | 0 | 1 | 0 |
+| `correlate.py` | 16 | 0 | 2 | 0 |
+| `serve.py` | 5 | **2** | 0 | 0 |
+
+**Ten of ninety-five survived first exposure**, against 42 of 72 and then 81 of
+139 in the project's two previous Python rounds. The improvement is not skill.
+It is that those two rounds are written down, so this module's thresholds were
+probed from close to the bar from the start: the loudness tolerance at 0.15 and
+0.05 LU against a 0.1 bar, the screen at 8 and 7 of 10 against 80%, the
+sample-size floor at 14 and 15 against 15, the length drift at 0.5 ms and 2 ms
+against 1 ms, and the repeat separation at one step either side of where it
+becomes infeasible. **Every mutation that survived was somewhere that lesson had
+not been applied** — a constant with no assertion of its own (`BIT_DEPTH`), a
+guard shadowed by a second guard, or a value only ever exercised where it is
+zero.
+
+Two of the ten were **bad mutations rather than survivors**: one re-derived the
+value it was supposed to change, and one wrote a dictionary key that the next
+line overwrote. Both were rewritten and both are now caught. That is the third
+time a mutation script in this repository has reported a false negative, and the
+running rule stands — verify the harness before trusting a negative result.
+
+Eight more were caught only as a **crash**, which stops the suite at the first
+defect and reports one bug per round trip. All eight are now routed through a
+`guard()` helper that records a raise as an ordinary wrong answer, the same fix
+the API suite needed for the same reason.
+
+Final: **94 of 95 caught by a named failure, none as a crash, one survivor** —
+the identifier-collision check, discussed above and recorded in
+`open-questions.md` as kept-and-unkillable rather than untested.
+
+The suite went from 198 checks to 242 over the exercise.
 
 ---
 

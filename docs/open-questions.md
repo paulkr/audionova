@@ -117,6 +117,81 @@ to run it against.
 
 ## Measurement gaps
 
+### A render that uses wow and flutter is not covered by any aliasing figure
+
+`tape`'s transport modulation defaults to zero, and the engine's report
+therefore describes the node with a perfect transport. That is the right
+experiment — the modulation is a linear time-varying delay, it generates no
+harmonics, and a coherently-sampled tone cannot survive pitch modulation long
+enough to measure anything (see `findings.md`) — but it does mean the gated
+number in `measurements.html` is silent about the configuration a user who turns
+the wobble on is actually rendering.
+
+What is asserted about that configuration lives in the contract suite instead:
+bit-exactness across six block sizes, independent per-channel drift, and the
+achieved peak and RMS speed deviation against the requested one. What is *not*
+asserted is anything spectral.
+
+Resolves by a measurement method that does not assume periodicity — a
+multi-realisation average, or a swept-sine deconvolution with the modulation
+seeded identically across runs. Costs, if wrong: a transport artifact that
+interacts badly with the saturator would ship unmeasured. The mechanism is a
+fractional-delay read with no feedback, so the plausible failure is
+interpolation error rather than aliasing, and that is bounded by the Lagrange
+kernel rather than by anything the node chooses.
+
+### `drive` carries 0.31 dB of unmodelled high-frequency droop, and is left that way
+
+`findings.md` records that ADAA2 applied to a linear function is exactly the
+three-point moving average `(x0+x1+x2)/3` at the oversampled rate, which at 4×
+is −0.313 dB at 20 kHz. `tape` and `console` avoid it by sending only their
+residual through the oversampler. `drive` does not, and was not changed.
+
+The argument for leaving it: on a saturator a small high-frequency softening is
+a colour rather than an error, nobody has ever stated a prediction for that
+node's response that it violates, and restructuring it would move every `drive`
+fingerprint in `measurements.baseline.json` for no benefit anyone has asked for.
+
+The argument against: it is an artifact of the antialiasing method rather than
+of the shaper, it is not in the node's documentation, and it is the kind of
+thing a user A/B-ing against another saturator would hear as "duller" without
+being able to say why. Resolves by applying the same split; costs one baseline
+refresh and a paragraph.
+
+### `tape`'s gap loss is a one-pole standing in for a sinc, and the substitution is the biggest error in that stage
+
+Measured worst deviation across 500 Hz–20 kHz: **1.36 dB at 7.5 ips**, 0.31 dB
+at 15 ips. That is four times the realisation error of the filter itself
+(0.124 dB) and an order of magnitude more than anything else in the node.
+
+It is a modelling choice rather than a defect — the exact sinc magnitude needs
+an FIR, which costs latency and pre-ringing to reproduce a curve whose gap
+parameter is already a user-set number rather than a measurement of any real
+head. Resolves, if it ever needs to, by a short linear-phase FIR with the sinc
+magnitude, at the cost of declared latency. The contract suite bounds it at
+2.5 dB so it cannot grow unnoticed.
+
+### `head_bump_hz` does not track `speed_ips`, deliberately
+
+The head bump is proportional to tape speed in reality. The node does not scale
+it, because a hidden multiplier on a number the caller wrote in Hz is the silent
+surprise this engine refuses everywhere else, and because the planner writing
+the graph can set both. The cost of the choice is that a planner that moves
+`speed_ips` and forgets `head_bump_hz` gets a machine that does not exist.
+`docs/engine.md` carries the per-speed values. Resolves either way with a
+decision rather than more code; recorded so it is a decision rather than an
+oversight.
+
+### Nothing routes a request to `tape` or `console`
+
+Neither node appears in `plan/rules.py`, in the glossary, or in
+`plan/validate.py`'s `ORDER_RULES`. A planner may emit them and they will
+validate and render, but no descriptor resolves to them and no ordering rule
+says where a tape stage belongs relative to a compressor. That is a gap in the
+planner rather than in the engine, and it is here so it is not discovered by a
+model putting a console stage after the limiter.
+
+
 ### `drive` at +12 dB passes the aliasing requirement by 0.4 dB
 
 `engine/tests/measurements.cpp` measures aliasing-to-signal ratio by sweeping a

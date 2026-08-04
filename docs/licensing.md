@@ -32,6 +32,45 @@ permissive still cost more than they save.
 | **r8brain** | MIT and would have been fine. Written ourselves because it is ~200 lines given a Kaiser designer we already had, and owning it means the conversion is specified by us. |
 | **nlohmann/json** | MIT and excellent. Written ourselves because this parser is the boundary where model output becomes something that allocates memory and configures DSP, and that boundary is worth being able to read end to end. |
 
+## The two character nodes were written rather than vendored
+
+`tape` and `console` are the first nodes in this engine whose obvious
+implementation already exists in public, and the two cases are different enough
+to be worth separating.
+
+**`tape`.** The best open tape emulation available is **GPL-3.0** and therefore
+unusable in a commercial product — it is the reason "written commercial grant
+from Jatin Chowdhury" sits in the action items below. Nothing from it, or from
+any other implementation, was read, transcribed or paraphrased. What the node
+models comes from the recording chain's own published physics: an anhysteretic
+magnetisation curve, the playback head's contour effect, gap loss as the
+transform of the gap's spatial window, and transport speed error. Every
+derivation is written out in `engine/include/anv/nodes/Tape.h` so a reader can
+check the arithmetic rather than trust the provenance.
+
+The one place this bit is the hysteresis model. Jiles-Atherton is published
+physics rather than anyone's code and could have been implemented from the
+literature — and it was rejected, partly on licence-independent grounds (it is
+an ODE, so it has no closed-form second antiderivative and the engine's ADAA
+antialiasing is unavailable to it) and partly because its five constants are
+properties of a tape formulation we have not measured. The node says plainly
+that it models the anhysteretic curve and not the loop.
+
+**`console`.** The best-known open implementation is **MIT** and could legally
+have been vendored. It was not, and the reason is the same one recorded against
+`r8brain` and `nlohmann/json` in the table above: this is a node whose entire
+value is a sub-decibel claim about frequency response and phase, and owning it
+means the claim is specified by us and testable against arithmetic we wrote
+down. The node is derived from two circuit facts — an amplifier's headroom and
+its two first-order poles — and both are asserted in the contract suite against
+expressions expanded longhand.
+
+**No coefficient tables anywhere.** Where a number appears in either node it is
+either derived in the header (the sinc's −3 dB point at 1.3915576, the
+Catmull-Rom slope bound of 3.5, the quintic's harmonic ratios of 1/6 and 1/50)
+or it is an exposed parameter with a documented default. Nothing was
+transcribed.
+
 ## Current dependency set
 
 **C++:** none. The engine is header-only C++20 with no third-party code.
@@ -91,6 +130,9 @@ separator output would tune it to artifacts the real input does not have.
 
 - Written commercial grant from Jatin Chowdhury, who explicitly offers non-GPL
   terms. Would unlock CHOW Tape, the best open tape emulation available.
+  **Lower priority since 4 August 2026**, when `tape` was written from the
+  physics instead. Still worth having as a reference to measure ours against —
+  which is a use that needs no licence at all, since nothing would ship.
 - Written permission from Pardo's lab for SocialFX.
 - Capture our own amp models and cabinet IRs.
 - FTO search before public launch: Fractal Audio's amp-matching patents, and

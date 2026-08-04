@@ -103,7 +103,7 @@ The caller is going to be a language model, so:
 
 ## Node reference
 
-22 nodes. Ranges are the clamps the engine applies; a value outside them is
+24 nodes. Ranges are the clamps the engine applies; a value outside them is
 clamped, not rejected.
 
 ### Utility
@@ -404,6 +404,201 @@ detected rather than listed — homogeneity *and* superposition at four levels �
 because `transient_designer` is exactly homogeneous (its gain is a ratio of
 envelopes) and the obvious test would have excused it from the requirement it
 misses by the widest margin.
+
+**`tape`** — magnetic tape character. Written from published physics; no
+existing implementation was read or vendored, and `licensing.md` says why that
+mattered here specifically. Four mechanisms, in the order the signal meets them.
+
+| Parameter | Range | Default |
+|---|---|---|
+| `drive_db` | −24…18 | 0 |
+| `output_trim_db` | ±80 | 0 |
+| `bias` | −1…1 | 0 |
+| `head_bump_db` | 0…12 | 2 |
+| `head_bump_hz` | 20…200 | 50 |
+| `head_bump_q` | 0.3…4 | 0.8 |
+| `speed_ips` | 1.875…30 | 15 |
+| `gap_um` | 0.5…30 | 6 |
+| `wow_percent` | 0…1 | **0** |
+| `wow_rate_hz` | 0.05…5 | 0.8 |
+| `flutter_percent` | 0…1 | **0** |
+| `flutter_rate_hz` | 2…60 | 14 |
+| `oversample_factor` | 8…16 | 8 |
+
+**1. Saturation, and it is NOT Jiles-Atherton.** This is a memoryless asymmetric
+shaper — the *anhysteretic* magnetisation curve, the single-valued transfer a
+correctly AC-biased recording traverses — and it does not model the hysteresis
+loop. Two reasons, in this order. A J-A model needs five constants (Ms, a, α, c,
+k) that are properties of one tape formulation on one machine and that we have
+not measured, and this project's rule is that a plausible constant standing in
+for a missing measurement is worse than not shipping the feature. And it is an
+ODE, so it has no closed-form second antiderivative and ADAA is unavailable to
+it.
+
+The curve is specified **by its derivative**, because incremental gain against
+level is the physically meaningful quantity:
+
+```
+f'(u) = (1 - u^2)^2      |u| <= 1        f(u) = u - 2u^3/3 + u^5/5
+      = 0                |u| >  1               = (8/15)*sign(u)
+```
+
+That is C2 at the knee rather than the cubic `drive` uses, which is C1, so its
+harmonic series falls as 1/n⁴ instead of 1/n³ — 6 dB per harmonic of head start
+on the aliasing requirement before any oversampling is bought. Measured against
+the series expanded longhand, a full-scale sine gives **h3/h1 = 1/6 exactly and
+h5/h1 = 1/50 exactly**, and there is no seventh harmonic because the curve is a
+degree-five polynomial.
+
+`drive_db` 0 puts a 0 dBFS peak exactly at the knee, so ordinary programme
+material — 12 to 20 dB below its own peak in RMS — sits where the curve produces
+a fraction of a percent to a couple of percent of third harmonic. That is the
+operating region a tape machine is run in.
+
+**2. Head bump.** The playback head's finite pole pieces make the flux path
+interfere with itself at long wavelengths. Only the first and largest ripple is
+modelled, as a peaking bell; the higher orders depend on a head geometry we do
+not have. `head_bump_hz` is **not** scaled by `speed_ips` — it is proportional to
+speed in reality, and a hidden multiplier on a number the caller wrote in Hz is
+the silent surprise this engine refuses everywhere else. Roughly 25 Hz at
+7.5 ips, 50 at 15, 100 at 30.
+
+**3. Gap loss.** A playback head averages the magnetisation over its gap, a
+rectangular window in space, so the response is that window's transform:
+`|H| = |sinc(π g f / v)|`. Realised as a one-pole at the sinc's own −3 dB point,
+`f₋₃ = 1.3915576 · v / (π g)` — 7.0 kHz at 3.75 ips, 14.1 at 7.5, 28.1 at 15,
+56.3 at 30. Measured, the corner lands within 0.03% of the formula and doubles
+exactly when the speed doubles. A one-pole is not a sinc: the substitution costs
+up to **1.36 dB at 7.5 ips** and 0.31 at 15, which is the dominant modelling
+error in this stage and four times the realisation error below it.
+
+**4. Wow and flutter, and they default to ZERO.** Transport speed error is a
+modulated delay, and the modulation is a **pure function of the absolute frame
+index**: PRNG draws on a knot grid, Catmull-Rom between them, nothing carried
+across a block boundary. It is random rather than a fixed sinusoid because the
+physical sources — capstan eccentricity, roller runout, pack slip, scrape — are
+several incommensurate rates at once.
+
+`wow_percent` is the **peak instantaneous speed deviation**, and that is derived
+rather than tuned. A delay of D(n) samples gives a relative speed deviation of
+−D′(n); for Catmull-Rom over knots in [−1, 1] with spacing H the slope is
+bounded by 3.5·A/H, so `A = ε·H/3.5`. Measured on 20 s of 0.1% wow at 1 Hz: peak
+0.065%, never above the 0.1% asked for, and the RMS scales with the percentage
+to five decimal places and does not depend on the rate.
+
+They default to zero because **any nonzero value makes the node's own headline
+number meaningless**, in either direction. Every gated measurement in
+`measurements.cpp` is a coherently-sampled tone whose analysis assumes a periodic
+output; pitch modulation is exactly what breaks that, and the suite already
+records `chorus` and `plate_reverb` measuring −74 and −85 dB of "distortion" they
+cannot produce. The modulation is a *linear* time-varying delay — no harmonics,
+nothing to fold — which is the suite's own stated reason for exempting those two,
+so measuring the aliasing with the transport perfect is the experiment that
+isolates the term the requirement is about. The contract suite measures the
+modulation separately: bit-exact across six block sizes, independent per channel,
+and the achieved speed deviation against the requested one.
+
+**Latency** is the oversampler's round trip plus ADAA2's padded sample plus the
+modulation's base delay, every term an integer. With both depths at zero there is
+no delay line and the base-delay term is not declared — the same rule as a
+bandless EQ.
+
+**Oversampled 8×, and 8 is the floor rather than the default.** Measured in-band
+ASR at 0 dBFS with a 19.5 kHz probe:
+
+| drive | 4× | 8× | 16× |
+|---|---|---|---|
+| 0 dB | −174 | −171 | −170 |
+| +6 dB | −113 | −143 | −142 |
+| +12 dB | −96 | −132 | −135 |
+| +18 dB | −84 | −115 | −133 |
+| +24 dB | −84 | −100 | −131 |
+
+4× stops meeting −100 dB at about +8 dB of drive, so it is not offered.
+`drive_db` is bounded at **+18 dB** for the same reason and not for taste: that
+is where 8× still holds 12 dB of margin across every bias and speed, and past
+the knee the curve is flat, so more drive is a limiter rather than a tape
+machine. 16× is available and buys 18 dB more at the top of the range for twice
+the cost.
+
+**`console`** — summing-bus character. Written from first principles; the
+best-known open implementation is MIT and could legally have been vendored, and
+was not. See `licensing.md`.
+
+| Parameter | Range | Default |
+|---|---|---|
+| `drive_db` | ±12 | 0 |
+| `output_trim_db` | ±80 | 0 |
+| `headroom_db` | 6…40 | 24 |
+| `coupling_hz` | 1…40 | 12 |
+| `bandwidth_hz` | 15000…200000 | 60000 |
+| `oversample_factor` | 4…16 | 4 |
+
+**The design constraint is that one instance must be inaudible.** A saturator is
+chosen for the sound of its distortion; a console stage is something signal
+passes through on the way somewhere else, and a desk whose individual stages are
+audible is broken. What makes it worth modelling is that a mix passes through a
+lot of them.
+
+*Headroom sets the distortion, arithmetically.* `headroom_db` is the distance
+from 0 dBFS to the stage's knee — the level diagram an analog desk is designed
+around — so the shaper sees `u = x·10^(drive/20)/K` with `K = 10^(headroom/20)`
+and the output is scaled back by K. The curve's leading error term is −2u³/3, so
+a sine of peak amplitude a gives a third harmonic of a³/6 against a fundamental
+of a: **d3 ≈ a²/6**. Measured against that expression at four headrooms:
+
+| headroom | 24 dB | 18 dB | 12 dB | 6 dB |
+|---|---|---|---|---|
+| predicted d3 | −63.56 dB | −51.55 | −39.50 | −27.33 |
+| measured | −63.56 dB | −51.55 | −39.50 | −27.34 |
+
+Odd order only — a bus amplifier is a differential structure and its transfer is
+symmetric, so the second harmonic measures below −140 dB at every setting.
+`drive` is where asymmetry lives.
+
+*Two analog poles, and the phase is the point.* `coupling_hz` is the input
+coupling capacitor, `bandwidth_hz` the amplifier's gain-bandwidth divided by its
+closed-loop gain. At the defaults one stage is **−0.46 dB and −18.4° at 20 kHz**
+and **−0.06 dB and +6.8° at 100 Hz**. The magnitudes are nothing; a first-order
+pole's phase reaches much further from its corner than its magnitude does, and
+ten stages measure **−4.575 dB and −184.03°**, which is exactly ten times one
+stage in both. That is the "audible only in aggregate" claim, measured rather
+than asserted.
+
+*Oversampled 4×, and that is measured.* In-band ASR at 0 dBFS: −249 dB at the
+default headroom, −202 at the 6 dB floor, and −114 at the hardest configuration
+the node accepts (6 dB headroom, +12 dB drive). A degree-five polynomial
+generates harmonics 1, 3 and 5 and nothing else, so there is no infinite series
+to fold and raising the factor changes the answer by a few dB either way.
+
+**Both nodes place their analog poles so the response is right IN THE BAND, not
+at the corner** (`dsp/AnalogOnePole.h`). The textbook bilinear transform prewarps
+at the corner, which is exactly right when the corner is inside the band and
+wrong when it is above it: the map compresses the whole analog axis into
+[0, Nyquist), so a corner near or past Nyquist drags the in-band response down
+with it. Measured at the 96 kHz internal rate for a 40 kHz analog corner read at
+20 kHz — analog prototype −0.969 dB, prewarped at the corner −0.180 dB, five
+times too little. The rule is to prewarp at `min(fc, 20 kHz)`, which is the
+textbook case when the corner is in the band and matches the prototype exactly at
+the top of the band when it is not. `console`'s 60 kHz pole is above the internal
+Nyquist and cannot be placed by the textbook method at all.
+
+One degree of freedom can only be exact at one frequency, so the error is zero at
+20 kHz and at DC and bulges in between: **0.026 dB and 1.07° worst for
+`console`**, 0.124 dB worst for `tape`'s gap loss, which is four times smaller
+than the one-pole-for-a-sinc substitution it sits inside. Putting the matched
+point at the top of the band puts the error where the pole does least.
+
+**Both nodes send only their RESIDUAL through the oversampler.** Each computes
+`y = u + g(u)` with `g = f − identity`, oversamples and antialiases `g`, and
+delays the linear term by exactly the same integer number of base-rate samples.
+This is not an optimisation. ADAA2 applied to a linear function is *exactly* the
+three-point moving average `(x0+x1+x2)/3` at the oversampled rate — a real
+high-frequency droop of **0.313 dB at 20 kHz at 4×** — which for `console` is
+larger than the entire roll-off the node exists to model and for `tape` corrupts
+the gap-loss curve it claims to reproduce. With the split it lands on a residual
+sitting 60 dB down. See `findings.md`; the finding applies to `drive` too and is
+not acted on there.
 
 ### Time and space
 
