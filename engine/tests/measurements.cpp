@@ -1380,8 +1380,27 @@ struct LinearityResult {
   bool timeInvarianceMeasured = false;
   double worstAtDbfs = 0.0;
   double worstAmplitude = 0.0;
+  // How far apart the best and worst levels were. An ARGMAX IS ONLY MEANINGFUL
+  // IF SOMETHING ACTUALLY WON — see worstLevelIsMeaningful().
+  double levelSpreadDb = 0.0;
 
   double worstDb() const { return std::max(homogeneityDb, superpositionDb); }
+
+  // WHICH LEVEL WAS WORST IS NOT A MEASUREMENT WHEN THE LEVELS ARE TIED, and
+  // for a linear node they are: homogeneity error is zero at every amplitude,
+  // so the winner is decided by whichever float rounded a hair differently.
+  //
+  // That made it platform-dependent, which is exactly how it was found. The
+  // metric was gated in CI and reported dc_block moving from -33.979 to -20.000
+  // dBFS between x86-64 and arm64 — three linear nodes swapping tie-break
+  // winners, looking for all the world like a numeric regression.
+  //
+  // The honest answer for a linear node is that there is no worst level. A
+  // spread of 3 dB is far above the float noise that produced those swaps and
+  // far below any real level-dependence, which by definition is nonlinearity.
+  bool worstLevelIsMeaningful() const {
+    return measured && levelSpreadDb >= 3.0;
+  }
 };
 
 // Worst |a - b| over the settled part of two renders, in dB relative to the
@@ -1426,6 +1445,8 @@ LinearityResult measureLinearity(const Config& cfg) {
   const double f1 = 997.0, f2 = 1523.0;
 
   LinearityResult r;
+  double bestAcrossLevels = std::numeric_limits<double>::infinity();
+  double worstAcrossLevels = -std::numeric_limits<double>::infinity();
   for (double a : amps) {
     const AudioBuffer x1 = toneBuffer(kFrames, f1, a * 0.5);
     const AudioBuffer x2 = toneBuffer(kFrames, f2, a * 0.5);
@@ -1450,10 +1471,15 @@ LinearityResult measureLinearity(const Config& cfg) {
       r.worstAmplitude = a;
       r.worstAtDbfs = dbFromLinear(a);
     }
+    // Track the range across levels so a tie can be told from a real winner.
+    bestAcrossLevels = std::min(bestAcrossLevels, atThisLevel);
+    worstAcrossLevels = std::max(worstAcrossLevels, atThisLevel);
     if (!std::isnan(hom)) r.homogeneityDb = std::max(r.homogeneityDb, hom);
     if (!std::isnan(sup)) r.superpositionDb = std::max(r.superpositionDb, sup);
     r.measured = true;
   }
+  if (std::isfinite(bestAcrossLevels) && std::isfinite(worstAcrossLevels))
+    r.levelSpreadDb = worstAcrossLevels - bestAcrossLevels;
 
   // Time invariance, the third property. Not part of the nonlinearity verdict —
   // a chorus is linear and cannot alias — but it decides whether the THD and
@@ -1993,7 +2019,8 @@ int main(int argc, char** argv) {
                   lin.timeInvarianceMeasured ? Value::of(lin.timeInvarianceDb)
                                              : Value::none()));
     rep.add(plain("homogeneity_worst_level_dbfs", "worst at", "dBFS",
-                  lin.measured ? Value::of(lin.worstAtDbfs) : Value::none()));
+                  lin.worstLevelIsMeaningful() ? Value::of(lin.worstAtDbfs)
+                                               : Value::none()));
     {
       Metric m = plain("classified_nonlinear", "classified", "",
                        Value::of(rep.linear ? 0.0 : 1.0));

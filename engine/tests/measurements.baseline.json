@@ -598,7 +598,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -1060,7 +1060,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -1522,7 +1522,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -1753,7 +1753,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -1984,7 +1984,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -2818,7 +2818,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -20
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -3102,7 +3102,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -3883,7 +3883,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -20
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -4114,7 +4114,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -33.97940009
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -4345,7 +4345,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -20
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -4570,7 +4570,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": -20
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -4795,7 +4795,7 @@
           "applicable": true,
           "exactly_zero": false,
           "unit": "dBFS",
-          "value": 0
+          "value": null
         },
         "imd_d2_db": {
           "applicable": true,
@@ -6001,8 +6001,8 @@
       "params": "soft clip, +12 dB drive, 16x"
     }
   ],
-  "generated_at_utc": "2026-08-04T10:13:04Z",
-  "git_commit": "85b1ad9",
+  "generated_at_utc": "2026-08-04T11:59:58Z",
+  "git_commit": "c72773c",
   "node_types_in_catalog": 22,
   "sample_rate_hz": 96000,
   "schema_version": 1,

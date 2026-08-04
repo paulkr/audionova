@@ -26,7 +26,19 @@
 # recorded in ci/licences.lock.json: six MIT, three BSD, distro under Apache,
 # and certifi under MPL-2.0. MPL-2.0 is file-level copyleft and is on the
 # allowlist only while unmodified, which a CA bundle is.
+# fastapi + uvicorn   MIT
+#
+# The local API. NOT declared here originally, which was a real hole rather than
+# an oversight: the API test suite imported fastapi.testclient, passed on every
+# developer machine that had run the server, and failed in CI with
+# ModuleNotFoundError — a suite that could only pass where it was written.
+#
+# httpx (BSD-3-Clause) comes with the test client and is listed explicitly
+# because it is a direct import in the tests, not merely transitive.
 numpy>=2.0
 scipy>=1.13
 pydantic>=2.0
 anthropic>=0.40
+fastapi>=0.115
+uvicorn>=0.30
+httpx>=0.27

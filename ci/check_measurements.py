@@ -270,6 +270,18 @@ def main() -> int:
 
         delta = b - a
 
+        # PHASE IS AN ANGLE AND ANGLES WRAP. -180 and +180 degrees are the same
+        # direction, and a polarity inverter sits exactly there — so whichever
+        # side of the branch cut atan2 lands on is a property of the platform's
+        # libm, not of the engine. CI reported it as a 360-degree regression on
+        # a node whose entire job is to be exactly 180 degrees out.
+        #
+        # Wrapping to (-180, 180] and taking the shorter arc makes the
+        # comparison measure the thing anyone cares about: how far apart the two
+        # phases actually are.
+        if new.get("unit") == "deg":
+            delta = (delta + 180.0) % 360.0 - 180.0
+
         # A metric WITH a threshold has a direction: below it is better, so an
         # improvement is celebrated and only a move toward the threshold fails.
         #
