@@ -6,10 +6,15 @@ the model costs two to seven hundred times the audio processing. So the thing
 worth engineering is the prompt, not the renderer.
 
 The prefix is large and static: role framing, the annotated schema, the DSP
-source of every effect, the glossary, the preset index. Roughly 18 k tokens that
-never change between requests, so they are cached. The volatile part — the
-measurement report, the classification, the user's sentence — is roughly 7 k and
-sits after the boundary.
+source of every effect, the glossary, the preset index. Measured against the
+live API it is **30,938 tokens** that never change between requests, so they are
+cached. The volatile part — the measurement report, the classification, the
+user's sentence — sits after the boundary.
+
+That is larger than the plan's ~18.5 k budget, and the discrepancy was a
+counting error rather than scope creep: the prefix is mostly C++ source and JSON
+schema, which tokenise far denser than the prose a 4-characters-per-token rule
+assumes.
 
 ONE TIMESTAMP IN THE PREFIX DESTROYS THE ENTIRE SAVING. A request id, a user id,
 a formatted date, anything per-request in the system block moves the cache
@@ -140,11 +145,22 @@ class Prompt:
         return "\n".join(block.get("text", "") for block in self.system)
 
     def estimated_prefix_tokens(self) -> int:
-        # Deliberately crude: four characters per token is close enough to know
-        # whether the prefix is large enough to be worth caching at all, and a
-        # real tokeniser would be a dependency for a number used only as a
-        # sanity check.
-        return len(self.prefix_text()) // 4
+        """Rough size of the cached prefix.
+
+        2.4 characters per token, not the usual 4. That constant was measured
+        against the live API rather than assumed: the canary reported 30,938
+        cached tokens for a prefix the 4-char rule put at 18,409, an
+        underestimate of 68%.
+
+        The reason is what the prefix contains. Most of it is C++ source and
+        JSON schema — punctuation, identifiers and indentation — which tokenises
+        far denser than the prose the 4-char heuristic is derived from.
+
+        Still an estimate, and still only used as a sanity check that the prefix
+        is worth caching at all. The number that matters comes from the API's
+        own usage counters.
+        """
+        return int(len(self.prefix_text()) / 2.4)
 
 
 def _read_source(name: str) -> str:

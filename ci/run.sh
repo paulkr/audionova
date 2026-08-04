@@ -44,6 +44,7 @@ run() {
 printf '\033[1mAudionova CI\033[0m — mode: %s\n' "$MODE"
 
 # --- gates first: cheap, and they fail for reasons no test would catch -------
+run "secret scan"         "$PY" ci/check_secrets.py
 run "licence gate"        "$PY" ci/check_licences.py
 run "structural gates"    "$PY" ci/check_structure.py
 

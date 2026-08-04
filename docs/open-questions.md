@@ -58,21 +58,11 @@ someone who mixes for a living rather than guessed at here.
 
 ## Unverified because nothing has run yet
 
-### No live model call has ever been made
+### The planner still has not run end to end
 
-`AnthropicClient` follows the documented API shape and has never executed. Two
-things cannot be checked offline and should be the first things checked with a
-key:
-
-1. **`cache_read_input_tokens > 15000` on a repeated request.** If it is near
-   zero, something per-request has leaked into the system prefix and the bill has
-   quietly multiplied. The prefix is ~18.4 k tokens, so the saving is the
-   difference between a viable product and one that loses money per turn.
-2. **Structured output honours the schema's enums.** Numeric bounds are
-   documented *not* to be enforced and we compensate for that; enums are
-   documented to be enforced, and that is worth confirming rather than assuming.
-   If they are not, the closed node-type set — which several safety properties
-   rest on — is not actually closed.
+The two API properties the design rests on are now verified (see Resolved), but
+no PLAN or EMIT call has produced an actual graph, and nothing has been scored
+against the rule-based floor. That is the next thing.
 
 ### Cross-platform determinism is asserted but untested
 
@@ -249,5 +239,7 @@ Kept so the reasoning is not re-litigated.
 | "The report cannot localise mid-band EQ" | Wrong. The analysis was dropping band lists; the bell is recovered at +0.98 dB per dB, r = 1.00. |
 | Bisect the compressor ratio on loudness range? | No. LRA is not monotonic in ratio on real material — it rises under heavy compression, because pumping is variance. Gain reduction at the loud percentile is monotonic and is the control variable instead. |
 | Derive attack and release from the modulation-spectrum corner? | No. Compression adds modulation at those rates rather than removing it, so there is no corner. Timing comes from the source's own rate. |
+| Does the prompt cache actually work? | Yes. Measured 30,938 cached tokens read on a repeated request, against a 15,000 threshold. The prefix turned out 68% larger than the character-count estimate — it is mostly C++ and JSON, which tokenise denser than prose — so the saving is bigger than budgeted, not smaller. |
+| Are the schema's enums enforced on the wire? | Yes, with a caveat. Asked directly for a node type outside the closed set, the model emitted no such node. It returned an empty node list rather than being visibly blocked, so this is evidence the constraint holds rather than proof of how it is implemented. |
 | The homepage promised source separation | Fixed. `app/page.tsx` said "separates, restores and remasters"; v1 does none of the separation. Found by the CI structural gate on its first run, which is what that gate is for. |
 | Should we source evaluation audio from YouTube? | No. Infringement, and it would undo the licensing posture at the point where every quality claim rests. See `licensing.md`. |

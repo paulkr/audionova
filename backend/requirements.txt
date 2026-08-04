@@ -20,6 +20,13 @@
 # structured outputs do not enforce minimum/maximum, so every bound has to exist
 # both as an enforced constraint and as prose the model reads — generating both
 # from one declaration removes the drift rather than testing for it.
+# anthropic  MIT
+#
+# The model client. Pulls in ten transitive dependencies, all reviewed and
+# recorded in ci/licences.lock.json: six MIT, three BSD, distro under Apache,
+# and certifi under MPL-2.0. MPL-2.0 is file-level copyleft and is on the
+# allowlist only while unmodified, which a CA bundle is.
 numpy>=2.0
 scipy>=1.13
 pydantic>=2.0
+anthropic>=0.40

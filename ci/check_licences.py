@@ -37,7 +37,13 @@ ALLOWED = {
     "BSD", "BSD License", "BSD-2-Clause", "BSD-3-Clause",
     "Apache-2.0", "Apache Software License",
     "ISC", "ISC License",
-    "Zlib", "BSL-1.0", "MPL-2.0", "Unlicense", "CC0-1.0",
+    "Zlib", "BSL-1.0", "Unlicense", "CC0-1.0",
+    # MPL-2.0 is FILE-LEVEL copyleft and is allowed only while unmodified.
+    # certifi (a CA bundle) is the only thing here under it. Both the SPDX id
+    # and the verbose classifier spelling are listed because different
+    # packaging tools emit different ones, and a gate that rejects a licence it
+    # actually permits is a gate people learn to override.
+    "MPL-2.0", "Mozilla Public License 2.0 (MPL 2.0)",
     "Python Software Foundation License", "PSF-2.0", "0BSD",
 }
 
@@ -95,8 +101,26 @@ def acceptable(expression: str) -> bool:
     is the conservative reading — if one option is unacceptable we would rather
     look at it than silently rely on the other.
     """
-    terms = re.split(r"\s+(?:AND|OR|WITH)\s+", expression.strip())
-    cleaned = [term.strip(" ()") for term in terms if term.strip(" ()")]
+    def unwrap(term: str) -> str:
+        """Whitespace always; surrounding parens only if they WRAP the term.
+
+        `strip(" ()")` looks equivalent and is not. Applied to the classifier
+        string "Mozilla Public License 2.0 (MPL 2.0)" it removes the trailing
+        bracket and leaves the interior one, producing "...(MPL 2.0" — which
+        matches no allowlist entry, so the gate rejected a licence it explicitly
+        permits. Licence names contain parentheses; SPDX groupings wrap them.
+        """
+        term = term.strip()
+        while term.startswith("(") and term.endswith(")"):
+            inner = term[1:-1].strip()
+            if inner.count("(") != inner.count(")"):
+                break  # the brackets belong to the name, not to a grouping
+            term = inner
+        return term
+
+    terms = [unwrap(term) for term in re.split(r"\s+(?:AND|OR|WITH)\s+",
+                                               expression.strip())]
+    cleaned = [term for term in terms if term]
     return bool(cleaned) and all(term in ALLOWED for term in cleaned)
 
 
