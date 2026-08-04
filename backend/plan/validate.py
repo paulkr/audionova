@@ -184,7 +184,21 @@ def _check_filter_stability(graph: EffectGraph, result: ValidationResult) -> Non
             radius = math.sqrt(max(0.0, (1.0 - alpha) / (1.0 + alpha)))
 
             if radius > MAX_POLE_RADIUS:
-                suggested = max(0.5, q / 4.0)
+                # SOLVE FOR THE BAR, do not scale Q by a fixed factor. A fixed
+                # factor does not know how far over the bar it started, and the
+                # case this check exists for is the one where it is not enough:
+                # Q 12 at 20 Hz has a pole at 0.999945, and q/4 leaves it at
+                # 0.999782 — still over. The repair logged a fix and left the
+                # ringing in place, which is worse than not repairing, because
+                # the log says the graph is now safe.
+                #
+                # Inverting the pole-radius expression gives the Q that puts the
+                # pole exactly on the bar. Rounded DOWN, so the readable number
+                # is inside the bar rather than on it.
+                alpha_max = ((1.0 - MAX_POLE_RADIUS ** 2)
+                             / (1.0 + MAX_POLE_RADIUS ** 2))
+                stable_q = math.sin(omega) / (2.0 * alpha_max)
+                suggested = max(0.5, math.floor(min(q, stable_q) * 100.0) / 100.0)
                 band["q_factor"] = suggested
                 result.repairs.append(
                     f"{node.id}.bands[{index}]: Q {q:g} at {freq:g} Hz puts the "
@@ -268,14 +282,22 @@ def _check_gain_staging(
         elif node.type == "drive":
             projected += float(node.params.get("output_trim_db", 0.0))
         elif node.type in ("parametric_eq", "dynamic_eq"):
+            # ONLY THE LARGEST BOOST IN A NODE, not the sum: bands at different
+            # frequencies do not add at any single frequency, and summing them
+            # projects a level that never occurs. Summed ACROSS nodes, though,
+            # because two EQs boosting the same region really do stack.
+            #
+            # This was `projected = max(projected, projected + gain)`, which for
+            # a positive gain is just `projected += gain` — it summed, and the
+            # comment saying it did not was the only thing asserting otherwise.
+            largest = 0.0
             for band in node.params.get("bands", []) or []:
                 if not isinstance(band, dict):
                     continue
                 gain = max(float(band.get("gain_db", 0.0) or 0.0),
                            float(band.get("static_gain_db", 0.0) or 0.0))
-                # Only the largest boost, not the sum: bands at different
-                # frequencies do not add at any single frequency.
-                projected = max(projected, projected + gain) if gain > 0 else projected
+                largest = max(largest, gain)
+            projected += largest
 
     headroom = 0.0 - projected
     if headroom < -12.0:
@@ -439,6 +461,24 @@ def _check_noops(
 def _check_source_constraints(
     graph: EffectGraph, report: dict[str, Any] | None, result: ValidationResult
 ) -> None:
+    # Dither must match the delivery format. Getting this wrong is silent: a
+    # dithered float export just has added noise, and an undithered 16-bit
+    # export has correlated quantisation distortion on every fade.
+    #
+    # AHEAD OF THE EARLY RETURN, because it reads nothing from the report and
+    # there is nothing to guess at without one. It sat below it, so a graph
+    # validated before the measurement landed — `excerpt_report` defaults to an
+    # empty dict, which is falsy — shipped its 20-bit dither untouched.
+    for node in graph.master:
+        if node.type == "dither":
+            depth = float(node.params.get("bit_depth", 24.0))
+            if depth not in (0.0, 16.0, 24.0, 32.0):
+                node.params["bit_depth"] = 24.0
+                result.repairs.append(
+                    f"{node.id}: bit_depth {depth:g} is not a delivery word "
+                    "length; set to 24"
+                )
+
     if not report:
         return
 
@@ -483,19 +523,6 @@ def _check_source_constraints(
                 "the graph does nothing about it; the mono sum currently "
                 "cancels, so fix that before anything else",
             ))
-
-    # Dither must match the delivery format. Getting this wrong is silent: a
-    # dithered float export just has added noise, and an undithered 16-bit
-    # export has correlated quantisation distortion on every fade.
-    for node in graph.master:
-        if node.type == "dither":
-            depth = float(node.params.get("bit_depth", 24.0))
-            if depth not in (0.0, 16.0, 24.0, 32.0):
-                node.params["bit_depth"] = 24.0
-                result.repairs.append(
-                    f"{node.id}: bit_depth {depth:g} is not a delivery word "
-                    "length; set to 24"
-                )
 
 
 # ---------------------------------------------------------------------------

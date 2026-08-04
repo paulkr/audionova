@@ -1027,18 +1027,26 @@ must read 17 LU, not 20.
 The second round of the same exercise, on the three modules the first round
 deferred because the schema was being edited underneath them.
 
-| | mutations | survived first pass | survived after strengthening |
-|---|---|---|---|
-| `plan/validate.py` | 62 | **43** | 3 |
-| `refine/match_eq.py` | 43 | **23** | 1 |
-| `refine/match_dynamics.py` | 32 | **17** | 2 |
+| | mutations | survived first pass | survived after | checks |
+|---|---|---|---|---|
+| `plan/validate.py` | 62 | **43** | 3 | 203 → 280 |
+| `refine/match_eq.py` | 45 | **23** | 3 | 68 → 116 |
+| `refine/match_dynamics.py` | 32 | **15** | 3 | 49 → 66 |
 
 The shape of the failure is the one the first round predicted and the rate is
-worse: **83 of 137 survived.** Again almost every check existed and fired on the
-case it was given, and again the missing thing was the threshold. The one new
-pattern is that four checks were not merely untested but *never asserted to
-exist at all* — the delivery ceiling, the bypassed-node finding, the dither word
-length and the two-band cascade could each have been deleted outright.
+worse: **81 of 139 survived.** Again almost every check existed and fired on the
+case it was given, and again the missing thing was the threshold. The nine that
+remain are unreachable or behaviour-neutral rather than untested, and all nine
+are in `open-questions.md`.
+
+Two patterns are new. Four checks were not merely untested but **never asserted
+to exist at all** — the delivery ceiling, the bypassed-node finding, the dither
+word length and the two-band cascade could each have been deleted outright
+without a failure. And three constants were probed only through a wrapper that
+overrides them: `fit_bands`'s `max_q`, `match_to_curve`'s smoothing and
+`threshold_for_duty_cycle`'s duty cycle were each passed explicitly by every
+test, so the values production actually uses were never exercised. **A default
+that every test overrides is not a tested default.**
 
 Three of the survivors were real defects rather than weak tests, and all three
 are the same species: **a mechanism that reported success without delivering
@@ -1125,6 +1133,35 @@ Inside that slack the smoothing could run at 1/1 octave, the shelf/bell boundary
 could move by a factor of four, the cascade could return five bands instead of
 one, and `choose_cascade` could be replaced by "always take the largest" — the
 property `findings.md` records as the reason it exists. All of them passed.
+
+### The dynamics timing was asserted only against itself
+
+`test_match_dynamics.py` checked that a slowly-moving source gets a longer
+release than a fast one and that the attack is shorter than the release. Both
+are comparisons, and both survive scaling the whole derivation by any constant:
+the release factor could be 0.2 instead of 0.5 and the attack 50% of the release
+instead of 8%, and every assertion held. Measured, a source whose envelope
+centroid sits at 4.6 Hz gets 109 ms and one at 11 Hz gets 45 ms, and the
+attack/release ratio is 0.0800 exactly. Those are now the assertions.
+
+The same shape appeared in the reachability report. `achievable_reduction_db`
+was checked only as "less than the 15 dB that was asked for" — true of every
+wrong answer, including probing at 8:1 instead of 20:1, which understates it by
+0.7 dB. It is now compared against a render made at the top of the ratio range,
+and the unachievable bar is probed 0.7 dB either side of what the material
+actually yields instead of 6 dB past it.
+
+### A confidence that is a flag wearing a float's clothes
+
+`match` discards the derived time constants when
+`modulation_summary`'s confidence is under 0.4. That function returns **0.8 or
+0.0 and nothing in between** — 0.0 exactly when it measured nothing, which is
+also exactly when `timing_from_source_rate` has already returned the 15/150 ms
+fallback. So the gate can only fire on material that is already at the fallback,
+and the assignment inside it always writes the values that are there. Raising
+the gate to 0.9 is a real change (every render would silently use the default
+timing, which nothing caught until now); lowering it is unobservable. See
+`open-questions.md`.
 
 ## Findings from the refine stage
 

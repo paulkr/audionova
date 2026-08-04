@@ -400,7 +400,7 @@ relative offset. Checked over 20 000 random block sets: the minimum of
 Harmless, and worth knowing before someone reads the fallback as evidence that
 the gate handles a case it never sees.
 
-### Five more branches in the planner and refine stages cannot fire either
+### Nine more branches in the planner and refine stages cannot fire either
 
 Second round of the same exercise, on `plan/validate.py`, `refine/match_eq.py`
 and `refine/match_dynamics.py`. These are the mutations no test could catch
@@ -439,9 +439,45 @@ discarded on the way out. Only the *upper* side of that constant is observable
 (at 2 dB a real 1.2 dB correction produces no bands at all), and that direction
 is now tested. Lowering it costs compute and nothing else.
 
-None of the five is worth deleting. Each reads as a second line of defence, and
-the cost of being wrong is zero in all five — but a reader should know that
-three of them have never executed a single time.
+**6. The 800 ms cap on the derived release.** `timing_from_source_rate` clips
+`period_ms * 0.5` to 30–800 ms. Reaching 800 needs an envelope centroid below
+0.625 Hz. Measured across five real stems and two synthetic sources the centroid
+runs **2.3 to 14.9 Hz**, giving releases of 33 to 216 ms — the cap has never
+been within a factor of four. (The 30 ms floor nearly binds: drums measure
+33.5 ms.)
+
+**7. The 0.05 Hz centroid floor in the same function.** It separates material
+with a measurable modulation rate from material with none. Everything measurable
+sits above 2.3 Hz and everything else reads ~0, so the floor can be anywhere in
+between — moving it to 1.0 Hz changes no verdict on any source available here.
+
+**8. The low-confidence fallback in `match`.** It reassigns the time constants
+to 15/150 ms when confidence is under 0.4. `modulation_summary` returns 0.8 or
+0.0 and nothing else, and 0.0 is exactly the case where
+`timing_from_source_rate` has already returned 15/150 — so the assignment always
+writes what is already there. **The gate itself is not unreachable**: raising it
+to 0.9 makes every render use the default timing, which is now tested. Only the
+assignment is redundant.
+
+This one is worth acting on rather than only recording. A two-valued flag
+returned as a float invites exactly this: a threshold chosen as though the
+quantity were continuous, sitting in a gap the quantity can never occupy. Either
+`modulation_summary` should report a real confidence — the obvious candidate is
+how peaked the modulation spectrum is around its centroid, since a broad one
+means the centroid is not describing anything — or the field should be a
+boolean and the gate an `if not measured`.
+
+**9. Smoothing finer than 1/6 octave on the default grid.** `smooth_log`
+converts a fraction of an octave into a window width in grid points. The default
+256-point grid spans 30 Hz to 16 kHz, which is 0.0355 octaves per point, so
+1/6 octave is already only 4.7 points and everything finer floors at 5. Asking
+for 1/24 octave gives the identical window. The knob is live from 1/6 octave
+downward in fineness and saturated above it; nothing currently asks for more,
+and a caller that wants it needs a denser grid rather than a smaller fraction.
+
+None of these is worth deleting. Each reads as a second line of defence, and the
+cost of being wrong is zero in all of them — but a reader should know that six
+have never executed a single time, and that #8 hides a measurement worth fixing.
 
 ### The true-peak meter's 8x oversampling at 48 kHz buys nothing measurable
 

@@ -46,19 +46,19 @@ Built and verified:
   F1 0.580). 152 checks.
 - **Effect graph schema and validators** — the planner's output contract, with the
   JSON Schema generated from the enforcing model so the two cannot drift.
-  203 checks.
+  280 checks.
 - **Planner scaffolding** — prompt assembly with an 18.4 k cached prefix, the
   two-stage PLAN/EMIT driver, a bounded repair loop with SLI counters, the
   deterministic quantifier ladder, and a sixty-term descriptor glossary whose
   conditions are checked against a real measurement report. 276 checks.
 - **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
   Recovers a known filter applied by the engine to within 0.2 dB and the right
-  band count. 68 checks.
+  band count. 116 checks.
 - **Rule-based planner** — a measurement report in, a validated chain out, with
   every move naming the number that justified it. The floor the model planner
   has to beat. 69 checks.
 - **Dynamics matching** — compressor settings found by rendering. Converges
-  within 0.3 dB of a gain-reduction target. 49 checks.
+  within 0.3 dB of a gain-reduction target. 66 checks.
 - **Post-render verify gate** — re-measures the render and refuses to ship
   corruption, ceiling overshoot, mono incompatibility, an introduced resonance,
   a level collapse or destroyed bandwidth. 36 checks.

@@ -212,8 +212,22 @@ def test_threshold_from_duty_cycle() -> None:
     R.check(thresholds[0] > thresholds[1] > thresholds[2],
             f"more duty cycle means a lower threshold, got {thresholds}")
 
-    R.check(math.isfinite(md.threshold_for_duty_cycle(np.zeros((1, 1000)), SR)),
+    # THE DEFAULT IS 0.3, and every check above passes a duty cycle in, so the
+    # default itself was never exercised — it could have been 0.5 and this
+    # section would still pass while every caller that omits it compressed
+    # a different fraction of the material.
+    R.check(md.threshold_for_duty_cycle(source, SR)
+            == md.threshold_for_duty_cycle(source, SR, 0.3),
+            "the default duty cycle is 0.3")
+
+    # And the silent-source fallback is -18 dBFS, not merely finite. A fallback
+    # of -60 is finite too, and it would put a gate-like threshold under
+    # material the meter could not read — the failure this branch exists to
+    # avoid.
+    fallback = md.threshold_for_duty_cycle(np.zeros((1, 1000)), SR)
+    R.check(math.isfinite(fallback),
             "silence gets a finite fallback rather than -inf")
+    R.check(fallback == -18.0, f"and it is -18 dBFS, got {fallback}")
 
 
 def test_converges() -> None:
@@ -272,6 +286,31 @@ def test_unachievable_is_reported() -> None:
     R.check(result.achievable_reduction_db < 15.0,
             f"and reports what IS achievable, {result.achievable_reduction_db:.2f} dB")
 
+    # WHAT IS ACHIEVABLE IS MEASURED AT THE TOP OF THE RANGE, and "less than 15"
+    # is true of every wrong answer as well. The number has to be the reduction
+    # this material really gives at 20:1, checked against a render made here —
+    # probing at 8:1 instead understates it by 0.7 dB, and a search ceiling of
+    # 12:1 by 0.3 dB, and neither changes any verdict above.
+    top = Recipe(output_sample_rate=SR, output_format="float64")
+    top.add("compressor", **dict(result.settings.as_params(),
+                                 ratio_to_1=20.0, makeup_gain_db=0.0))
+    at_ceiling = (md._loud_level_db(already_flat, SR, 90.0)
+                  - md._loud_level_db(render_array(already_flat, SR, top), SR, 90.0))
+    R.near(result.achievable_reduction_db, at_ceiling, 0.2,
+           "the achievable figure is the reduction at the top of the ratio range")
+
+    # THE BAR PROBED FROM BOTH SIDES. Asking for 15 dB against 8.8 is 6 dB past
+    # the bar, and inside that slack "unachievable" could have been declared
+    # anywhere up to 5 dB late.
+    just_past = md.match(already_flat, SR, render,
+                         target_reduction_db=at_ceiling + 0.7)
+    R.check(just_past.unachievable,
+            f"a target 0.7 dB past what the material yields is unachievable")
+    inside = md.match(already_flat, SR, render,
+                      target_reduction_db=at_ceiling - 0.7)
+    R.check(not inside.unachievable,
+            f"and one 0.7 dB inside it is not: {inside.notes}")
+
     # It must not spend the whole budget converging on a bound it already knows
     # it cannot pass.
     R.check(result.renders <= 3,
@@ -315,10 +354,22 @@ def test_makeup_is_last() -> None:
     without_makeup = dict(result.settings.as_params(), makeup_gain_db=0.0)
     plain = Recipe(output_sample_rate=SR, output_format="float64")
     plain.add("compressor", **without_makeup)
+    #
+    # AND THE TOLERANCE IS 0.1, not 0.3. The two numbers are the same
+    # measurement of the same settings and agree to 0.001 dB, so 0.3 was three
+    # hundred times looser than the quantity it bounds — wide enough for the
+    # loop to control on a different percentile entirely and still pass. This is
+    # the only thing that pins the loop to the 90th.
     measured = (md._loud_level_db(source, SR, 90.0)
                 - md._loud_level_db(render_array(source, SR, plain), SR, 90.0))
-    R.near(measured, result.achieved_reduction_db, 0.3,
-           "the reported reduction describes the settings that were returned")
+    R.near(measured, result.achieved_reduction_db, 0.1,
+           "the reported reduction describes the settings that were returned, "
+           "measured at the 90th percentile")
+
+    # The knee is a decision too: 6 dB, soft, so the ratio the loop found
+    # describes a curve the material actually sits on rather than a corner.
+    R.check(result.settings.knee_db == 6.0,
+            f"and the knee is 6 dB, got {result.settings.knee_db}")
 
 
 def test_matching_a_reference() -> None:
@@ -353,6 +404,15 @@ def test_matching_a_reference() -> None:
                           .add("gain", gain_db=6.0))
     R.near(md.target_reduction_from_reference(source, louder, SR), 0.0, 0.3,
            "a purely louder reference asks for no reduction")
+
+    # AND NEITHER DOES A MORE DYNAMIC ONE. The quantity is a one-sided
+    # difference, not a distance: if the reference has a WIDER spread than the
+    # source, the answer is that no compression is called for — an expander
+    # might be, but that is a different decision. `abs()` here would compress
+    # every source handed a livelier reference, which is the exact opposite of
+    # what was asked.
+    R.near(md.target_reduction_from_reference(reference, source, SR), 0.0, 1e-9,
+           "a reference more dynamic than the source asks for no reduction either")
 
 
 def test_timing_from_source_rate() -> None:
@@ -389,6 +449,38 @@ def test_timing_from_source_rate() -> None:
         R.check(attack < release,
                 f"attack {attack:.1f} ms stays shorter than release {release:.0f} ms")
 
+    # A FRACTION, AND THE FRACTION IS 8%. "Shorter than the release" is true of
+    # half the release as well, and half is not an asymmetry — it is a
+    # compressor that closes almost as slowly as it opens. Everything else here
+    # is a comparison between the two sources, so the ratio was free to be
+    # anything below 1.
+    for attack, release, name in ((slow_attack, slow_release, "slow"),
+                                  (fast_attack, fast_release, "fast")):
+        R.check(0.06 <= attack / release <= 0.10,
+                f"{name}: attack is {attack / release:.3f} of the release, "
+                f"wanted about 0.08")
+
+    # AND THE RELEASE IS AN ABSOLUTE TIME, not merely longer than the other one.
+    # It spans half a cycle of the source's own level movement, so a source
+    # whose envelope centroid sits at 4.6 Hz gets about 110 ms and one at 11 Hz
+    # about 45 ms. Scaling the whole derivation down by a factor of two
+    # preserves every ordering asserted above.
+    R.check(80.0 <= slow_release <= 150.0,
+            f"the slowly-moving source gets about 110 ms, got {slow_release:.1f}")
+    R.check(30.0 <= fast_release <= 70.0,
+            f"the fast one about 45 ms, got {fast_release:.1f}")
+
+    # The numbers that reach the engine keep their tenth of a millisecond. An
+    # attack rounded to whole milliseconds is a 6% error at 8 ms, on the one
+    # parameter where a few percent is audible on a transient.
+    readable = md.DynamicsSettings(-18.0, 3.0, 8.73, 109.2, 6.0, 3.57).as_params()
+    R.check(readable["attack_ms"] == 8.7,
+            f"attack keeps a tenth of a millisecond, got {readable['attack_ms']}")
+    R.check(readable["release_ms"] == 109.0,
+            f"release rounds to the millisecond, got {readable['release_ms']}")
+    R.check(readable["ratio_to_1"] == 3.0 and readable["makeup_gain_db"] == 3.6,
+            f"and the rest round as documented, got {readable}")
+
     # Both stay inside what the schema will accept, since these values go
     # straight into a compressor node.
     from backend.schemas.graph import CompressorParams
@@ -405,6 +497,25 @@ def test_timing_from_source_rate() -> None:
     R.check(confidence < 0.4 or (attack == 15.0 and release == 150.0),
             f"unmodulated material falls back, got {attack}/{release} "
             f"at confidence {confidence:.2f}")
+
+    # AND THE LOOP ACTUALLY USES WHAT WAS DERIVED. Nothing asserted the
+    # connection: `match` derives the timing, then discards it if the
+    # confidence is under 0.4, and every source that measures at all reports
+    # exactly 0.8 — so raising that gate to 0.9 silently pins every render to
+    # the 15/150 ms default and no test noticed.
+    if os.path.exists(DEFAULT_BINARY):
+        # One source, drawn once: the pink noise is random, so deriving from one
+        # draw and matching on another would compare two different signals.
+        shared = dynamic_source()
+        derived_attack, derived_release, _ = md.timing_from_source_rate(shared, SR)
+        with_timing = md.match(shared, SR, compressor_renderer(shared),
+                               target_reduction_db=2.0)
+        R.near(with_timing.settings.attack_ms, derived_attack, 0.2,
+               "the loop uses the attack derived from the source")
+        R.near(with_timing.settings.release_ms, derived_release, 2.0,
+               "and the release derived from the source")
+        R.check(not any("default time constants" in n for n in with_timing.notes),
+                f"without falling back, notes were {with_timing.notes}")
 
 
 def test_on_real_stems() -> None:

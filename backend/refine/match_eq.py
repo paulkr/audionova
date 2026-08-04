@@ -134,8 +134,14 @@ def smooth_log(curve_db: np.ndarray, grid: np.ndarray,
         return curve_db.copy()
 
     # Grid spacing in octaves, so the window width can be stated musically.
+    #
+    # THE FLOOR IS 5, NOT 3. A Hann window is zero at both endpoints, so an
+    # N-point Hann is really an (N-2)-point window: `np.hanning(3)` is
+    # [0, 1, 0], which is the identity. A floor of 3 therefore guaranteed
+    # nothing — asking for 1/12 octave or finer on a 256-point grid returned the
+    # curve unsmoothed, and the knob silently did nothing at all.
     step_octaves = math.log2(grid[1] / grid[0])
-    width = max(3, int(round((1.0 / fraction_of_octave) / step_octaves)))
+    width = max(5, int(round((1.0 / fraction_of_octave) / step_octaves)))
     if width % 2 == 0:
         width += 1
 
