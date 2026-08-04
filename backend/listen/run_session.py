@@ -267,6 +267,17 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("directory")
     score.set_defaults(run=command_score)
 
+    # REGISTERED, WHICH IT WAS NOT. `command_score_screen` existed, the module
+    # docstring documented it, and the `screen` command told the operator to run
+    # it — and it was never added here, so it did not exist. The screen could be
+    # built, served and taken, and not scored, which meant the panel's FIRST
+    # step could not be completed. A command that is implemented, documented and
+    # unwired fails in the most confusing way available: the docs are right, the
+    # code is right, and the thing does not run.
+    score_screen = sub.add_parser("score-screen")
+    score_screen.add_argument("directory")
+    score_screen.set_defaults(run=command_score_screen)
+
     correlate = sub.add_parser("correlate")
     correlate.add_argument("directory")
     correlate.add_argument("metrics")

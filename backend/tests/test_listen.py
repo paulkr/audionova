@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.audio import wavio  # noqa: E402
 from backend.engine.render import DEFAULT_BINARY  # noqa: E402
+from backend.listen import run_session  # noqa: E402
 from backend.listen import score as listen_score  # noqa: E402
 from backend.listen import correlate, match, run_session, score, screen, serve, session  # noqa: E402
 from backend.measure import loudness, spectrum  # noqa: E402
@@ -1688,6 +1689,72 @@ def test_the_phase0_gate_is_per_item() -> None:
 
 
 
+def test_every_command_is_reachable() -> None:
+    """A command that is implemented, documented and unwired does not exist.
+
+    `command_score_screen` was written, the module docstring told the operator
+    to run it, and the `screen` command printed "then: run_session score-screen
+    …" — and it was never added to the parser. The screen could be built,
+    served and taken, and not scored, so the panel's FIRST step could not be
+    completed.
+
+    That fails in the most confusing way available: the docs are right, the
+    implementation is right, and the thing does not run. So the check is not
+    "score-screen exists" — it is that EVERY command_* function in the module is
+    reachable from the command line, which is a property that stays true as
+    commands are added rather than a note about the one that was missed.
+    """
+    print("[22] every implemented command is reachable")
+
+    import argparse
+    import inspect
+
+    implemented = {
+        name[len("command_"):].replace("_", "-")
+        for name, _ in inspect.getmembers(run_session, inspect.isfunction)
+        if name.startswith("command_")
+    }
+    R.check(implemented, f"the module defines commands, found {sorted(implemented)}")
+
+    # Parse the registry the way argparse sees it, rather than by reading the
+    # source, so a command wired under a different name still counts.
+    parser_choices: set[str] = set()
+    real_parse_args = argparse.ArgumentParser.parse_args
+
+    def capture(self, args=None, namespace=None):
+        for action in self._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                parser_choices.update(action.choices)
+        raise SystemExit(0)
+
+    argparse.ArgumentParser.parse_args = capture
+    try:
+        run_session.main(["--help"])
+    except SystemExit:
+        pass
+    finally:
+        argparse.ArgumentParser.parse_args = real_parse_args
+
+    missing = sorted(implemented - parser_choices)
+    R.check(not missing,
+            f"every command_* function is reachable from the CLI; unwired: "
+            f"{missing}")
+
+    # And the reverse, because a registered command with no implementation is a
+    # traceback the first time an operator reaches for it.
+    orphans = sorted(parser_choices - implemented)
+    R.check(not orphans,
+            f"and every registered command has an implementation; orphans: "
+            f"{orphans}")
+
+    # The docstring is an instruction sheet, so a command it names must exist.
+    for named in ("build", "screen", "serve", "score", "score-screen"):
+        R.check(named in parser_choices,
+                f"the module docstring tells an operator to run {named!r} and "
+                f"it is registered")
+
+
+
 if __name__ == "__main__":
     if not os.path.exists(DEFAULT_BINARY):
         print(f"engine binary missing at {DEFAULT_BINARY}; run `make render` in engine/")
@@ -1715,5 +1782,6 @@ if __name__ == "__main__":
     test_server_blinds_at_the_wire()
     test_failures_name_what_broke()
     test_the_phase0_gate_is_per_item()
+    test_every_command_is_reachable()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)
