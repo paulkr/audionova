@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 
-import * as api from "../../lib/api";
+import * as api from "../../../lib/api";
 
 // The studio.
 //
@@ -120,6 +120,33 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setPlan((p) => (p && result.nodes ? { ...p, nodes: result.nodes } : p));
       setBusy("rendering");
       setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Everything above this point runs on a 20-second excerpt, which is what
+  // makes iterating feel instant. The download is the one action that has to
+  // touch the whole file, so it renders it on demand rather than keeping a
+  // full render in step with every refinement nobody was going to download.
+  async function downloadFull() {
+    if (!graphId) return;
+    setBusy("rendering the full file");
+    setError(null);
+    try {
+      const result = await api.render(id, graphId, true);
+      if (!result.ok || !result.deliver_key) {
+        // The gate applies to the full render on its own terms. An excerpt
+        // that passed is not evidence about the parts of the file it excluded.
+        setError(result.failures?.map((f) => f.message).join("; ")
+                 ?? "the full render did not pass the safety gate");
+        return;
+      }
+      // A navigation, not fetch-then-blob. The file is tens of megabytes and
+      // there is no reason to hold it all in memory on the way to the disk.
+      window.location.href = api.downloadUrl(id, result.deliver_key);
     } catch (e) {
       setError(String((e as Error).message));
     } finally {
@@ -271,6 +298,25 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                      onEnded={() => setPlaying(false)} preload="auto" />
               <audio ref={processedRef} src={api.audioUrl(id, rendered.render_key)}
                      onEnded={() => setPlaying(false)} preload="auto" />
+            </Section>
+          )}
+
+          {rendered?.ok && (
+            <Section title="Take it away">
+              <p className="mb-4 max-w-[70ch] text-[13px] leading-[1.55] text-white/40">
+                Renders the whole {Math.round(project.duration_s)} seconds through
+                this chain and downloads it as 24-bit WAV at{" "}
+                {Math.round(project.sample_rate / 100) / 10} kHz. Not the file you
+                just auditioned: that one is pulled {rendered.match_offset_db} dB to
+                match the original&rsquo;s loudness so the comparison is fair. This
+                is the chain&rsquo;s own output, at its own level.
+              </p>
+              <button onClick={downloadFull} disabled={!!busy}
+                      className="pill-filled px-6 py-2 text-[14px] disabled:opacity-40">
+                {busy?.startsWith("rendering the full")
+                  ? `${busy} · ${elapsed}s`
+                  : "Download processed WAV"}
+              </button>
             </Section>
           )}
 

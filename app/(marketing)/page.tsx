@@ -1,5 +1,5 @@
-import FluxField from "./flux-field";
-import UploadPanel from "./upload-panel";
+import FluxField from "../flux-field";
+import UploadPanel from "../upload-panel";
 
 const NAV = ["PROCESS", "MODELS", "STUDIO", "PRICING", "CONTACT"];
 const FORMATS = ["WAV", "MP3", "FLAC", "M4A"];

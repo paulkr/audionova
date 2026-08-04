@@ -69,6 +69,11 @@ export type RenderResult = {
   ok: boolean;
   render_key?: string;
   source_key?: string;
+  // The unmatched render. `render_key` is pulled to the source's loudness so
+  // the A/B compares processing rather than level; this one is the chain's
+  // actual output, and it is what a download must deliver.
+  deliver_key?: string;
+  full?: boolean;
   elapsed_s?: number;
   match_offset_db?: number;
   gate?: { passed: boolean; checked: string[] };
@@ -161,4 +166,8 @@ export function intents() {
 
 export function audioUrl(id: string, key: string) {
   return `${API_BASE}/api/projects/${id}/audio/${key}`;
+}
+
+export function downloadUrl(id: string, key: string) {
+  return `${API_BASE}/api/projects/${id}/download/${key}`;
 }

@@ -34,6 +34,7 @@ explicit action.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -360,6 +361,18 @@ def render_graph(project_id: str, graph_id: str,
     wavio.write_wav(out_path, matched, project.sample_rate, 24)
     project.renders[key] = out_path
 
+    # THE DOWNLOAD IS NOT THE FILE YOU AUDITIONED, AND THAT IS DELIBERATE.
+    # Everything above this point is loudness-matched so the A/B compares
+    # processing instead of level. Delivering that same file would hand back
+    # audio deliberately pulled to the source's loudness — undoing whatever the
+    # chain did to level, which for anything with a limiter in it is most of the
+    # point. So the unmatched render is kept alongside, and it is the one that
+    # leaves the building. The two differ by exactly `match_offset_db`.
+    deliver_key = f"{key}-deliver"
+    deliver_path = os.path.join(WORKDIR, f"{project.id}-{deliver_key}.wav")
+    wavio.write_wav(deliver_path, rendered, project.sample_rate, 24)
+    project.renders[deliver_key] = deliver_path
+
     source_key = "full" if full else "excerpt"
     if source_key not in project.renders:
         source_path = os.path.join(WORKDIR, f"{project.id}-{source_key}-src.wav")
@@ -368,6 +381,7 @@ def render_graph(project_id: str, graph_id: str,
 
     return {
         "ok": True, "render_key": key, "source_key": source_key,
+        "deliver_key": deliver_key, "full": full,
         "elapsed_s": round(time.time() - started, 1),
         "match_offset_db": round(offset, 2),
         "gate": {"passed": True, "checked": verdict.checked},
@@ -382,6 +396,37 @@ def get_audio(project_id: str, key: str) -> FileResponse:
     if path is None or not os.path.exists(path):
         raise HTTPException(404, "no such render")
     return FileResponse(path, media_type="audio/wav")
+
+
+@app.get("/api/projects/{project_id}/download/{key}")
+def download_audio(project_id: str, key: str) -> FileResponse:
+    """The same bytes as /audio, but named and sent as an attachment.
+
+    A separate endpoint rather than a query flag because the two have different
+    contracts: /audio feeds an <audio> element and wants to stream inline, this
+    one wants Content-Disposition and a filename a person will recognise three
+    weeks later in a Downloads folder full of `render.wav`.
+
+    The name carries the source stem and the graph id. The graph id is the part
+    that matters — it is the key the recipe is stored under, so a file that
+    turns up later can be traced back to the exact chain that produced it.
+    """
+    project = project_or_404(project_id)
+    path = project.renders.get(key)
+    if path is None or not os.path.exists(path):
+        raise HTTPException(404, "no such render")
+
+    # ASCII, and no characters that need quoting. Anything outside that set
+    # comes back as an RFC 5987 `filename*=utf-8''...` header with no plain
+    # fallback, which is correct but unreadable and depends on the client
+    # decoding it. A filename is not the place to be clever.
+    stem = os.path.splitext(os.path.basename(project.name))[0]
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-") or "audio"
+    graph_id = key.split("-")[0]
+    scope = "full" if "-full" in key else "excerpt"
+    return FileResponse(
+        path, media_type="audio/wav",
+        filename=f"{stem}-audionova-{graph_id}-{scope}.wav")
 
 
 @app.get("/api/intents")

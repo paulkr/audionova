@@ -31,7 +31,11 @@ export default function RootLayout({
       lang="en"
       className={`${figtree.variable} ${raleway.variable} h-full antialiased`}
     >
-      <body className="h-full overflow-hidden bg-canvas">{children}</body>
+      {/* NO overflow rule here. The one-page hero wants the viewport pinned;
+          the studio is a long document and must scroll. Those are opposite
+          requirements, so each route group states its own in its own layout
+          rather than one of them fighting the root. */}
+      <body className="bg-canvas">{children}</body>
     </html>
   );
 }
