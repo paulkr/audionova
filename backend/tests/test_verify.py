@@ -70,7 +70,76 @@ def graph_from(nodes=(), master=()) -> EffectGraph:
 
 
 def node(node_id: str, node_type: str, **params) -> dict:
-    return {"id": node_id, "type": node_type, "params": params}
+    bypass = params.pop("bypass", False)
+    return {"id": node_id, "type": node_type, "params": params, "bypass": bypass}
+
+
+def at_true_peak(samples: np.ndarray, target_dbtp: float) -> np.ndarray:
+    """Rescale so the render lands at an exact true peak.
+
+    True peak is a linear function of amplitude — the band-limited
+    reconstruction scales with the samples — so a measured level and a
+    multiply put the signal wherever a threshold needs probing. Every
+    true-peak threshold in the gate is a fraction of a dB wide, and testing
+    one with audio 3 dB over it proves only that 3 dB is more than a fraction.
+    """
+    measured = report_mod.measure(samples, SR).to_dict()["loudness"]["true_peak_dbtp"]
+    return samples * (10.0 ** ((target_dbtp - measured) / 20.0))
+
+
+def tilt(samples: np.ndarray, db_per_octave: float,
+         corner: float = 1000.0) -> np.ndarray:
+    """Impose an exact high-frequency slope above `corner`.
+
+    A butterworth cannot probe a rolloff threshold: its order quantises the
+    measured slope to roughly 10 dB/octave a step, so a bar at 18 sits in a
+    gap with -10 on one side and -20 on the other. Shaping the spectrum
+    directly lands within 0.01 dB/octave of the number asked for, which is
+    what it takes to say where a threshold is rather than that it exists.
+    """
+    length = samples.shape[-1]
+    freqs = np.fft.rfftfreq(length, 1.0 / SR)
+    gain = np.ones_like(freqs)
+    above = freqs > corner
+    gain[above] = 10.0 ** (db_per_octave * np.log2(freqs[above] / corner) / 20.0)
+    out = np.fft.irfft(np.fft.rfft(samples, axis=-1) * gain, n=length, axis=-1)
+    return out / np.max(np.abs(out)) * 0.3
+
+
+def phase_pair(correlation: float) -> np.ndarray:
+    """Two channels at a chosen broadband correlation.
+
+    With L = a*m + x and R = -a*m + y for orthogonal unit-RMS m, x and y, the
+    Pearson correlation is exactly -a^2 / (a^2 + 1), so a target inverts to
+    a = sqrt(-c / (1 + c)).
+
+    THE COMPONENTS ARE ORTHOGONALISED IN THE SAMPLE, not merely drawn from
+    independent streams. Three independent pink signals are only independent
+    on average: pink noise has far fewer effective degrees of freedom than it
+    has samples, and the leftover cross-correlation between two 4-second
+    draws is worth 0.1 or more. Built the naive way this generator asked for
+    -0.15 and delivered -0.18, which is on the wrong side of a -0.20 bar --
+    the test would have been measuring the noise rather than the threshold.
+    """
+    assert -1.0 < correlation <= 0.0
+    a = math.sqrt(-correlation / (1.0 + correlation))
+
+    def centre(x: np.ndarray) -> np.ndarray:
+        return x - float(np.mean(x))
+
+    def reject(x: np.ndarray, basis: np.ndarray) -> np.ndarray:
+        return x - basis * (float(np.dot(x, basis)) / float(np.dot(basis, basis)))
+
+    def unit(x: np.ndarray) -> np.ndarray:
+        return x / float(np.sqrt(np.mean(x * x)))
+
+    common = centre(pink(4.0, channels=1)[0])
+    left_only = reject(centre(pink(4.0, channels=1)[0]), common)
+    right_only = reject(reject(centre(pink(4.0, channels=1)[0]), common), left_only)
+
+    common, left_only, right_only = (unit(common), unit(left_only), unit(right_only))
+    out = np.vstack([a * common + left_only, -a * common + right_only])
+    return out / np.max(np.abs(out)) * 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -102,13 +171,18 @@ def test_passes_a_good_render() -> None:
     result = gate.verify(rendered, SR, graph=graph, source_report=source_report)
 
     R.check(result.passed, f"an ordinary render passes: {result.summary()}")
-    R.check(len(result.checked) >= 6,
-            f"and enough checks actually ran, {result.checked}")
 
     # A passing gate must be distinguishable from a gate that skipped
-    # everything, which is why the checks that ran are recorded.
-    R.check("true_peak" in result.checked and "resonance" in result.checked,
-            f"including the substantive ones, {result.checked}")
+    # everything, which is why the checks that ran are recorded — and the set
+    # is asserted EXACTLY rather than counted. A count with slack in it lets a
+    # whole check stop running without anything noticing, which is the same
+    # shape as a gate that silently skipped it.
+    R.check(set(result.checked) == {
+                "finite_samples", "not_silent", "true_peak", "level_collapse",
+                "mono_compatibility", "resonance", "bandwidth"},
+            f"and every check that can run did, {sorted(result.checked)}")
+    R.check(len(result.checked) == len(set(result.checked)),
+            f"each recorded once, {result.checked}")
 
 
 def test_catches_corruption() -> None:
@@ -125,6 +199,20 @@ def test_catches_corruption() -> None:
     silent = gate.verify(np.zeros((2, int(SR * 2))), SR)
     R.check(not silent.passed and any(f.code == "silent" for f in silent.failures),
             f"a silent render fails, got {silent.summary()}")
+
+    # DIGITAL SILENCE IS THE EASY CASE and it does not exercise the threshold
+    # at all: an all-zero file has no measurable peak, so it fails on the
+    # `is None` branch and the -80 dBFS bar could be anywhere. What the bar is
+    # for is a render that is technically not silent and inaudible in
+    # practice — a chain that collapsed to numerical dust rather than to zero.
+    nearly = gate.verify(pink(2.0, amplitude=10 ** (-85.0 / 20.0)), SR)
+    R.check(not nearly.passed and any(f.code == "silent" for f in nearly.failures),
+            f"a render peaking at -85 dBFS fails too, got {nearly.summary()}")
+
+    # And the other direction: quiet is not the same as broken. A -75 dBFS
+    # peak is a legitimate, if unusual, render and must survive.
+    R.check(gate.verify(pink(2.0, amplitude=10 ** (-75.0 / 20.0)), SR).passed,
+            "while -75 dBFS is quiet rather than broken, and passes")
 
     # Both must fail with NO graph and NO source report. A gate that only works
     # when fully informed is not a safety net.
@@ -172,6 +260,58 @@ def test_true_peak_ceiling() -> None:
     R.check(gate.verify(source * 0.5, SR, graph=graph_from()).passed,
             "while ordinary headroom passes with no limiter")
 
+    # --- AND NOW AT THE BAR ITSELF -------------------------------------------
+    #
+    # Everything above is 2 to 3 dB clear of the threshold, which proves the
+    # check exists and says nothing about where it sits. A ceiling is a
+    # fraction of a dB wide by construction: the whole point of -1.0 dBTP is
+    # that -0.5 is not good enough. So each threshold is probed from both
+    # sides, half a decibel out.
+
+    # Half a dB over the ceiling the graph claimed. This is the real shape of
+    # the failure: not a render that is obviously hot, but one that missed.
+    just_over = at_true_peak(source, -0.5)
+    over = gate.verify(just_over, SR, graph=graph)
+    R.check(not over.passed and any(f.code == "true_peak" for f in over.failures),
+            f"0.5 dB over a -1.0 dBTP ceiling fails, got {over.summary()}")
+
+    # Just under it passes, and so does the 0.1 dB of slack the gate allows
+    # for the meter and the limiter being separate implementations. Without
+    # that slack a render sitting correctly ON its ceiling would be thrown
+    # away, so the slack is asserted rather than merely tolerated.
+    R.check(gate.verify(at_true_peak(source, -1.05), SR, graph=graph).passed,
+            "just under the ceiling passes")
+    R.check(gate.verify(at_true_peak(source, -0.95), SR, graph=graph).passed,
+            "and so does 0.05 dB over, which is inside the meter slack")
+
+    # The no-limiter bar is 0 dBTP and it is probed the same way, because a
+    # bar that only rejects audio 2 dB hot is not a delivery ceiling.
+    no_limiter = graph_from()
+    R.check(not gate.verify(at_true_peak(source, 0.5), SR, graph=no_limiter).passed,
+            "+0.5 dBTP with no limiter fails")
+    R.check(gate.verify(at_true_peak(source, -0.2), SR, graph=no_limiter).passed,
+            "-0.2 dBTP with no limiter passes")
+
+    # A BYPASSED LIMITER IS NOT A CEILING. It is in the graph and it is doing
+    # nothing, so the render is held to 0 dBTP like any unlimited chain —
+    # holding it to a ceiling nothing is enforcing would reject a render that
+    # is fine.
+    bypassed = graph_from(master=[node("lim", "true_peak_limiter",
+                                       ceiling_dbtp=-1.0, bypass=True)])
+    R.check(gate.verify(at_true_peak(source, -0.5), SR, graph=bypassed).passed,
+            "a bypassed limiter does not impose its ceiling")
+    R.check(not gate.verify(at_true_peak(source, 0.5), SR, graph=bypassed).passed,
+            "but 0 dBTP still applies to the render underneath it")
+
+    # THE CEILING COMES FROM THE MASTER SECTION. A limiter is master-only by
+    # schema, so a gate reading the wrong list finds nothing and quietly falls
+    # back to the 0 dBTP bar — which passes everything the -1.0 ceiling was
+    # meant to stop, one dB at a time.
+    R.check(gate._limiter_ceiling(graph) == -1.0,
+            "the ceiling is read from the master section")
+    R.check(gate._limiter_ceiling(bypassed) is None,
+            "and a bypassed one reads as no ceiling at all")
+
 
 def test_loudness_target() -> None:
     print("[4] loudness target")
@@ -195,6 +335,15 @@ def test_loudness_target() -> None:
     # tenths for entirely correct reasons.
     R.check(gate.verify(source, SR, target_lufs=measured + 0.3).passed,
             "0.3 LU off target passes, since that is normal variation")
+
+    # 3 LU is not where the decision is. The tolerance is half a LU, so it is
+    # probed on both sides of the half: 0.8 out is a miss, 0.3 out is the
+    # gated average moving under its own steam.
+    near = gate.verify(source, SR, target_lufs=measured + 0.8)
+    R.check(not near.passed and any(f.code == "loudness_target" for f in near.failures),
+            f"0.8 LU off target fails, got {near.summary()}")
+    R.check(not gate.verify(source, SR, target_lufs=measured - 0.8).passed,
+            "and 0.8 LU off in the quiet direction fails too")
 
     # No target means no check, rather than a guessed one.
     R.check("loudness_target" not in gate.verify(source, SR).checked,
@@ -228,6 +377,53 @@ def test_mono_compatibility() -> None:
     # A mono render is not checked for stereo compatibility at all.
     R.check("mono_compatibility" not in gate.verify(mono_source[None, :], SR).checked,
             "a mono render skips the stereo check")
+
+    # --- AT THE BAR ----------------------------------------------------------
+    #
+    # A polarity-inverted pair sits at correlation -1.00 against a -0.20 bar,
+    # so it proves the check runs and nothing about where it runs. Real
+    # phase damage is partial: a mic pair with one capsule flipped, a widener
+    # pushed too far, a side channel that grew a delay. Those land in the
+    # -0.2 to -0.5 region, which is where the constant has to be right.
+    partial = phase_pair(-0.30)
+    measured = report_mod.measure(partial, SR).to_dict()["stereo"]["correlation"]
+    R.check(abs(measured - (-0.30)) < 0.03,
+            f"the -0.30 correlation source measures {measured}")
+    hurt = gate.verify(partial, SR)
+    R.check(not hurt.passed and any(f.code == "out_of_phase" for f in hurt.failures),
+            f"correlation -0.30 fails, got {hurt.summary()}")
+
+    # And just inside the bar passes. Negative correlation is not damage on
+    # its own — plenty of wide mixes sit slightly below zero — so a gate that
+    # rejected -0.15 would reject a normal record.
+    mild = phase_pair(-0.15)
+    R.check(gate.verify(mild, SR).passed,
+            f"correlation -0.15 passes: {gate.verify(mild, SR).summary()}")
+
+    # THE MONO-LOSS BRANCH CANNOT FIRE, and this says so out loud rather than
+    # leaving a check that reads like a second line of defence and is not one.
+    #
+    # For channels of power P_L and P_R at correlation r, the loss beyond the
+    # arithmetic 3 dB is -10*log10(1 + r*k) with k = 2*sqrt(P_L*P_R)/(P_L+P_R),
+    # so k <= 1 and the loss is largest when the channels are equally loud.
+    # The branch is an `elif` after the correlation test, so it only ever sees
+    # material with r >= MIN_CORRELATION, where the largest possible loss is:
+    worst_case = -10.0 * math.log10(1.0 + gate.MIN_CORRELATION)
+    R.check(worst_case <= gate.MAX_MONO_LOSS_DB + 1e-9,
+            f"nothing clearing correlation {gate.MIN_CORRELATION} can lose more "
+            f"than {worst_case:.3f} dB, against a {gate.MAX_MONO_LOSS_DB} dB bar")
+    # The two constants are two spellings of one decision. If they drift apart
+    # the mono-loss bar stops describing the same audio the correlation bar
+    # does, and one of them becomes either dead or the only one that matters.
+    R.check(abs(gate.MAX_MONO_LOSS_DB - worst_case) < 0.25,
+            f"MAX_MONO_LOSS_DB {gate.MAX_MONO_LOSS_DB} and MIN_CORRELATION "
+            f"{gate.MIN_CORRELATION} describe the same bar ({worst_case:.3f} dB)")
+    # Measured rather than only derived: material sitting just inside the
+    # correlation bar really is under the mono-loss bar as well.
+    stereo_at_bar = report_mod.measure(mild, SR).to_dict()["stereo"]
+    R.check(stereo_at_bar["mono_loss_db"] < gate.MAX_MONO_LOSS_DB,
+            f"and material at the bar measures {stereo_at_bar['mono_loss_db']} dB "
+            "of mono loss, under the threshold")
 
 
 def test_resonance() -> None:
@@ -277,6 +473,53 @@ def test_resonance() -> None:
     R.check(inherited.passed,
             f"a resonance inherited from the source passes: {inherited.summary()}")
 
+    # BUT MAKING THE SOURCE'S OWN RESONANCE WORSE IS STILL OURS. Inheriting a
+    # peak is not a licence to add to it, and this is the case the source
+    # comparison has to get right: a render whose prominence exceeds the
+    # source's by more than the allowance is a peak the processing built,
+    # even though the frequency was already lively.
+    mild_source = Recipe(output_sample_rate=SR, output_format="float64")
+    mild_source.add("parametric_eq", bands=[
+        {"filter_type": "bell", "center_freq_hz": 1000.0,
+         "gain_db": 9.0, "q_factor": 10.0}])
+    lively = render_array(source, SR, mild_source)
+    lively_report = report_mod.measure(lively, SR).to_dict()
+    worsened = gate.verify(render_array(lively, SR, mild_source), SR,
+                           source_report=lively_report)
+    R.check(not worsened.passed
+            and any(f.code == "resonance" for f in worsened.failures),
+            f"doubling a resonance the source already had fails, "
+            f"got {worsened.summary()}")
+
+    # THE GATE MUST NOT REJECT A GRAPH THE VALIDATORS APPROVED. The boost
+    # budget caps total EQ boost at 12 dB, so 12 dB in one band is the most
+    # prominent thing a legal graph can produce, and the worst case over Q is
+    # around Q 6 — a bell narrow enough not to lift its neighbours and wide
+    # enough to fill a third-octave band. It measures 6.3 dB of prominence
+    # against a 9 dB bar, and if that bar ever drops below it the gate starts
+    # throwing away renders the pre-render checks had already blessed.
+    budget = Recipe(output_sample_rate=SR, output_format="float64")
+    budget.add("parametric_eq", bands=[
+        {"filter_type": "bell", "center_freq_hz": 1000.0,
+         "gain_db": 12.0, "q_factor": 6.0}])
+    legal = gate.verify(render_array(source, SR, budget), SR,
+                        source_report=source_report)
+    R.check(legal.passed,
+            f"the largest boost the boost budget permits passes: {legal.summary()}")
+
+    # A STEP IS NOT A PEAK. Prominence is the SMALLER of the two neighbour
+    # differences, so a band has to stand above both sides to count. A steep
+    # high-pass produces a band 17 dB above the one below it and level with
+    # the one above — an edge, not a resonance — and reading the larger
+    # difference instead would fail every high-passed render there is.
+    from scipy import signal as _signal
+    stepped = _signal.sosfilt(
+        _signal.butter(8, 200.0, btype="high", fs=SR, output="sos"), source)
+    edge = gate.verify(stepped, SR)
+    R.check(edge.passed,
+            f"a steeply high-passed render is an edge, not a resonance: "
+            f"{edge.summary()}")
+
 
 def test_level_collapse() -> None:
     print("[7] an unexplained collapse in level")
@@ -308,6 +551,43 @@ def test_level_collapse() -> None:
     R.check("level_collapse" not in gate.verify(quiet, SR, graph=graph_from()).checked,
             "the check is skipped with no source report")
 
+    # --- AT THE BAR ----------------------------------------------------------
+    #
+    # 20 dB is well past a 12 dB bar. Probed either side: 14 dB is a collapse,
+    # 10 dB is a chain that did some work. Without this the constant can move
+    # by half its value and nothing notices.
+    fourteen = gate.verify(source * (10 ** (-14.0 / 20.0)), SR,
+                           graph=graph_from(), source_report=source_report)
+    R.check(not fourteen.passed
+            and any(f.code == "level_collapse" for f in fourteen.failures),
+            f"an unexplained 14 dB drop fails, got {fourteen.summary()}")
+    R.check(gate.verify(source * (10 ** (-10.0 / 20.0)), SR,
+                        graph=graph_from(), source_report=source_report).passed,
+            "while 10 dB is a chain doing its job, and passes")
+
+    # EVERY NODE THAT MOVES LEVEL HAS TO COUNT, not just the one named `gain`.
+    # A drive with its output trimmed and a compressor with negative makeup
+    # are asking for the same thing a gain node asks for, and a gate that only
+    # reads gain nodes fails those renders for doing exactly what was asked.
+    for node_type, param in (("drive", "output_trim_db"),
+                             ("compressor", "makeup_gain_db")):
+        asked = gate.verify(quiet, SR,
+                            graph=graph_from([node("n", node_type, **{param: -20.0})]),
+                            source_report=source_report)
+        R.check(asked.passed,
+                f"a {node_type} with {param} -20 explains the drop: {asked.summary()}")
+
+    # A BYPASSED NODE ASKED FOR NOTHING. Counting it would let any collapse be
+    # excused by a node that is not running, which is the same failure as
+    # trusting the graph's intent over the audio.
+    ignored = gate.verify(quiet, SR,
+                          graph=graph_from([node("g", "gain", gain_db=-20.0,
+                                                 bypass=True)]),
+                          source_report=source_report)
+    R.check(not ignored.passed
+            and any(f.code == "level_collapse" for f in ignored.failures),
+            f"a bypassed -20 dB gain explains nothing, got {ignored.summary()}")
+
 
 def test_bandwidth_collapse() -> None:
     print("[8] destroyed bandwidth")
@@ -338,6 +618,36 @@ def test_bandwidth_collapse() -> None:
     R.check(gate.verify(render_array(source, SR, darker), SR,
                         source_report=source_report).passed,
             "a deliberate 6 dB high-shelf cut passes")
+
+    # A DARK SOURCE IS NOT A DESTROYED ONE. The comparison is against what
+    # came in, exactly like the resonance check, and for the same reason: a
+    # bass DI, a dull room mic or an already-filtered stem arrives with a
+    # rolloff far steeper than the threshold, and judging the output on its
+    # own would fail a render that did nothing to it. The source here rolls
+    # off at -25.6 dB/octave and the render leaves it there.
+    dark_report = report_mod.measure(destroyed, SR).to_dict()
+    through = render_array(destroyed, SR,
+                           Recipe(output_sample_rate=SR, output_format="float64"))
+    kept = gate.verify(through, SR, source_report=dark_report)
+    R.check(kept.passed,
+            f"an already-dark source passed through unchanged passes: "
+            f"{kept.summary()}")
+
+    # And the threshold itself, probed where it sits rather than 8 dB past it.
+    # A butterworth cannot do this — its order quantises the slope to about
+    # 10 dB/octave a step, which straddles an 18 dB bar with nothing near it —
+    # so the tilt is imposed directly in the frequency domain and comes back
+    # within 0.01 dB/octave of what was asked for.
+    started_at = source_report["spectrum"]["hf_rolloff_db_per_octave"]
+    for slope, must_fail in ((-19.0, True), (-17.0, False)):
+        tilted = tilt(source, slope)
+        rolloff = report_mod.measure(tilted, SR).to_dict()["spectrum"][
+            "hf_rolloff_db_per_octave"]
+        outcome = gate.verify(tilted, SR, source_report=source_report)
+        fired = any(f.code == "bandwidth_collapse" for f in outcome.failures)
+        R.check(fired == must_fail,
+                f"a source taken from {started_at} to {rolloff} dB/octave "
+                f"{'fails' if must_fail else 'passes'}, got {outcome.summary()}")
 
 
 def test_fallback() -> None:

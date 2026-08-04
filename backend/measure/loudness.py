@@ -258,13 +258,44 @@ def _oversample_factor(sample_rate: float) -> int:
 
 
 def _interpolation_filter(factor: int, stopband_db: float = 100.0) -> np.ndarray:
-    """Windowed-sinc for the true-peak interpolator, scaled for polyphase gain."""
-    # Transition band from 0.45/factor to 0.5/factor in the upsampled rate's
-    # normalised frequency: the passband must reach the base rate's Nyquist,
-    # and everything above it is image and must go.
-    taps_per_phase = 48
+    """Windowed-sinc for the true-peak interpolator, scaled for polyphase gain.
+
+    THE PASSBAND EDGE IS A SAFETY PARAMETER, NOT A TASTE ONE. Whatever the
+    filter attenuates, the meter does not see, so it reports LESS than the true
+    peak — the unsafe direction for a delivery ceiling, because it lets real
+    inter-sample peaks through the gate.
+
+    It used to stop at 0.95 of the base Nyquist. Measured against tone pairs
+    whose continuous peak is known exactly (the band-limited reconstruction of
+    those samples IS the sum, so the analytic maximum is the truth):
+
+        content        0.95 edge, 48/phase      0.99 edge, 64/phase
+        1 kHz                +0.002 dB                +0.001 dB
+        10 kHz               +0.307 dB                +0.411 dB
+        20 + 22 kHz          -1.078 dB                -0.125 dB
+        21 + 23 kHz          -2.289 dB                -1.013 dB
+
+    Widening the edge from 0.95 to 0.98 costs NOTHING — same tap count, same
+    runtime — and was most of the improvement. The extra taps buy the rest.
+    Cost is 16.5 ms per second of audio against 10.8, on a measurement that
+    runs once per render.
+
+    THE RESIDUAL NEAR NYQUIST IS FUNDAMENTAL AND IS NOT A BUG TO FIX LATER. No
+    finite filter reconstructs content arbitrarily close to Nyquist; the
+    transition band has to fit somewhere. Even at 96 taps per phase the 21+23
+    case reads -0.762 dB. What makes this tolerable is that the sample peak is
+    taken as a hard lower bound below, so the error is bounded by the gap
+    between sample peak and true peak rather than being unbounded.
+
+    A positive number in that table is the meter reading HIGH, which is
+    interpolation overshoot and is the safe direction.
+    """
+    # 0.99 rather than 0.95: see above. The transition band then runs from
+    # 0.99/factor to the first image, which the tap count has to be large
+    # enough to cover.
+    taps_per_phase = 64
     numtaps = taps_per_phase * factor + 1
-    cutoff = 0.5 / factor * 0.95
+    cutoff = 0.5 / factor * 0.99
     fir = signal.firwin(
         numtaps, cutoff * 2.0, window=("kaiser", signal.kaiser_beta(stopband_db))
     )

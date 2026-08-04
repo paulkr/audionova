@@ -508,6 +508,54 @@ def test_gating() -> None:
     R.check(0.15 < coverage < 0.60,
             f"gate keeps roughly the programme regions, coverage {coverage:.2f}")
 
+    # WHICH FRAMES, not just how many. A coverage figure in a range this wide
+    # is satisfied by a mask that keeps the wrong 35% of the file, and it was:
+    # marking only the 100 ms step of each surviving block instead of its full
+    # 400 ms passed this assertion, as did requiring all four covering blocks
+    # to survive instead of any one.
+    #
+    # The programme regions must be kept whole, and the 300 ms either side of
+    # each must be kept too. That margin is the entire reason the rule is
+    # any-of rather than all-of: an all-of rule erodes 300 ms from each end of
+    # every phrase, which is exactly where the transients that decide a
+    # compressor setting live.
+    programme = [(int(s * SR), int(s * SR) + int(1.5 * SR))
+                 for s in (2.0, 8.0, 14.0, 20.0)]
+    margin = int(0.3 * SR)
+    for start, end in programme:
+        R.check(bool(mask[start:end].all()),
+                f"the programme at {start / SR:.0f} s is kept whole "
+                f"({mask[start:end].mean():.3f} covered)")
+        R.check(mask[start - margin:start].mean() > 0.9
+                and mask[end:end + margin].mean() > 0.9,
+                f"and the 300 ms either side of it survives "
+                f"({mask[start - margin:start].mean():.2f} before, "
+                f"{mask[end:end + margin].mean():.2f} after)")
+
+    # And the silence well away from any phrase is dropped, or the mask above
+    # would be satisfied by keeping everything.
+    for start, end in ((int(4.5 * SR), int(7.5 * SR)), (int(10.5 * SR), int(13.5 * SR))):
+        R.check(not mask[start:end].any(),
+                f"the gap at {start / SR:.0f} s is dropped "
+                f"({mask[start:end].mean():.3f} covered)")
+
+    # Coverage is documented as the fraction of the FILE that survived, and
+    # callers divide durations by it. The fraction of blocks that survived is
+    # a different number and reads as the same thing.
+    R.check(abs(coverage - float(np.count_nonzero(mask)) / mask.size) < 1e-12,
+            f"coverage is the fraction of frames kept, {coverage}")
+
+    # A FILE WITH NO PROGRAMME HAS NO PROGRAMME. The relative gate alone
+    # cannot say that — it measures everything against whatever it finds, so
+    # on a file of pure noise floor it confidently returns the noise floor.
+    # This is the only case in the suite where the absolute gate decides
+    # anything: removing it entirely changed nothing else measured here.
+    empty_mask, empty_coverage = gating.gated_frame_mask(
+        (pink_noise(int(SR * 10)) * 10 ** (-80 / 20))[None, :], SR)
+    R.check(empty_coverage == 0.0 and not empty_mask.any(),
+            f"a file entirely below -70 LUFS has no programme, "
+            f"coverage {empty_coverage}")
+
     # WHAT GATING ACTUALLY FIXES is the SHAPE, not the noise. A continuous
     # rumble is present under the programme as well as between it, so no gate
     # can remove it — and expecting one to would be expecting noise reduction
@@ -559,12 +607,31 @@ def test_gating() -> None:
     R.check(coverage == 1.0 and mask.all(),
             "a file shorter than one gating block is left fully unmasked")
 
+    # But only a file shorter than ONE block. The exemption is a statement
+    # that there is not enough audio to judge, and widening it turns gating
+    # off for material that has plenty — a two-second file with a second of
+    # silence in it is gated like anything else.
+    two_second = np.concatenate([pink_noise(int(SR)) * 0.3, np.zeros(int(SR))])
+    _, short_coverage = gating.gated_frame_mask(two_second[None, :], SR)
+    R.check(short_coverage < 0.9,
+            f"a 2 s file is gated rather than exempted, coverage {short_coverage:.2f}")
+
     # Segments must be contiguous runs, not a re-derivation of the mask.
     test_mask = np.array([0, 1, 1, 0, 0, 1, 1, 1, 0], dtype=bool)
     R.check(gating.gated_segments(test_mask) == [(1, 3), (5, 8)],
             f"segments split into runs, got {gating.gated_segments(test_mask)}")
     R.check(gating.gated_segments(np.ones(5, dtype=bool)) == [(0, 5)],
             "an all-true mask is one segment")
+
+    # min_length is a minimum, so a run of exactly that length is kept. Off by
+    # one here silently discards the shortest segments a caller asked for,
+    # which is the only length where the parameter does anything at all.
+    R.check(gating.gated_segments(test_mask, 2) == [(1, 3), (5, 8)],
+            f"a run of exactly min_length survives, got "
+            f"{gating.gated_segments(test_mask, 2)}")
+    R.check(gating.gated_segments(test_mask, 3) == [(5, 8)],
+            f"and one shorter than it does not, got "
+            f"{gating.gated_segments(test_mask, 3)}")
 
 
 def test_hygiene() -> None:
