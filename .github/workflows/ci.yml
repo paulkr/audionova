@@ -10,10 +10,25 @@
 
 name: CI
 
+# PAUSED, DELIBERATELY, AND NOT BECAUSE IT WAS FAILING.
+#
+# Hosted runners bill by the minute and macOS bills at 10x, so this matrix is
+# not free while the product is still local-only. Until there is something
+# deployed that a green tick protects, `ci/run.sh` on a developer machine is the
+# gate — it is the same script, which is the whole reason CI never had steps of
+# its own.
+#
+# To bring it back: restore the `push` and `pull_request` triggers below. Do
+# that before anything ships, because of what only this can check —
+#
+# THE CROSS-ARCHITECTURE CLAIM IS UNVERIFIABLE LOCALLY. The engine's contract is
+# bit-exact within one (engine_version, arch) and -170 dBFS RMS across them, and
+# `ci/check_golden.py` tests that transitively by having both architectures
+# compare against one committed render. With only arm64 available, the x86-64
+# half of that is untested, and the last measurement said most of the engine is
+# bit-identical across the two with the limiter's gain reduction the sole
+# exception. That result is now provisional until this runs again.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 jobs:

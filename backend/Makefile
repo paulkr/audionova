@@ -5,6 +5,12 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
+# Targets that `cd ..` need the interpreter path from the ROOT, not from here.
+# Four eval targets used `-m backend.eval.X` while make runs in backend/, so the
+# package was not importable and none of them had ever run — README documented
+# the failing invocation. They cd to the root and use this instead.
+ROOT_PY ?= .venv/bin/python
+
 .PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api listen sweep recover recover-synthetic manifest knowledge author
 
 test: loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api listen knowledge
@@ -27,7 +33,7 @@ sensitivity:
 	@$(PY) tests/test_sensitivity.py
 
 sweep:
-	@$(PY) -m backend.eval.run_sensitivity $(STEMS)
+	@cd .. && $(ROOT_PY) -m backend.eval.run_sensitivity $(STEMS)
 
 # Chain recovery: which node types and what order can be read off the deltas.
 # The hermetic half asserts the scoring; `recover` prints the real floor that
@@ -36,20 +42,20 @@ recovery:
 	@$(PY) tests/test_recovery.py
 
 recover:
-	@$(PY) -m backend.eval.run_recovery $(STEMS)
+	@cd .. && $(ROOT_PY) -m backend.eval.run_recovery $(STEMS)
 
 # The same run without the stems, which are gitignored. Not a substitute for
 # real material — pink noise already has energy everywhere, which masks exactly
 # the effect drive detection depends on — but it exercises the whole harness on
 # a machine that has no audio.
 recover-synthetic:
-	@$(PY) -m backend.eval.run_recovery --synthetic --quiet
+	@cd .. && $(ROOT_PY) -m backend.eval.run_recovery --synthetic --quiet
 
 # Rewrite the committed corpus manifest. Only after a deliberate change to the
 # generator: every number in the report moves when this does, which is the whole
 # reason the manifest is committed.
 manifest:
-	@$(PY) -m backend.eval.generate
+	@cd .. && $(ROOT_PY) -m backend.eval.generate
 
 # The planner's output contract and its semantic validators. Reads the engine
 # headers to assert the schema has not drifted from what the engine accepts.
