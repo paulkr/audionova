@@ -17,6 +17,13 @@ code path that turns a URL into a filesystem path.
 The key file is read by this process and never sent. That is the whole security
 model, and it is enough because the threat is a colleague's curiosity rather
 than an attacker.
+
+ONE SERVER FOR BOTH TESTS. A screen and a session are the same shape over the
+wire — a public document, a private key, clips by opaque id, one POST at the
+end — and the screen is the panel's FIRST step. Serving it from a second
+program, or not at all, is why the screen went untaken: `open_store` picks the
+store from what the directory holds, and `/session.json` returns whichever
+public document that is, with a `mode` field the interface dispatches on.
 """
 
 from __future__ import annotations
@@ -36,15 +43,37 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 INTERFACE_HTML = os.path.join(_HERE, "interface.html")
 
 
-class SessionStore:
-    """The private half of a session, held in memory by the server."""
+class SubmissionRefused(ValueError):
+    """A POSTed body is not a submission for this test.
+
+    THE SERVER KNOWS ONE THING THE SCORER DOES NOT: who is sitting at the
+    keyboard, right now, with the tab still open. `score_session` refuses an
+    unknown trial id with a good message, but it runs after the panel has gone
+    home, and the failure the listener saw was the word "saved". Everything
+    checked here is checked against documents this process has already loaded —
+    the roster and the trial ids — so it costs one lookup and teaches the
+    process holding the key nothing about the rating scales.
+    """
+
+
+class _Store:
+    """The private half of a test — a session or a screen — held in memory.
+
+    Both are the same shape at the wire: a public document the browser may
+    have, a key document it may not, a map from opaque clip id to a file, and a
+    directory to drop submissions in. What differs is the document names, how a
+    listener's trials are found in the public payload, and what a submission
+    looks like — three small methods, below.
+    """
+
+    public_name = ""
+    key_name = ""
+    what = "test"
 
     def __init__(self, directory: str) -> None:
         self.directory = os.path.abspath(directory)
-        with open(os.path.join(self.directory, "session.json")) as handle:
-            self.public: dict[str, Any] = json.load(handle)
-        with open(os.path.join(self.directory, "key.json")) as handle:
-            key: dict[str, Any] = json.load(handle)
+        self.public: dict[str, Any] = self._read(self.public_name)
+        key: dict[str, Any] = self._read(self.key_name)
 
         self.clips: dict[str, str] = {}
         for clip_id, relative in key.get("clips", {}).items():
@@ -60,29 +89,40 @@ class SessionStore:
         os.makedirs(self.responses_dir, exist_ok=True)
         self._write_lock = threading.Lock()
 
+    def _read(self, name: str) -> dict[str, Any]:
+        with open(os.path.join(self.directory, name)) as handle:
+            return json.load(handle)
+
+    # -- what a subclass decides ------------------------------------------
+
     def listeners(self) -> list[str]:
-        return sorted(self.public.get("listeners", {}))
+        raise NotImplementedError
 
     def payload_for(self, listener: str | None) -> dict[str, Any]:
-        """The public payload, narrowed to one listener when one is named.
+        raise NotImplementedError
 
-        Narrowed because a listener has no business seeing another listener's
-        presentation order, and because handing the browser the whole session
-        makes every trial in it reachable from a console.
+    def trial_ids(self, listener: str) -> set[str]:
+        raise NotImplementedError
+
+    def validate(self, body: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    # -- shared ------------------------------------------------------------
+
+    def listener_of(self, body: dict[str, Any]) -> str:
+        """The listener a submission claims to be, refusing anyone else.
+
+        An unknown name is refused rather than filed under itself. The roster
+        is the only list anything downstream joins on, so `alice ` with a
+        trailing space is a fourth listener whose answers are never scored and
+        never missed.
         """
-        base = {key: value for key, value in self.public.items()
-                if key != "listeners"}
-        if listener is None:
-            return {**base, "listeners": self.listeners(), "trials": None}
-        trials = self.public.get("listeners", {}).get(listener)
-        if trials is None:
-            raise KeyError(listener)
-        # `base` is built by EXCLUDING the per-listener map rather than by
-        # copying the payload and overwriting one key. Overwriting leaves the
-        # other listeners' orders in whatever key they were nested under, which
-        # is still a document the browser received.
-        return {**base, "listener": listener, "trials": trials,
-                "listeners": self.listeners()}
+        listener = body.get("listener")
+        if not isinstance(listener, str) or listener not in self.listeners():
+            raise SubmissionRefused(
+                f"submission names listener {listener!r}, who is not in this "
+                f"{self.what}'s roster {self.listeners()}")
+        return listener
 
     def record(self, body: dict[str, Any]) -> str:
         """Write a submission, never over another one.
@@ -117,8 +157,175 @@ class SessionStore:
         return path
 
 
+class SessionStore(_Store):
+    """A blinded two-scale session built by `session.build_session`."""
+
+    public_name = "session.json"
+    key_name = "key.json"
+    what = "session"
+
+    def listeners(self) -> list[str]:
+        return sorted(self.public.get("listeners", {}))
+
+    def payload_for(self, listener: str | None) -> dict[str, Any]:
+        """The public payload, narrowed to one listener when one is named.
+
+        Narrowed because a listener has no business seeing another listener's
+        presentation order, and because handing the browser the whole session
+        makes every trial in it reachable from a console.
+        """
+        base = {key: value for key, value in self.public.items()
+                if key != "listeners"}
+        if listener is None:
+            return {**base, "listeners": self.listeners(), "trials": None}
+        trials = self.public.get("listeners", {}).get(listener)
+        if trials is None:
+            raise KeyError(listener)
+        # `base` is built by EXCLUDING the per-listener map rather than by
+        # copying the payload and overwriting one key. Overwriting leaves the
+        # other listeners' orders in whatever key they were nested under, which
+        # is still a document the browser received.
+        return {**base, "listener": listener, "trials": trials,
+                "listeners": self.listeners()}
+
+    def trial_ids(self, listener: str) -> set[str]:
+        return {trial["trial_id"]
+                for trial in self.public.get("listeners", {}).get(listener, [])}
+
+    def validate(self, body: dict[str, Any]) -> None:
+        """Refuse a body that is not this listener's answers to these trials.
+
+        WHAT IS NOT CHECKED IS AS DELIBERATE AS WHAT IS. Ratings, scales and
+        preferences are the scorer's business — `parse_responses` refuses a "4"
+        that is a string and a 6 on a five-point scale, with the reasoning
+        beside it — and duplicating that here would put two opinions about the
+        response schema in two processes. A SHORT submission is also accepted:
+        a listener who stopped at trial 22 has answered 22 trials, and the
+        scorer can say so. What is refused is a body that could not have come
+        from this test at all.
+        """
+        listener = self.listener_of(body)
+        allowed = self.trial_ids(listener)
+        responses = body.get("responses")
+        if not isinstance(responses, list) or not responses:
+            raise SubmissionRefused(
+                f"{listener}: a submission carries a non-empty 'responses' "
+                f"list, got {type(responses).__name__}")
+        seen: set[str] = set()
+        for position, item in enumerate(responses):
+            if not isinstance(item, dict):
+                raise SubmissionRefused(
+                    f"{listener}: response {position} is not an object")
+            trial_id = item.get("trial_id")
+            if trial_id not in allowed:
+                raise SubmissionRefused(
+                    f"{listener}: response {position} names trial "
+                    f"{trial_id!r}, which is not one of this listener's "
+                    f"{len(allowed)} trials in this session")
+            if trial_id in seen:
+                raise SubmissionRefused(
+                    f"{listener}: trial {trial_id} is answered twice in one "
+                    "submission; a repeat trial has its own id, so this is a "
+                    "duplicate rather than a repeat")
+            seen.add(trial_id)
+
+
+class ScreeningStore(_Store):
+    """A listener screen built by `screen.build_screening`.
+
+    The whole reason this class exists: `serve` used to be `SessionStore` and
+    nothing else, so pointing it at a screening directory was a
+    `FileNotFoundError` on `session.json` — which made the panel's FIRST step
+    the one thing the harness could not administer.
+    """
+
+    public_name = "screening.json"
+    key_name = "screening_key.json"
+    what = "screen"
+
+    def listeners(self) -> list[str]:
+        return sorted(self.public.get("listeners", []))
+
+    def payload_for(self, listener: str | None) -> dict[str, Any]:
+        """The screen, which is the same ten trials for everybody.
+
+        There is nothing to narrow — a screen has one condition and no
+        per-listener order — so the only difference a named listener makes is
+        that the trials are sent at all. `trials: None` is the roster page, and
+        it is the same shape a session sends, so the interface has one branch
+        rather than two.
+        """
+        base = {key: value for key, value in self.public.items()
+                if key not in ("listeners", "trials")}
+        if listener is None:
+            return {**base, "listeners": self.listeners(), "trials": None}
+        if listener not in self.listeners():
+            raise KeyError(listener)
+        return {**base, "listener": listener,
+                "trials": self.public.get("trials", []),
+                "listeners": self.listeners()}
+
+    def trial_ids(self, listener: str) -> set[str]:
+        return {trial["trial_id"] for trial in self.public.get("trials", [])}
+
+    def validate(self, body: dict[str, Any]) -> None:
+        """Refuse a body that is not a complete set of A/B answers.
+
+        COMPLETE, unlike a session's. `score_screening` refuses a missing trial
+        outright — an unanswered trial is a broken session and not a wrong
+        answer — so a partial screen is a file that can never be scored, and
+        the moment to say so is while the listener is still in the room. Ten
+        trials is two minutes; there is no half-screen worth keeping.
+        """
+        listener = self.listener_of(body)
+        allowed = self.trial_ids(listener)
+        answers = body.get("answers")
+        if not isinstance(answers, dict):
+            raise SubmissionRefused(
+                f"{listener}: a screen submission carries an 'answers' object "
+                f"of trial_id -> 'A' or 'B', got {type(answers).__name__}")
+        unknown = sorted(set(answers) - allowed)
+        if unknown:
+            raise SubmissionRefused(
+                f"{listener}: answers name {len(unknown)} trial(s) that are "
+                f"not in this screen, e.g. {unknown[0]!r}")
+        missing = sorted(allowed - set(answers))
+        if missing:
+            raise SubmissionRefused(
+                f"{listener}: {len(missing)} of {len(allowed)} screening "
+                "trial(s) are unanswered, and a screen is scored as a whole — "
+                "an unanswered trial is a broken sitting, not a wrong answer")
+        wrong = sorted(trial_id for trial_id, value in answers.items()
+                       if value not in ("A", "B"))
+        if wrong:
+            raise SubmissionRefused(
+                f"{listener}: trial {wrong[0]} is answered "
+                f"{answers[wrong[0]]!r}; a 2AFC screen takes 'A' or 'B' and "
+                "nothing else")
+
+
+def open_store(directory: str) -> _Store:
+    """Pick the store by what is in the directory, naming both if neither is.
+
+    A screening directory and a session directory look alike from the outside —
+    `clips/`, a public document, a key — and the operator holding the laptop
+    has just built both. Guessing wrong used to be a bare `FileNotFoundError`
+    on `session.json`, which reads as a broken build rather than as a wrong
+    argument.
+    """
+    directory = os.path.abspath(directory)
+    for store_type in (SessionStore, ScreeningStore):
+        if os.path.exists(os.path.join(directory, store_type.public_name)):
+            return store_type(directory)
+    raise FileNotFoundError(
+        f"{directory} holds neither session.json (a session built by "
+        "`run_session build`) nor screening.json (a screen built by "
+        "`run_session screen`). If a build failed, the directory is the "
+        "half-written one and there is nothing here to serve.")
+
+
 class _Handler(BaseHTTPRequestHandler):
-    store: SessionStore
+    store: _Store
     server_version = "audionova-listen/1"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
@@ -196,6 +403,16 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             self._json(400, {"error": "expected an object"})
             return
+        try:
+            self.store.validate(body)
+        except SubmissionRefused as error:
+            # 400 AND NOTHING WRITTEN. The old behaviour was to write anything
+            # JSON-shaped and answer `200 {"saved": ...}`, so `{"hello":
+            # "world"}` was acknowledged as a completed session and the
+            # mistake surfaced at scoring, when the listener could no longer
+            # retake it. The interface shows this string.
+            self._json(400, {"error": str(error)})
+            return
         written = self.store.record(body)
         self._json(200, {"saved": os.path.basename(written)})
 
@@ -217,8 +434,8 @@ def _unquote(text: str) -> str:
 
 def make_server(directory: str, host: str = "127.0.0.1",
                 port: int = 8765) -> ThreadingHTTPServer:
-    """Bind a server for a built session. Port 0 asks the OS for a free one."""
-    store = SessionStore(directory)
+    """Bind a server for a built session or screen. Port 0 asks for a free one."""
+    store = open_store(directory)
     handler = type("_BoundHandler", (_Handler,), {"store": store})
     return ThreadingHTTPServer((host, port), handler)
 
@@ -226,8 +443,8 @@ def make_server(directory: str, host: str = "127.0.0.1",
 def serve(directory: str, host: str = "127.0.0.1", port: int = 8765) -> None:
     server = make_server(directory, host, port)
     bound_host, bound_port = server.server_address[:2]
-    store: SessionStore = server.RequestHandlerClass.store  # type: ignore[attr-defined]
-    print(f"listening test at http://{bound_host}:{bound_port}/")
+    store: _Store = server.RequestHandlerClass.store  # type: ignore[attr-defined]
+    print(f"{store.what} at http://{bound_host}:{bound_port}/")
     print(f"listeners: {', '.join(store.listeners())}")
     print("the answer key is loaded in this process and is never served")
     try:
@@ -242,7 +459,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", help="a session built by run_session.py")
+    parser.add_argument("directory",
+                        help="a session or a screen built by run_session.py")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     arguments = parser.parse_args()

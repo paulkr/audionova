@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.audio import wavio  # noqa: E402
 from backend.engine.render import DEFAULT_BINARY  # noqa: E402
+from backend.listen import score as listen_score  # noqa: E402
 from backend.listen import correlate, match, run_session, score, screen, serve, session  # noqa: E402
 from backend.measure import loudness, spectrum  # noqa: E402
 
@@ -1604,6 +1605,89 @@ def test_failures_name_what_broke() -> None:
                  contains="L3-3.json")
 
 
+def test_the_phase0_gate_is_per_item() -> None:
+    """A pooled prefer-or-tie rate can pass while the real criterion fails.
+
+    THIS IS THE ENTIRE REASON THE GATE IS COMPUTED RATHER THAN EYEBALLED. The
+    plan's stop-or-go point is prefer-or-tie on at least 6 of 10 FILES, and
+    `score` used to print one pooled rate across every judgement. Those two
+    numbers disagree exactly when preference is concentrated — a handful of
+    items everyone loves carrying a majority of items nobody does — which is
+    the shape a chain that works on one instrument and not others produces, and
+    the shape most worth catching before booking three engineers.
+    """
+    print("[21] the Phase 0 gate is per item, not pooled")
+
+    def item(name, prefer, tie, against):
+        return listen_score.ItemPreference(item=name, condition="ours",
+                                           prefer=prefer, tie=tie,
+                                           against=against)
+
+    # Four items unanimous FOR, six unanimous AGAINST, three listeners each.
+    # Pooled: 12 of 30 judgements = 40%. Per item: 4 of 10.
+    concentrated = [item(f"win{i}", 3, 0, 0) for i in range(4)]
+    concentrated += [item(f"lose{i}", 0, 0, 3) for i in range(6)]
+    gate = listen_score.Phase0Gate(
+        condition="ours",
+        required_items=listen_score.PHASE0_REQUIRED_ITEMS,
+        items=tuple(concentrated))
+    R.check(gate.items_passed == 4, f"four items pass, got {gate.items_passed}")
+    R.check(not gate.passed, "and the gate fails, as it must")
+
+    # Now the case that actually motivates it: a pooled rate that LOOKS fine.
+    # Three items with all three listeners preferring, seven with one of three.
+    # Pooled: 9 + 7 = 16 of 30 = 53%, a majority. Per item: 3 of 10.
+    flattering = [item(f"win{i}", 3, 0, 0) for i in range(3)]
+    flattering += [item(f"thin{i}", 1, 0, 2) for i in range(7)]
+    pooled = sum(i.prefer_or_tie for i in flattering)
+    total = sum(i.listeners for i in flattering)
+    gate = listen_score.Phase0Gate(
+        condition="ours",
+        required_items=listen_score.PHASE0_REQUIRED_ITEMS,
+        items=tuple(flattering))
+    R.check(pooled * 2 > total,
+            f"the pooled rate is a majority ({pooled}/{total})")
+    R.check(gate.items_passed == 3 and not gate.passed,
+            f"and the gate still FAILS at {gate.items_passed} of 10 — which is "
+            f"the disagreement the pooled number hid")
+
+    # Exactly at the bar, from both sides, because a gate probed only at 0 and
+    # 10 would pass with the constant set to anything in between.
+    at_bar = tuple([item(f"w{i}", 3, 0, 0) for i in range(6)]
+                   + [item(f"l{i}", 0, 0, 3) for i in range(4)])
+    under = tuple([item(f"w{i}", 3, 0, 0) for i in range(5)]
+                  + [item(f"l{i}", 0, 0, 3) for i in range(5)])
+    R.check(listen_score.Phase0Gate("ours", 6, at_bar).passed,
+            "6 of 10 passes")
+    R.check(not listen_score.Phase0Gate("ours", 6, under).passed,
+            "5 of 10 does not")
+
+    # A TIE COUNTS AS PREFER-OR-TIE. The plan says "prefer-or-tie", and reading
+    # it as preference only would be a stricter gate than anyone agreed to.
+    ties = tuple([item(f"t{i}", 0, 3, 0) for i in range(6)]
+                 + [item(f"l{i}", 0, 0, 3) for i in range(4)])
+    R.check(listen_score.Phase0Gate("ours", 6, ties).passed,
+            "six items where every listener tied still passes")
+
+    # THE BAR MUST BE A COUNT, NOT A PROPORTION, and at exactly ten items those
+    # two are the same predicate — `passed >= 6` and `passed * 2 > 10` agree on
+    # every input. A mutation swapping one for the other survived a test that
+    # only ever used ten items, which is the "guard tested where it does not
+    # bind" shape twice over. Eight items separates them: the count needs 6, the
+    # proportion needs 5.
+    eight = tuple([item(f"w{i}", 3, 0, 0) for i in range(5)]
+                  + [item(f"l{i}", 0, 0, 3) for i in range(3)])
+    R.check(not listen_score.Phase0Gate("ours", 6, eight).passed,
+            "5 of 8 fails a bar of 6, where a proportional bar would pass it")
+
+    # And the report must SAY when the session is not ten items rather than
+    # rescaling the bar, since a proportional bar is a different criterion.
+    short = listen_score.Phase0Gate("ours", 6, at_bar[:5])
+    R.check("note:" in short.report(),
+            f"a session with the wrong item count says so: {short.report()[-120:]}")
+
+
+
 if __name__ == "__main__":
     if not os.path.exists(DEFAULT_BINARY):
         print(f"engine binary missing at {DEFAULT_BINARY}; run `make render` in engine/")
@@ -1630,5 +1714,6 @@ if __name__ == "__main__":
     test_correlate_proxies()
     test_server_blinds_at_the_wire()
     test_failures_name_what_broke()
+    test_the_phase0_gate_is_per_item()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

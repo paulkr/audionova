@@ -47,6 +47,7 @@ import hashlib
 import json
 import os
 import random
+import shutil
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
@@ -216,6 +217,13 @@ class SessionPlan:
                 for trial in self.trials_for(listener)
             ]
         return {
+            # WHICH TEST THIS IS, named rather than inferred. The same server
+            # and the same interface serve a session and a screen, and the
+            # interface picks its page from this field. A missing or unknown
+            # mode is a hard error there rather than a guess, because the two
+            # documents differ in every other respect and a guess would be a
+            # listener silently answering the wrong questions.
+            "mode": "session",
             "session_id": self.session_id,
             "scales": [dict(scale) for scale in SCALES],
             "preferences": list(PREFERENCES),
@@ -318,6 +326,20 @@ def plan_session(
     if not comparisons:
         raise SessionError("a session needs at least one comparison")
 
+    # THE ITEM NAME IS THE UNIT THE PHASE 0 GATE COUNTS — "prefer-or-tie on at
+    # least 6 of 10 items" — so two comparisons carrying one name are two
+    # verdicts on one item, and nothing downstream can say which of them the
+    # item's verdict is. Refused here, at build time, rather than at scoring,
+    # which is after the panel has gone home.
+    names = [item.item for item in comparisons]
+    duplicated = sorted({name for name in names if names.count(name) > 1})
+    if duplicated:
+        raise SessionError(
+            f"comparisons share the item name(s) {duplicated}. The item is the "
+            "unit the Phase 0 gate counts, so two comparisons with one name "
+            "are two votes on one file; give them distinct names "
+            "(guitar-03-warmer, guitar-03-tighter).")
+
     listeners = tuple(listeners)
     if not listeners:
         raise SessionError("a session needs at least one listener")
@@ -402,6 +424,42 @@ def plan_session(
 # --- materialisation ---------------------------------------------------------
 
 
+def discard_partial_build(files: Iterable[str] = (),
+                          trees: Iterable[str] = (),
+                          prune: Iterable[str] = ()) -> None:
+    """Undo what a failed build wrote, and nothing else.
+
+    EXACTLY THE FILES THIS BUILD WROTE, never the directory they sit in. A
+    screen or a session that fails halfway is usually being rebuilt in a
+    directory that already holds a good one — a different source, a longer
+    segment, one more comparison — and `rmtree(clips/)` would take the good
+    build with it while the operator was fixing the input. Every output path
+    here is chosen before it is written, so the set is exact rather than a
+    glob over a directory the caller does not own.
+
+    `trees` are directories this build created for itself and nothing else
+    reads (`_unmatched/`). `prune` are shared directories to remove only if
+    they are now empty, which `os.rmdir` decides rather than a listing.
+
+    Every removal is best-effort: this runs on the way out of a failure, and an
+    exception raised here would replace the operator's real error — the one
+    naming the silent segment — with a permissions error about a temp file.
+    """
+    for path in files:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    for tree in trees:
+        shutil.rmtree(tree, ignore_errors=True)
+    for directory in list(prune) + sorted(
+            {os.path.dirname(path) for path in files}):
+        try:
+            os.rmdir(directory)
+        except OSError:
+            pass
+
+
 @dataclass(frozen=True)
 class BuiltSession:
     directory: str
@@ -449,22 +507,36 @@ def build_session(
     # directory tells you nothing either.
     stored: dict[tuple[int, str], str] = {}
 
-    for index, item in enumerate(plan.comparisons):
-        roles = ["source"] + list(item.condition_names)
-        inputs = [item.source] + [item.path_for(name) for name in item.condition_names]
-        outputs = [os.path.join(clips_dir, f"{_opaque(store_rng)}.wav")
-                   for _ in roles]
-        group = match.match_group(
-            inputs, outputs,
-            gain_solver=gain_solver,
-            tolerance_lu=tolerance_lu,
-            ceiling_dbtp=ceiling_dbtp,
-            bit_depth=bit_depth,
-            what=f"comparison {index} ({item.item})",
-        )
-        groups.append(group)
-        for role, path in zip(roles, outputs):
-            stored[(index, role)] = path
+    # Every clip this call writes, so a build that fails on comparison 19 of 24
+    # can take its own nineteen files with it and leave anything already in the
+    # directory alone.
+    written: list[str] = []
+
+    try:
+        for index, item in enumerate(plan.comparisons):
+            roles = ["source"] + list(item.condition_names)
+            inputs = ([item.source]
+                      + [item.path_for(name) for name in item.condition_names])
+            outputs = [os.path.join(clips_dir, f"{_opaque(store_rng)}.wav")
+                       for _ in roles]
+            written.extend(outputs)
+            group = match.match_group(
+                inputs, outputs,
+                gain_solver=gain_solver,
+                tolerance_lu=tolerance_lu,
+                ceiling_dbtp=ceiling_dbtp,
+                bit_depth=bit_depth,
+                what=f"comparison {index} ({item.item})",
+            )
+            groups.append(group)
+            for role, path in zip(roles, outputs):
+                stored[(index, role)] = path
+    except BaseException:
+        # The refusal is the useful thing here and it is re-raised untouched.
+        # What is cleaned up is the half-written directory, which otherwise
+        # looks like a session to everything except the missing session.json.
+        discard_partial_build(files=written, prune=[responses_dir])
+        raise
 
     clip_files: dict[str, str] = {}
     for trial in plan.trials:
