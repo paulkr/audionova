@@ -48,8 +48,14 @@ class Client(Protocol):
     """What the pipeline needs from a model. Two calls, deliberately narrow."""
 
     def complete(self, system: list[dict[str, Any]],
-                 messages: list[dict[str, Any]]) -> str:
-        """Unconstrained text, for stage 1."""
+                 messages: list[dict[str, Any]],
+                 on_text: Any = None) -> str:
+        """Unconstrained text, for stage 1.
+
+        `on_text` receives the reasoning as it arrives. Optional, because the
+        evaluation harnesses and every offline test want the return value and
+        nothing else.
+        """
         ...
 
     def complete_structured(self, system: list[dict[str, Any]],
@@ -208,6 +214,7 @@ def plan(
     presets: list[dict[str, Any]] | None = None,
     previous_graph: EffectGraph | None = None,
     counters: Counters | None = None,
+    on_text: Any = None,
 ) -> PlanOutcome:
     """Run the full pipeline for one turn."""
     counters = counters or Counters()
@@ -220,7 +227,8 @@ def plan(
     )
     started = time.monotonic()
     try:
-        reasoning = client.complete(stage1.system, stage1.messages)
+        reasoning = client.complete(stage1.system, stage1.messages,
+                                    on_text=on_text)
     except TruncatedReply as error:
         # STOP HERE. Stage 2 is a transcriber, and handing it a decision that
         # was never finished does not get a partial chain — it gets an invented
@@ -355,8 +363,16 @@ class ScriptedClient:
         self.emissions = list(emissions or [])
         self.calls: list[dict[str, Any]] = []
 
-    def complete(self, system, messages) -> str:
+    def complete(self, system, messages, on_text=None) -> str:
         self.calls.append({"kind": "text", "system": system, "messages": messages})
+        if on_text is not None:
+            # Delivered in pieces, not in one lump, and with a thinking phase
+            # first — because that is the shape the real client produces and a
+            # fake that skipped straight to text would let a consumer pass that
+            # cannot handle two minutes of no text at all.
+            on_text("started", None)
+            for i in range(0, len(self.reasoning), 64):
+                on_text("text", self.reasoning[i:i + 64])
         return self.reasoning
 
     def complete_structured(self, system, messages, schema) -> str:
@@ -437,7 +453,7 @@ class AnthropicClient:
             self._client = anthropic.Anthropic()
         return self._client
 
-    def complete(self, system, messages) -> str:
+    def complete(self, system, messages, on_text=None) -> str:
         """Stage 1's prose. Raises rather than returning a truncated decision.
 
         THE SILENT FAILURE THIS EXISTS TO STOP. This used to filter for text
@@ -464,10 +480,59 @@ class AnthropicClient:
             extra["thinking"] = {"type": "adaptive"}
             extra["output_config"] = {"effort": self.plan_effort}
 
+        # THE TEXT WAS ALREADY ARRIVING AND WAS BEING THROWN AWAY. This has
+        # streamed since the day the SDK refused a non-streaming call at this
+        # budget, and every token was discarded until `get_final_message()`.
+        # Stage 1 takes 150-235 s, so a user watched a spinner for three minutes
+        # while the analysis they were waiting for was already coming down the
+        # wire a sentence at a time.
+        #
+        # `on_text` is optional and defaults to None, so nothing that does not
+        # want the stream has to know it exists — the evaluation harnesses, the
+        # canary and every offline test call this exactly as before.
         with self._sdk().messages.stream(
             model=self.plan_model, max_tokens=self.plan_max_tokens,
             system=system, messages=messages, **extra,
         ) as stream:
+            if on_text is not None:
+                # THE FIRST TWO MINUTES CANNOT BE FILLED, and this is the
+                # honest shape of that rather than a spinner dressed up.
+                #
+                # Measured on the raw event stream: `content_block_start` for
+                # the thinking block fires at t+2 s, then NOTHING arrives until
+                # t+129 s, when the first text delta and the text block's start
+                # appear together. Of 127 delta events, 126 were text. Thinking
+                # is not streamed by this model — it is delivered as a single
+                # signature at completion — so there is no progress to report
+                # during it, and a first attempt here counted thinking deltas
+                # that can never arrive.
+                #
+                # What IS observable is that the model engaged, at t+2 s. That
+                # is worth sending: "connected and working" is a different
+                # message from silence, even when both look the same for two
+                # minutes. Everything after is the reasoning itself.
+                for event in stream:
+                    kind, payload = None, None
+                    etype = getattr(event, "type", "")
+                    if etype == "content_block_start":
+                        block = getattr(event, "content_block", None)
+                        if getattr(block, "type", "") == "thinking":
+                            kind, payload = "started", None
+                    elif etype == "content_block_delta":
+                        piece = getattr(getattr(event, "delta", None), "text", None)
+                        if piece:
+                            kind, payload = "text", piece
+                    if kind is None:
+                        continue
+                    # A callback that raises must not take the render with it.
+                    # The consumer is a disconnected browser more often than it
+                    # is a bug, and losing a 200-second analysis because nobody
+                    # was listening would be absurd.
+                    try:
+                        on_text(kind, payload)
+                    except Exception:
+                        on_text = None
+                        break
             response = stream.get_final_message()
 
         self.last_usage = dict(response.usage.__dict__ if response.usage else {})

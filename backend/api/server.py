@@ -52,7 +52,7 @@ sys.path.insert(0, ROOT)
 
 from fastapi import FastAPI, HTTPException, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from backend.audio import wavio  # noqa: E402
@@ -420,6 +420,101 @@ def plan_project(project_id: str, body: PlanRequest) -> dict[str, Any]:
     return {"graph_id": graph_id, "elapsed_s": round(time.time() - started, 1),
             "explanation": graph.explanation, "nodes": _describe(graph),
             **notes}
+
+
+@app.get("/api/projects/{project_id}/plan/stream")
+def plan_stream(project_id: str, request: str = "",
+                planner: str = "model") -> StreamingResponse:
+    """Plan, streaming stage 1's reasoning as it is written.
+
+    THE TEXT WAS ALREADY ARRIVING AND NOBODY WAS SHOWING IT. Stage 1 takes 150
+    to 235 seconds and has streamed since the SDK refused a non-streaming call
+    at that budget — every token was discarded until the call finished. The user
+    watched a spinner for three minutes while the analysis they were waiting for
+    came down the wire a sentence at a time.
+
+    This does not make the planner faster and is not a substitute for making it
+    faster. What it changes is that three minutes of nothing becomes three
+    minutes of watching the reasoning that justifies the chain, which is the
+    part a paying engineer is being asked to trust.
+
+    GET rather than POST, because EventSource cannot issue a POST. That puts the
+    request text in a query string, which is acceptable here and ONLY here: it
+    is the user's own sentence about their own audio, not a credential, and it
+    goes to a loopback server. In production this is a POST that returns a
+    stream id, and the seam is here.
+    """
+    project = project_or_404(project_id)
+    if planner != "model":
+        raise HTTPException(400, "streaming is only meaningful for the model "
+                                 "planner; the deterministic one is instant")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "no ANTHROPIC_API_KEY; use planner=rules")
+
+    def events():
+        chunks: list[tuple[str, Any]] = []
+
+        def on_text(kind: str, payload: Any) -> None:
+            chunks.append((kind, payload))
+
+        # Run the plan on this thread and flush whatever has arrived between
+        # yields. A queue and a worker thread would deliver each token sooner;
+        # this delivers them in batches and has no thread to leak if the client
+        # disconnects mid-render, which for a 200-second call is the likelier
+        # event.
+        import threading
+        outcome: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                outcome["value"] = pipeline.plan(
+                    pipeline.AnthropicClient(), report=project.excerpt_report,
+                    request=request or "Improve this without changing its "
+                                       "character.",
+                    on_text=on_text)
+            except Exception as error:
+                outcome["error"] = str(error)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+
+        sent = 0
+        while worker.is_alive() or sent < len(chunks):
+            while sent < len(chunks):
+                kind, payload = chunks[sent]
+                sent += 1
+                # Two event types, because they are two different things. The
+                # thinking figure is progress; the reasoning is the argument the
+                # user is being asked to trust, and conflating them would let a
+                # progress bar read as an explanation.
+                name = "reasoning" if kind == "text" else "started"
+                yield f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+            if worker.is_alive():
+                time.sleep(0.2)
+
+        worker.join()
+        if "error" in outcome:
+            yield f"event: error\ndata: {json.dumps(outcome['error'])}\n\n"
+            return
+
+        result = outcome.get("value")
+        if result is None or not result.ok:
+            fatal = result.fatal if result else ["the planner produced nothing"]
+            yield f"event: error\ndata: {json.dumps('; '.join(fatal))}\n\n"
+            return
+
+        graph_id = _store_graph(project, result.graph, request or "initial plan",
+                                None)
+        payload = {"graph_id": graph_id, "explanation": result.graph.explanation,
+                   "nodes": _describe(result.graph), "attempts": result.attempts,
+                   "repairs": result.repairs,
+                   "stage_seconds": result.stage_seconds}
+        yield f"event: done\ndata: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        # A proxy that buffers an event stream turns it back into a spinner.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/projects/{project_id}/graphs/{graph_id}/refine")

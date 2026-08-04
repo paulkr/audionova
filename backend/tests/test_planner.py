@@ -963,7 +963,10 @@ def test_stage_one_must_finish() -> None:
     print("[15] stage 1 must finish before stage 2 begins")
 
     class Truncating(pipeline.ScriptedClient):
-        def complete(self, system, messages):
+        # Signature must match the protocol, on_text included. A fake that
+        # omits an optional parameter is a fake of a different interface, and
+        # this one caught the day stage 1 gained streaming.
+        def complete(self, system, messages, on_text=None):
             raise pipeline.TruncatedReply("hit the ceiling")
 
     client = Truncating(emissions=[graph_json()])
