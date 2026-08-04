@@ -76,12 +76,12 @@ if [ "$MODE" != "quick" ]; then
 fi
 
 # --- backend -----------------------------------------------------------------
-for suite in loudness measure schema planner rules; do
+for suite in loudness measure schema planner rules knowledge; do
   run "backend: $suite"   make -C backend --no-print-directory "$suite"
 done
 
 # These render audio, so they are slower and are grouped after the fast ones.
-for suite in bridge refine dynamics verify sensitivity recovery api; do
+for suite in bridge refine dynamics verify sensitivity recovery api listen; do
   run "backend: $suite"   make -C backend --no-print-directory "$suite"
 done
 
