@@ -383,7 +383,36 @@ class AnthropicClient:
     def __init__(self, *, plan_model: str = "claude-opus-5",
                  emit_model: str = "claude-sonnet-5",
                  max_tokens: int = 8192,
-                 plan_max_tokens: int = 32000) -> None:
+                 plan_max_tokens: int = 32000,
+                 plan_effort: str | None = None) -> None:
+        # REASONING EFFORT, AND THE DEFAULT IS DELIBERATELY UNCHANGED.
+        #
+        # Stage 1 runs 149-235 s against a 45 s p50 and 120 s p95 target.
+        # Measured on one stem and one request, same prompt each time:
+        #
+        #     effort     stage 1   prose chars   four sections   attempts
+        #     low            82 s        8,561         yes           -
+        #     medium        154 s       11,450         yes           1
+        #     high          182 s       12,734         yes           1
+        #     default       195 s       12,951         yes           1
+        #
+        # Low effort is 58% faster and still produces a complete four-section
+        # analysis ending in a finished sentence. It MEETS the p95 target of
+        # 120 s. Nothing here misses p50.
+        #
+        # SO WHY IS THE DEFAULT STILL UNSET. Because what this measures is
+        # completeness, not quality — whether the analysis has four sections,
+        # not whether the chain it produces sounds better. The plan's own top
+        # risk is optimising a proxy, and its rule is that no metric gates a
+        # decision until it correlates with human MOS. "Faster and still four
+        # sections" is exactly the kind of number that looks like evidence and
+        # is not.
+        #
+        # This is a knob so the listening panel can A/B it, and that comparison
+        # is the first job the panel should be given: it is a 2x latency
+        # difference on the product's slowest step, decided by the only
+        # instrument that can decide it.
+        self.plan_effort = plan_effort
         self.plan_model = plan_model
         self.emit_model = emit_model
         self.max_tokens = max_tokens
@@ -428,9 +457,16 @@ class AnthropicClient:
         # is a useful constraint rather than an obstacle: it is the same
         # connection the SSE progress stream will eventually read from, so
         # stage 1 is already shaped for it.
+        extra: dict[str, Any] = {}
+        if self.plan_effort is not None:
+            # `thinking.type.enabled` is rejected by this model with a 400 that
+            # names the replacement: adaptive thinking plus an effort level.
+            extra["thinking"] = {"type": "adaptive"}
+            extra["output_config"] = {"effort": self.plan_effort}
+
         with self._sdk().messages.stream(
             model=self.plan_model, max_tokens=self.plan_max_tokens,
-            system=system, messages=messages,
+            system=system, messages=messages, **extra,
         ) as stream:
             response = stream.get_final_message()
 

@@ -1166,33 +1166,43 @@ blocked, so the landing page has only ever been seen at mobile width in-session.
   soundalike *output* well; analysing a copyrighted master is unsettled.
 - Counsel review of the artist-alias routing table before it ships.
 
-### A model plan takes about two minutes, and the DoD says 45 seconds
+### Reasoning effort halves planner latency, and only ears can price it
 
-Measured through the API on a real acoustic guitar excerpt: **128.7 s** for one
-model plan, request *"warm it up a little and tighten the low end"*, one attempt,
-no repairs. The gate passed and the chain is sound. The problem is only the wait.
+Stage 1 runs against a 45 s p50 and 120 s p95 target. Measured on one stem and
+one request, same prompt, varying only `output_config.effort`:
 
-Phase 1's definition of done is **p50 ≤ 45 s, p95 ≤ 120 s** prompt to audible.
-A single sample is not a p95, but one sample already exceeding the p95 target
-means the budget is wrong somewhere rather than merely tight.
+| effort | stage 1 | prose | four sections | attempts |
+|---|---|---|---|---|
+| **low** | **82 s** | 8,561 | yes | — |
+| medium | 154 s | 11,450 | yes | 1 |
+| high | 182 s | 12,734 | yes | 1 |
+| default (unset) | 195 s | 12,951 | yes | 1 |
 
-Where the time goes is not yet measured, and that is the next step rather than a
-guess. Two stages run serially — Opus reasoning unconstrained, then Sonnet
-transcribing — and the reasoning stage is high-effort by design because that is
-the half that earns the model its 200-700x cost premium over the DSP.
+Low effort is **58% faster** and still produces a complete four-section analysis
+ending in a finished sentence. It is the only setting that **meets the p95
+target**. Nothing meets p50, so that number needs revisiting whatever is
+decided.
 
-Candidate moves, none taken yet:
-- Time the two stages separately. If EMIT is a meaningful share, it is pure
-  transcription and can be a smaller model or a smaller prefix.
-- The known per-model cache defect below is worth roughly 31k tokens of
-  prefill on the EMIT call. Fixing it is a latency win as well as a cost win.
-- Stream stage 1, so the user reads the reasoning as it arrives instead of
-  watching a spinner. This is the SSE work the plan already schedules, and it
-  changes the *felt* latency without changing the number.
+Note the knob: `thinking.type.enabled` is rejected by this model with a 400 that
+names the replacement — adaptive thinking plus an effort level. There is no
+token budget to set.
 
-Mitigated in the UI rather than hidden: the button counts seconds up, and says
-a model plan takes a minute or two before it starts. Do not let that stand in
-for fixing it.
+**The default is deliberately unchanged**, and this is the whole point of the
+entry. What was measured is COMPLETENESS — four sections, finished sentence,
+serialises first time — not QUALITY. Whether a low-effort chain sounds as good
+is exactly what was not measured, and "faster and still four sections" is the
+kind of number that looks like evidence and is not. The plan's top risk is
+optimising a proxy, and its rule is that no metric decides anything until it
+correlates with human judgement.
+
+**What would resolve it:** the listening panel, and this should be its FIRST
+job. It is a 2x latency difference on the product's slowest step, and it is
+decidable by the only instrument that can decide it. `AnthropicClient` takes
+`plan_effort` so the two can be A/B'd without a code change.
+
+**Cost of being wrong in each direction:** shipping low effort when it matters
+means every user gets a worse chain to save 113 seconds. Shipping default when
+it does not means every user waits 195 seconds for nothing.
 
 
 ### The limiter is 0.07 dB permissive, and the fix that "verified" it did not
