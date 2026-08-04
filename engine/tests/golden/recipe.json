@@ -1,0 +1,112 @@
+{
+  "master": [
+    {
+      "bypass": false,
+      "id": "limit",
+      "mix": 1.0,
+      "params": {
+        "ceiling_dbtp": -1.0,
+        "release_ms": 90.0
+      },
+      "type": "true_peak_limiter"
+    },
+    {
+      "bypass": false,
+      "id": "dither",
+      "mix": 1.0,
+      "params": {},
+      "type": "dither"
+    }
+  ],
+  "nodes": [
+    {
+      "bypass": false,
+      "id": "eq",
+      "mix": 1.0,
+      "params": {
+        "bands": [
+          {
+            "center_freq_hz": 40.0,
+            "filter_type": "highpass",
+            "gain_db": 0.0,
+            "q_factor": 0.707
+          },
+          {
+            "center_freq_hz": 900.0,
+            "filter_type": "bell",
+            "gain_db": -3.5,
+            "q_factor": 1.4
+          },
+          {
+            "center_freq_hz": 8000.0,
+            "filter_type": "highshelf",
+            "gain_db": 2.5,
+            "q_factor": 0.707
+          }
+        ]
+      },
+      "type": "parametric_eq"
+    },
+    {
+      "bypass": false,
+      "id": "comp",
+      "mix": 1.0,
+      "params": {
+        "attack_ms": 8.0,
+        "knee_db": 6.0,
+        "lookahead_ms": 5.0,
+        "ratio_to_1": 3.0,
+        "release_ms": 120.0,
+        "threshold_dbfs": -22.0
+      },
+      "type": "compressor"
+    },
+    {
+      "bypass": false,
+      "id": "drive",
+      "mix": 1.0,
+      "params": {
+        "bias": 0.2,
+        "drive_db": 9.0,
+        "output_trim_db": -4.5
+      },
+      "type": "drive"
+    },
+    {
+      "bypass": false,
+      "id": "delay",
+      "mix": 0.25,
+      "params": {
+        "feedback_percent": 35.0,
+        "hf_damp_hz": 6000.0,
+        "time_ms": 137.0
+      },
+      "type": "delay"
+    },
+    {
+      "bypass": false,
+      "id": "verb",
+      "mix": 0.18,
+      "params": {
+        "decay_s": 1.6,
+        "modulation_depth": 0.6,
+        "pre_delay_ms": 20.0
+      },
+      "type": "plate_reverb"
+    },
+    {
+      "bypass": false,
+      "id": "width",
+      "mix": 1.0,
+      "params": {
+        "bass_mono_below_hz": 150.0,
+        "width_percent": 140.0
+      },
+      "type": "stereo_width"
+    }
+  ],
+  "output_format": "float64",
+  "output_sample_rate": 48000.0,
+  "sample_rate": 48000.0,
+  "seed": 11
+}

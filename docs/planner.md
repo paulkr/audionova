@@ -353,7 +353,7 @@ plan's definition of done for refinement is that the user reads the diff first.
 
 ## The descriptor glossary
 
-`backend/plan/glossary.py`, forty terms across tonal, dynamic, spatial and
+`backend/plan/glossary.py`, sixty terms across tonal, dynamic, spatial and
 character axes, with aliases.
 
 **The glossary is evidence, not instruction.** Every entry carries a
@@ -374,6 +374,20 @@ Several terms deliberately have **no default move** — `vintage`, `modern`,
 `lofi`, `honest`, `woody`. They are recorded so the planner recognises them as
 unactionable or preset-routed rather than inventing a frequency. A bandwidth
 limit, a tilt and some saturation is a caricature of "vintage", not an answer.
+
+**A condition has to name a measurement the report actually produces.** This is
+the rule the second twenty-one terms were written under, and `test_planner`
+enforces it against a report measured at test time rather than against a list of
+field names someone typed. "Reverb decay is long relative to the material's own
+note rate" reads as rigour and is not: there is no blind reverb time in the
+report, so nothing can evaluate it and the planner is left with the stock move
+plus a sentence that looks like evidence. Twenty-one terms predate the rule and
+are listed as named exemptions in the test — the list may only shrink, and its
+length is the honest measure of how much of the file is still prose.
+
+Three of those exemptions are the defect rather than the design: `dry`, `washy`
+and `distant` turn on a reverb decay, and `pumping` on an existing compressor's
+release. Neither quantity is measured. See `open-questions.md`.
 
 A duplicate-alias guard raises at import. It immediately caught `distant` claiming
 to be both a spatial term and an alias of the tonal `buried` — a real ambiguity,

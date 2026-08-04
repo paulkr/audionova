@@ -49,8 +49,8 @@ Built and verified:
   179 checks.
 - **Planner scaffolding** — prompt assembly with an 18.4 k cached prefix, the
   two-stage PLAN/EMIT driver, a bounded repair loop with SLI counters, the
-  deterministic quantifier ladder, and a forty-term descriptor glossary.
-  130 checks.
+  deterministic quantifier ladder, and a sixty-term descriptor glossary whose
+  conditions are checked against a real measurement report. 276 checks.
 - **Match-EQ** — fits a small editable biquad cascade to a spectral difference.
   Recovers a known filter applied by the engine to within 0.2 dB and the right
   band count. 68 checks.

@@ -275,6 +275,14 @@ def bandwidth_limit_hz(
     any log scale looks arbitrarily steep. Without this guard a steeply
     low-passed signal reports a wall at 21 kHz, in a region that contributes
     nothing either way.
+
+    THE CONFIDENCE MEASURES DISTANCE FROM THE DECISION, not steepness. Both
+    premises — a steep enough cliff, and a cliff with something left to cut off
+    — have thresholds, and a reading that sits a decibel from either of them is
+    a coin flip however impressive the slope looks. The returned value is the
+    weaker of the two margins, so it falls to zero as the measurement
+    approaches the boundary from either side. See the comments at the return
+    for the numbers that set the scale.
     """
     if freqs.size == 0:
         return None, 0.0
@@ -303,23 +311,64 @@ def bandwidth_limit_hz(
     span = 4
     if grid.size <= span:
         return None, 0.0
+    octaves = np.log2(grid[span:] / grid[:-span])
     drops = levels[:-span] - levels[span:]
-    slopes = drops / np.log2(grid[span:] / grid[:-span])
+    slopes = drops / octaves
 
     # Only look above 5 kHz: musical structure lower down can be steep without
     # being a bandwidth limit. And only where the level is still meaningful,
     # for the reason in the docstring.
     reference_band = (grid >= 2000.0) & (grid <= 4000.0)
     reference = float(np.mean(levels[reference_band])) if np.any(reference_band) else float(np.max(levels))
-    candidates = (grid[:-span] >= 5000.0) & (levels[:-span] > reference - max_depth_db)
+    depths = reference - levels[:-span]
+    candidates = (grid[:-span] >= 5000.0) & (depths < max_depth_db)
     if not np.any(candidates):
         return None, 0.0
 
     masked = np.where(candidates, slopes, -np.inf)
     best = int(np.argmax(masked))
-    if masked[best] < min_slope_db_per_octave or drops[best] < min_drop_db:
+
+    # THE TWO SLOPE GATES ARE ONE GATE IN TWO UNITS. A drop is a slope times
+    # the width it was measured over, so `drops[best] < min_drop_db` is
+    # `slopes[best] < min_drop_db / octaves[best]`. Over this grid the span is
+    # 0.118 octaves, which makes the drop gate bind at 169 dB/octave — stricter
+    # than the 150 the slope gate names, so the slope gate never decides
+    # anything on its own. Both are kept because they express different
+    # intentions and a future change to the grid or the span could reorder
+    # them, but the margin below has to be measured from whichever one actually
+    # binds. Measuring it from the nominal 150 reported 0.09 confidence at the
+    # exact frequency where the verdict changed.
+    effective_min_slope = max(min_slope_db_per_octave, min_drop_db / float(octaves[best]))
+    if masked[best] < effective_min_slope:
         return None, 0.0
 
     limit = float(grid[best])
-    confidence = float(np.clip((masked[best] - min_slope_db_per_octave) / 200.0, 0.0, 1.0))
+
+    # CONFIDENCE IS DISTANCE FROM THE DECISION, NOT STEEPNESS OF THE CLIFF, and
+    # the difference is the whole point of this number. The previous version
+    # read the slope alone, so it reported 0.88 on the demo vocal chain's
+    # output — a verdict that a 1 dB midrange bell flips, because the cliff it
+    # found sat 55.5 dB down against a 60 dB guard. A planner told 0.88 stops
+    # spending a band on air; a planner told the truth does not.
+    #
+    # There are two independent premises, and the verdict needs both:
+    #
+    #   the cliff is steep enough        slope    vs the binding threshold
+    #   there was something to cut off   depth    vs max_depth_db
+    #
+    # Confidence is the WEAKEST of the two, because a conclusion cannot be
+    # better supported than its shakiest premise. Multiplying them instead
+    # would punish two independently strong margins for no reason.
+    #
+    # The depth term is normalised by half the guard rather than all of it.
+    # Measured on real encodes of a full-band acoustic guitar — lame at 64, 96,
+    # 128 and 192 kbps and afconvert AAC at 64, 96 and 128 — every wall sits
+    # 21 to 24 dB below the midrange, a margin of 36 to 39 dB inside the guard.
+    # The unstable readings sit at margins of 0.3 to 8.8 dB. Half the guard
+    # separates those two populations and saturates on the first, so real codec
+    # material still reports 1.00 while anything a few dB from flipping cannot
+    # clear the 0.4 the planner acts on.
+    slope_margin = (masked[best] - effective_min_slope) / 200.0
+    depth_margin = (max_depth_db - float(depths[best])) / (max_depth_db / 2.0)
+    confidence = float(np.clip(min(slope_margin, depth_margin), 0.0, 1.0))
     return limit, confidence

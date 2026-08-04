@@ -189,6 +189,157 @@ def test_spectrum() -> None:
             "ERB bands widen with frequency as the ear's resolution does")
 
 
+def shaped_noise(curve_db, n: int, seed: int = 4242) -> np.ndarray:
+    """Noise with an arbitrary dB-versus-frequency shape, built spectrally.
+
+    In the frequency domain because that is how a codec builds a wall, and
+    because it makes the shape the test asks for the shape the test gets — an
+    IIR cascade would contribute its own rolloff to a measurement whose whole
+    subject is rolloff.
+    """
+    rng = np.random.default_rng(seed)
+    spec = np.fft.rfft(rng.normal(0.0, 1.0, n))
+    freqs = np.fft.rfftfreq(n, 1.0 / SR)
+    with np.errstate(divide="ignore"):
+        pink = np.where(freqs > 0.0, -10.0 * np.log10(np.maximum(freqs, 1.0)), 0.0)
+    spec = spec * 10.0 ** ((pink + curve_db(freqs)) / 20.0)
+    spec[0] = 0.0
+    out = np.fft.irfft(spec, n=n)
+    return out / np.max(np.abs(out)) * 0.5
+
+
+def wall_at_depth(depth_db: float, wall_hz: float = 16000.0,
+                  ramp_from_hz: float = 4000.0, fall_db: float = 80.0):
+    """A gentle rolloff to `depth_db` down, then a cliff.
+
+    The gentle part is what a dark acoustic source looks like; the cliff is
+    what a codec looks like. Raising `depth_db` slides the cliff down towards
+    the 60 dB depth guard WITHOUT changing how steep the cliff is, which is the
+    only way to vary one premise of the verdict while holding the other fixed.
+    """
+    def curve(f: np.ndarray) -> np.ndarray:
+        g = np.zeros_like(f)
+        ramp = (f > ramp_from_hz) & (f <= wall_hz)
+        g[ramp] = -depth_db * np.log2(f[ramp] / ramp_from_hz) / np.log2(wall_hz / ramp_from_hz)
+        g[f > wall_hz] = -depth_db - fall_db
+        return g
+    return curve
+
+
+def wall_of_slope(slope_db_per_octave: float, wall_hz: float = 12000.0,
+                  fall_db: float = 100.0):
+    """A cliff of a chosen steepness, high enough up to leave the depth guard clear."""
+    def curve(f: np.ndarray) -> np.ndarray:
+        g = np.zeros_like(f)
+        above = f > wall_hz
+        g[above] = -np.minimum(
+            slope_db_per_octave * np.log2(np.maximum(f[above], 1.0) / wall_hz), fall_db)
+        return g
+    return curve
+
+
+def detect_wall(x: np.ndarray) -> tuple[float | None, float]:
+    return spectrum.bandwidth_limit_hz(*spectrum.gated_ltas(x[None, :], SR), SR)
+
+
+def test_bandwidth_confidence() -> None:
+    print("[8] bandwidth-limit confidence tracks distance from the decision")
+
+    # A CONFIDENCE THAT DESCRIBES THE CLIFF INSTEAD OF THE DECISION IS A LIE,
+    # and it was one that shipped. Running the demo vocal chain, the source
+    # reported no wall and the output reported a wall at 21.2 kHz at confidence
+    # 0.9, from spectra within about 4 dB of each other everywhere above 5 kHz.
+    # The verdict was one decibel of midrange from flipping. The planner acts on
+    # anything above 0.4 by refusing every air-band move, so a number like that
+    # silently forbids a legitimate boost.
+    #
+    # The verdict rests on two premises with two thresholds — the cliff is steep
+    # enough, and there was still something above it worth cutting off — and the
+    # confidence has to fall to zero as EITHER of them is approached.
+    n = int(SR * 8)
+
+    # --- premise one: depth. Steepness is identical across this sweep; only how
+    # far down the cliff sits against the 60 dB guard changes.
+    depths = (20.0, 35.0, 50.0, 53.0)
+    depth_conf = []
+    for depth in depths:
+        limit, confidence = detect_wall(shaped_noise(wall_at_depth(depth), n))
+        R.check(limit is not None,
+                f"a cliff {depth:.0f} dB below the midrange is still found, got {limit}")
+        depth_conf.append(confidence)
+
+    R.check(all(a > b for a, b in zip(depth_conf, depth_conf[1:])),
+            f"confidence falls monotonically as the cliff nears the depth guard, "
+            f"got {[round(c, 3) for c in depth_conf]}")
+    R.check(depth_conf[0] >= 0.9,
+            f"a cliff with 40 dB of margin is reported confidently, {depth_conf[0]:.3f}")
+    R.check(depth_conf[-1] < 0.4,
+            f"a cliff with 7 dB of margin does not clear the 0.4 the planner acts on, "
+            f"{depth_conf[-1]:.3f}")
+
+    # --- premise two: slope. Depth is shallow throughout, so the slope margin is
+    # the binding one and the confidence must track it.
+    slopes = (175.0, 200.0, 250.0, 300.0)
+    slope_conf = []
+    for slope in slopes:
+        limit, confidence = detect_wall(shaped_noise(wall_of_slope(slope), n))
+        R.check(limit is not None,
+                f"a {slope:.0f} dB/octave cliff is found, got {limit}")
+        slope_conf.append(confidence)
+
+    R.check(all(a < b for a, b in zip(slope_conf, slope_conf[1:])),
+            f"confidence rises monotonically as the cliff steepens away from the "
+            f"threshold, got {[round(c, 3) for c in slope_conf]}")
+    R.check(slope_conf[0] < 0.1,
+            f"a cliff barely past the slope threshold is reported as barely evidence, "
+            f"{slope_conf[0]:.3f}")
+
+    # THE PROPERTY, TESTED WHERE IT ACTUALLY BITES rather than at a depth
+    # hard-coded from a previous run. Walk the cliff down one decibel at a time
+    # until the verdict changes, then read the confidence of the LAST reading
+    # that still said yes. That reading is by construction one decibel from
+    # flipping, so whatever the thresholds are later retuned to, it must not
+    # carry a confidence the planner would act on.
+    last_yes = None
+    flipped_at = None
+    for depth in np.arange(40.0, 60.0, 1.0):
+        limit, confidence = detect_wall(shaped_noise(wall_at_depth(float(depth)), n))
+        if limit is None:
+            flipped_at = float(depth)
+            break
+        last_yes = (float(depth), confidence)
+
+    R.check(flipped_at is not None and last_yes is not None,
+            f"the verdict flips somewhere in the sweep, at {flipped_at}")
+    if flipped_at is not None and last_yes is not None:
+        R.check(last_yes[1] < 0.4,
+                f"the last verdict before the flip (depth {last_yes[0]:.0f} dB, flips at "
+                f"{flipped_at:.0f} dB) is not reported confidently, {last_yes[1]:.3f}")
+
+    # AND THE FAR CASE MUST STAY LOUD, or this is not a fix but a mute button.
+    # A wall with both premises well clear is what a real MP3 of full-band
+    # material looks like: measured on lame at 64/96/128/192 kbps and afconvert
+    # AAC at 64/96/128 over an acoustic guitar, every one sits 21 to 24 dB below
+    # the midrange at 389 to 627 dB/octave, and every one reports 1.00.
+    limit, confidence = detect_wall(shaped_noise(wall_at_depth(22.0), n))
+    R.check(limit is not None and confidence >= 0.9,
+            f"an unambiguous codec wall is still reported at full confidence, "
+            f"limit {limit}, confidence {confidence:.3f}")
+
+    # Confidence is a probability-shaped number and downstream compares it to
+    # 0.4 numerically; an out-of-range value would sail past that comparison.
+    for depth in (10.0, 30.0, 55.0):
+        _, confidence = detect_wall(shaped_noise(wall_at_depth(depth), n))
+        R.check(0.0 <= confidence <= 1.0,
+                f"confidence stays inside [0, 1] at depth {depth:.0f}, got {confidence}")
+
+    # No wall means no confidence. A non-zero confidence attached to a null
+    # verdict is the kind of thing a language model will happily reason from.
+    limit, confidence = detect_wall(pink_noise(n))
+    R.check(limit is None and confidence == 0.0,
+            f"full-band material reports no wall and zero confidence, got {limit}, {confidence}")
+
+
 def test_dynamics() -> None:
     print("[2] dynamics")
 
@@ -664,5 +815,6 @@ if __name__ == "__main__":
     test_hygiene()
     test_report()
     test_wavio_matches_engine()
+    test_bandwidth_confidence()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

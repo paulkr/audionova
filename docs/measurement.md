@@ -145,7 +145,7 @@ violently dynamic; longer averages across a whole note, hiding the attack.
 | `tilt_db_per_octave_re_pink` | **0 = pink, +3 = white.** See below. |
 | `tilt_residual_db` | RMS deviation from the fitted line. |
 | `bandwidth_limit_hz` | A codec wall, or `null`. |
-| `bandwidth_limit_confidence` | |
+| `bandwidth_limit_confidence` | How far the reading is from flipping, **not** how steep the cliff is. See below. |
 | `hf_rolloff_db_per_octave` | Slope above 6.3 kHz. A tonal fact, not a defect. |
 
 **The tilt sign convention is named in the key for a reason.** These are
@@ -154,6 +154,16 @@ PSD (white noise) puts 3 dB more energy in each successive octave and reads as
 +3. Pink — equal energy per octave, what an engineer means by neutral — reads as
 0. This is the convention an RTA displays. A planner assuming the other one
 inverts every tonal move it makes.
+
+**`bandwidth_limit_confidence` measures distance from the decision.** The verdict
+rests on two premises with two thresholds — the cliff is steep enough, and there
+was still something above it worth cutting off — and the confidence is the weaker
+of the two margins, so it falls to zero as either boundary is approached. It read
+the slope alone once, and reported 0.88 on a verdict that a 1 dB midrange bell
+flipped; see `findings.md`. Real lossy material is unaffected: seven lame and AAC
+encodes of a full-band acoustic guitar all report 1.00. The planner acts on
+anything above 0.4 by refusing every air-band move, so anything near a boundary
+must not clear it.
 
 **Residual rather than r-squared.** R-squared measures the variance the *slope*
 explains, so perfectly pink noise — flat, zero slope, the best case there is —

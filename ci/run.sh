@@ -52,6 +52,12 @@ run "structural gates"    "$PY" ci/check_structure.py
 run "engine: build"       make -C engine --no-print-directory all
 run "engine: contract"    make -C engine --no-print-directory test
 run "engine: I/O"         make -C engine --no-print-directory iotest
+# THE ONLY CROSS-ARCHITECTURE CHECK IN THE PIPELINE. Every other engine test
+# compares this machine's output against this machine's expectations, which says
+# nothing about whether two machines agree. Both architectures comparing against
+# one committed render establishes that transitively, without CI having to ship
+# artifacts between jobs.
+run "engine: golden"      "$PY" ci/check_golden.py
 
 if [ "$MODE" != "quick" ]; then
   # Not optional discipline. Mutation testing found a partition-indexing bug

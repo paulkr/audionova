@@ -177,6 +177,56 @@ toward numerical zero, which on a log scale looks arbitrarily steep. A 6th-order
 lowpass at 5 kHz reported a wall at 21 kHz. Cliffs are only considered where the
 level is still within 60 dB of the midrange.
 
+### The codec detector's confidence described the cliff, not the decision
+
+The rewrite above got the verdict right and the confidence wrong. Confidence was
+`(slope − 150) / 200` — a function of how steep the cliff was, and of nothing
+else. Steepness is the strength of the evidence. It is not the certainty of the
+conclusion, because the conclusion also rests on the depth guard, and a cliff can
+be vertical while sitting a decibel from being ruled out entirely.
+
+Measured on the demo vocal chain, with the engine doing the filtering:
+
+| | slope | depth below midrange | margin inside the 60 dB guard | confidence |
+|---|---|---|---|---|
+| before | 325.6 dB/oct | 55.5 dB | **4.5 dB** | **0.88** |
+
+Lifting a 3 kHz bell on that output — which does not touch the audio above
+15 kHz at all, only the reference the guard is measured against — walks the
+margin down a decibel at a time. At a margin of 1.0 dB, one decibel from the
+verdict changing, the old code reported **confidence 1.000**. A cascade of engine
+lowpasses shows the same thing from the other side: three sections report a wall
+at 0.86, four sections report no wall.
+
+The wall it was so confident about was not a codec at all. It was the engine's
+own 96 kHz → 48 kHz resampler filter, at 21.2 kHz, in a region already 55 dB down.
+
+Confidence is now the **weaker of two margins**, because a conclusion cannot be
+better supported than its shakiest premise:
+
+    slope   vs the threshold that actually binds
+    depth   vs max_depth_db
+
+Two things fell out of writing it. First, the slope gate at 150 dB/octave never
+decides anything: a drop is a slope times the 0.118-octave window, so the 20 dB
+drop gate binds at 169 dB/octave and is always the stricter of the two. Measuring
+the margin from the nominal 150 reported 0.09 confidence at the exact frequency
+where the verdict changed. Second, the depth term needs normalising by half the
+guard rather than all of it — real encodes cluster at margins of 36 to 39 dB and
+the unstable readings at 0.3 to 8.8, and half the guard saturates on the first
+population without reaching the second.
+
+Verified against real encoded material rather than synthesised walls. Seven
+encodes of the acoustic guitar stem — lame at 64, 96, 128 and 192 kbps and
+afconvert AAC at 64, 96 and 128 — every one still detected at **1.00**. Clean
+stems still `None`. The demo case dropped from 0.88 to **0.15**, below the 0.4
+the planner acts on.
+
+**Rule:** a confidence must be a function of distance from the decision boundary.
+If it is a function of the measurement instead, it will read high on exactly the
+cases where it is a coin flip, and it will do so most confidently at the moment
+it is most wrong.
+
 ### R-squared was the wrong fit metric
 
 It measures the variance the *slope* explains, so perfectly pink noise — flat,
@@ -570,6 +620,44 @@ two want opposite answers. Silently resolving to one would have made the planner
 reach for reverb on a dry source that simply lacked presence. Both entries now
 state which measurement decides.
 
+### Twenty-one glossary conditions could not be evaluated by anything
+
+Found while taking the glossary from thirty-nine terms to sixty, by writing the
+grounding test first: measure a real report, flatten its field paths, and require
+every `check_first` to name one of them. Twenty-one of the original entries name
+nothing measurable. Four are the interesting kind — `dry`, `washy` and `distant`
+turn on a **reverb decay** and `pumping` on an **existing compressor's release**,
+and the report produces neither, though `report.py`'s own docstring says "blind
+reverb time" is one of its estimates. The prose was written from what a report
+*should* contain.
+
+The failure mode is not a missing move, it is a confident one: the condition
+cannot be checked, so the stock move happens anyway, now with a sentence
+attached that reads like evidence. The test exempts the twenty-one by name rather
+than by date, so every term added from here is enrolled automatically.
+
+### The exemption list was itself a way to make the test pass
+
+The mutation that mattered, and the one that survived first time. Adding a new
+term's name to the exemption list silences the grounding check for it, and the
+suite still passed — so "every term names a measured field" was an assertion the
+next author could satisfy by editing the list instead of the entry, which is
+exactly the shape of every test in this repository that has passed while the
+property it named was broken.
+
+Fixed by pinning the length: the list may only shrink. Thirteen of fourteen
+mutations were caught before this one was added; fourteen of fourteen after.
+Worth stating plainly because the grounding test looked complete and specific
+while carrying its own escape hatch.
+
+### `presence` did not resolve
+
+`present` was an alias of `forward`; `presence` was not. The commonest spelling
+of one of the commonest requests returned `None` and the term fell through to the
+model unresolved. Found by asserting the glossary answers the seven words the
+project's own documentation uses as examples — a test worth having precisely
+because it checks the thing everyone assumes is already true.
+
 ### A cache-boundary test that checked the documentation
 
 The prefix assertion probed for the string `TPT`, which appears in
@@ -621,6 +709,80 @@ insurance against the part of the file you did not audition.
 Mutation-tested four ways: removing the repair, applying it without reporting
 it, letting it clobber a deliberately chosen ceiling, and setting the ceiling to
 0.0 instead of −1.0. Each was caught by a different assertion.
+
+### Stage 1 was returning nothing, and stage 2 was covering for it
+
+The worst bug found so far, because every layer built to catch it reported
+success.
+
+The planner is deliberately two calls: an unconstrained reasoning stage, then a
+transcriber that serialises the decision. The split exists because constrained
+decoding from token one measurably degrades reasoning. Stage 1 was called with
+`max_tokens=8192`. Opus spends output tokens on thinking, thinking counts
+against that ceiling, and a real call returned:
+
+    stop_reason: max_tokens
+    content blocks: [('thinking', 0)]
+    usage: output_tokens=8192
+
+**One thinking block. Zero text blocks.** The client filtered `content` for text
+blocks, found none, and returned `""`. On other runs it returned a fragment that
+stopped mid-sentence — 665 characters ending at `"LRA is only 1.98 LU,"`.
+
+Stage 2 was then handed an empty decision. It cannot tell "no decision" from "a
+decision with no prose", so it did the only thing it could: it invented the
+chain from the measurement report. **The stage explicitly forbidden from
+reasoning was doing all of it**, which is the exact failure the two-stage design
+exists to prevent.
+
+Nothing noticed. The chains were plausible, the validators passed them, the
+safety gate passed the renders, the explanations read well. The only visible
+trace was a single retry, which looked like ordinary schema friction.
+
+Fixed in four parts, three of which are separate bugs found while chasing this:
+
+**1. The budget.** `plan_max_tokens` is 32,000 and separate from the emit
+budget. Stage 1 now returns 12,000–14,000 characters ending in a complete
+sentence.
+
+**2. The refusal.** `complete()` raises `TruncatedReply` on `stop_reason ==
+max_tokens` or on empty text, and the pipeline stops before stage 2 rather than
+handing it a partial decision. There is also a floor: a reply under 400
+characters cannot be the four-section analysis that was asked for. An incomplete
+decision is not a cheaper decision — it is a different one, made by the wrong
+stage.
+
+**3. The tool schema was unreadable.** Chasing the retries surfaced something
+else: the model was returning the graph wrapped in a made-up key, sometimes
+literally `$PARAMETER_NAME` and `$PARAMETER_VALUE` — the placeholder tokens. The
+cause is that Pydantic factors repeated definitions into `$defs` and points at
+them with `$ref`, which is correct JSON Schema, and the API does not resolve
+them for the model. It was being shown properties whose shapes were references
+it could not follow, and it did what anyone does when handed a form with no
+field names.
+
+Four trials crossing prefix size against reasoning length: the `$PARAMETER_`
+spelling correlated with the larger prefix, but *every* trial wrapped. After
+inlining every `$ref`, three trials for three returned
+`['explanation', 'nodes', 'master']` directly. Costs about 50% more schema
+characters, since a definition used twice is now written twice.
+
+**4. A 1200-character cap on `explanation`.** Once stage 1 produced a real
+analysis the transcriber wrote a fuller summary and blew the cap on two turns in
+three — a whole graph discarded over prose length. Raised to 2400 and, crucially,
+**stated in the description text**: `maxLength` is in the same category as
+`minimum` and `maximum`, present in the schema and not enforced on the wire.
+
+And a fifth, found while diagnosing: the parse-failure branch set the finding for
+the retry prompt but never recorded it on the outcome, so a turn where every
+attempt failed to parse returned `ok=False` with an **empty** `fatal` list. A
+failure with no stated reason is the least useful thing the pipeline can produce,
+and it cost real time here.
+
+The lesson is not about token budgets. It is that a pipeline stage which
+silently substitutes for a failed upstream stage produces output indistinguishable
+from correct at every layer below it. `complete()` returning `""` was the whole
+bug; everything downstream was working exactly as designed.
 
 ## Frontend findings
 

@@ -21,10 +21,18 @@ FREQUENCY RANGES ARE WIDE ON PURPOSE. "Boxy" is not 400 Hz, it is roughly
 boxy acoustic guitar are not the same frequency. Narrow ranges would encode a
 precision nobody has.
 
-This is a starting set of forty terms, not the sixty the plan calls for. The
-missing ones are the genre-specific and instrument-specific vocabulary, which
-should be authored alongside the presets by someone who mixes for a living
-rather than guessed at here.
+CHECK_FIRST NAMES A MEASUREMENT THAT EXISTS. Every condition added after the
+first forty terms is phrased against a field the measurement report actually
+produces, and `test_planner` enforces that against a real report rather than
+against a list of field names someone typed. A condition like "reverb decay is
+long" reads as rigour and is not: there is no blind reverb time in the report,
+so nothing can evaluate it. The terms that predate this rule are listed in the
+test as exemptions rather than quietly excluded, because the exemption list is
+the honest measure of how much of this file is still prose.
+
+Sixty terms. The genre-specific and artist-specific vocabulary is still absent
+and still belongs with the presets, authored by someone who mixes for a living
+rather than guessed at here — 'Motown bass' names a record, not a region.
 """
 
 from __future__ import annotations
@@ -87,6 +95,37 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "the low-mids are not already elevated",
         aliases=("full", "warm_low"),
     ),
+    Descriptor(
+        "bassy", "tonal", 40.0, 120.0, +1,
+        "the 40-120 Hz bands sit at or below the source's own band average AND "
+        "there is measurable energy there to lift — below a source's own "
+        "fundamental a boost raises the noise floor and nothing else",
+        "'Not enough bass' is about 80-120 Hz on anything that is not a kick, a "
+        "bass or a synth. Boosting 40 Hz on a guitar adds weight nobody asked "
+        "for to a region the instrument does not occupy.",
+        aliases=("bassier", "bass_heavy", "more_bass"),
+    ),
+    Descriptor(
+        "plosive", "tonal", 20.0, 120.0, -1,
+        "the per-ERB crest in the lowest bands is far ABOVE the broadband crest "
+        "factor — plosives are short bursts, not the sustained energy that makes "
+        "a source rumbly",
+        "The same high-pass answers this and 'rumbly', but for opposite reasons, "
+        "and the crest is what tells them apart. Worth checking on any voice "
+        "even when the user did not complain: it costs nothing to fix and it "
+        "biases every level decision downstream while it is there.",
+        aliases=("plosives", "popping", "p_pops"),
+    ),
+    Descriptor(
+        "chesty", "tonal", 150.0, 350.0, -1,
+        "the 150-350 Hz bands sit above the source's own band average AND the "
+        "per-ERB crest there is below the broadband crest factor, i.e. it is "
+        "sustained resonance rather than note attacks",
+        "Vocal-specific and narrower than 'muddy'. Chest sits just above the "
+        "fundamental of most voices, so a cut placed by ear at 250 Hz often "
+        "lands on the note being held. Place it from the band levels.",
+        aliases=("chest", "chestiness", "proximity"),
+    ),
 
     # --- low mids ----------------------------------------------------------
     Descriptor(
@@ -124,7 +163,7 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "forward", "tonal", 1000.0, 3000.0, +1,
         "the presence region is not already elevated and the source is not "
         "already flagged as harsh",
-        aliases=("present", "upfront", "in_your_face"),
+        aliases=("present", "presence", "upfront", "in_your_face"),
     ),
     Descriptor(
         "buried", "tonal", 1000.0, 4000.0, +1,
@@ -135,6 +174,49 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "and the two want different answers. Which one applies is decided by "
         "whether a reverb is present, not by the word.",
         aliases=("recessed", "behind"),
+    ),
+    Descriptor(
+        "midrangey", "tonal", 400.0, 2000.0, -1,
+        "the 400-2000 Hz bands sit above the source's own band average as a "
+        "GROUP rather than at one peak — a single peak is honky or nasal and "
+        "wants a narrower fix",
+        "Broad and narrow excesses in the same region are different problems. "
+        "The broad one is usually the instrument's own range being too loud, "
+        "which a fader answers better than an EQ.",
+        aliases=("middy", "mid_heavy", "too_much_midrange"),
+    ),
+    Descriptor(
+        "ringy", "tonal", 100.0, 8000.0, -1,
+        "a narrow peak exists in the band levels AND the per-ERB crest at that "
+        "band is below the broadband crest factor — a ring outlasts the note "
+        "that excited it, so it shows up as sustain, not as attack",
+        "The region is wide because a ring can be anywhere: a snare shell at "
+        "400 Hz and a cymbal at 6 kHz are both ringy. The measurement locates "
+        "it; the word does not, and a centre guessed from the word is a "
+        "resonance left in place plus a hole somewhere else.",
+        aliases=("ringing", "resonant", "rings_out"),
+    ),
+    Descriptor(
+        "tinny", "tonal", 200.0, 4000.0, 0,
+        "two things at once — the bands under 250 Hz sit beneath the source's "
+        "own band average AND a peak exists in 1-4 kHz; which of the two is "
+        "measurably true decides the move, so this term has no default one",
+        "Tinny is the sound of a small speaker: no bottom and a midrange "
+        "resonance. Fixing only the peak leaves it thin and fixing only the "
+        "bottom leaves it honky. If just one of the two holds, the answer is "
+        "that term instead.",
+        aliases=("tin", "cheap_sounding", "small_speaker"),
+    ),
+    Descriptor(
+        "clear", "tonal", 150.0, 6000.0, 0,
+        "which end is at fault: if the 150-400 Hz bands sit above the source's "
+        "own band average the answer is a low-mid cut, and if the 2-5 kHz bands "
+        "sit beneath it the answer is a presence lift",
+        "Clarity names an outcome, not a region, and the two moves that produce "
+        "it are opposite. Doing both because the word is vague is how a source "
+        "ends up hollow. Pick the one the band levels support, and if neither "
+        "holds, the source is already clear and something else is masking it.",
+        aliases=("clarity", "defined", "articulate", "intelligible"),
     ),
     Descriptor(
         "honest", "tonal", 0.0, 0.0, 0,
@@ -157,6 +239,26 @@ GLOSSARY: tuple[Descriptor, ...] = (
         aliases=("edge", "gritty_mid"),
     ),
     Descriptor(
+        "shrill", "tonal", 3000.0, 8000.0, -1,
+        "a peak exists in the 3-8 kHz bands AND the per-ERB crest there is not "
+        "far above the broadband crest factor — if it is, the peaks are short "
+        "and the term is 'sibilant', which wants a de-esser instead",
+        "The third of three neighbouring complaints. Harsh is broad and lower, "
+        "shrill is a peak higher up, sibilant is short bursts. They are told "
+        "apart by measurement, not by how strongly the user said it.",
+        aliases=("piercing", "screechy", "ear_splitting"),
+    ),
+    Descriptor(
+        "smooth", "tonal", 2000.0, 6000.0, -1,
+        "a peak exists in 2-6 kHz to take down; if the region is flat and the "
+        "per-ERB crest there is high, the roughness is transient rather than "
+        "tonal and an EQ will not reach it",
+        "The request form of the 'harsh' complaint. A broad shelf here reads as "
+        "dull rather than smooth — the ear hears the peak, not the average, so "
+        "removing the average removes the wrong thing.",
+        aliases=("smoother", "silky", "less_harsh"),
+    ),
+    Descriptor(
         "bright", "tonal", 4000.0, 12000.0, +1,
         "the high bands are not already elevated and the noise floor is low",
         aliases=("brighter", "open", "crisp"),
@@ -175,6 +277,25 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "Wants a dynamic EQ or de-esser rather than a static cut: a static cut "
         "dulls the whole performance to fix a few consonants.",
         aliases=("essy", "spitty", "sss"),
+    ),
+    Descriptor(
+        "lispy", "tonal", 5000.0, 9000.0, +1,
+        "the 5-9 kHz bands sit beneath the source's own band average — usually "
+        "the mark of a de-esser already working too hard rather than of the "
+        "recording",
+        "The mirror of 'sibilant', and the reason a static cut is the wrong "
+        "tool for sibilance: it takes the whole band down, consonants and air "
+        "together, and this is what that sounds like afterwards.",
+        aliases=("lisping", "over_de_essed", "dull_esses"),
+    ),
+    Descriptor(
+        "breathy", "tonal", 6000.0, 12000.0, +1,
+        "the noise floor is low enough that lifting breath does not lift the "
+        "room with it, AND there is no codec wall below 12 kHz",
+        "Breath and hiss share an octave, so this boost is only available on a "
+        "quiet recording. On a noisy one the honest answer is that an EQ cannot "
+        "separate them.",
+        aliases=("breath", "breathiness", "intimate_vocal"),
     ),
 
     # --- top ---------------------------------------------------------------
@@ -238,6 +359,57 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "Wants upward compression or a slower release, not a lower threshold.",
         aliases=("long", "singing"),
     ),
+    Descriptor(
+        "peaky", "dynamic", 0.0, 0.0, 0,
+        "the crest factor is high WHILE the short-term RMS percentile spread, "
+        "p90 minus p10, is narrow — isolated peaks over a steady body",
+        "The opposite pair to 'uneven', which is a wide percentile spread at an "
+        "ordinary crest. Peaky wants a limiter or a clipper on the peaks; "
+        "uneven wants a compressor across the body. Reading the crest alone "
+        "confuses the two and gets a fast compressor on both.",
+        aliases=("peaks", "spiky", "transient_heavy"),
+    ),
+    Descriptor(
+        "tight", "dynamic", 40.0, 250.0, 0,
+        "the per-ERB crest in the 40-250 Hz bands is well below the broadband "
+        "crest factor, which is what a low end that rings rather than stops "
+        "looks like",
+        "Not an EQ move, which is why the direction is zero: the complaint word "
+        "is 'flabby', the request word is 'tight', and both name the same "
+        "measurement. The answer is faster envelope control in the low bands. A "
+        "cut makes it smaller, not tighter, and the user will say so.",
+        aliases=("tighter", "flabby", "loose", "undamped"),
+    ),
+    Descriptor(
+        "clicky", "dynamic", 1500.0, 6000.0, -1,
+        "the per-ERB crest in the 1.5-6 kHz bands is well above the broadband "
+        "crest factor — the click is a transient, so a static cut also removes "
+        "the sustain that was not the problem",
+        "Beater, pick and key noise all live here. A transient shaper or a "
+        "dynamic EQ keeps the body; a bell does not.",
+        aliases=("click", "clacky", "beater_heavy"),
+    ),
+    Descriptor(
+        "glued", "dynamic", 0.0, 0.0, 0,
+        "there is something to glue: the peak-to-loudness ratio is above about "
+        "10 dB and the loudness range is above about 4 LU",
+        "Glue is slow, low-ratio bus compression, and on material that has "
+        "already been levelled it does nothing audible except cost headroom. "
+        "Say so rather than adding a node that measures as a no-op.",
+        aliases=("glue", "cohesive", "gel"),
+    ),
+    Descriptor(
+        "loud", "dynamic", 0.0, 0.0, 0,
+        "there is headroom to use: the true peak sits below the ceiling and the "
+        "peak-to-loudness ratio is above about 10 dB, so level can come up "
+        "without a limiter doing the work",
+        "Below that, loudness is bought with dynamics, and the honest answer is "
+        "what it costs rather than a louder file with no comment. Note also "
+        "that the integrated loudness here is the excerpt's, not the file's — "
+        "an excerpt can sit well below the loudest moment, and a chain that "
+        "clears the ceiling on one can clip on the other.",
+        aliases=("louder", "turn_it_up", "more_level"),
+    ),
 
     # --- spatial -----------------------------------------------------------
     Descriptor(
@@ -257,6 +429,27 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "dry", "spatial", 0.0, 0.0, 0,
         "no reverb or delay is present, or their mix is low",
         aliases=("close", "intimate", "upfront_space"),
+    ),
+    Descriptor(
+        "wet", "spatial", 0.0, 0.0, 0,
+        "the envelope modulation depth is deep enough that the gaps between "
+        "notes are still open — a shallow depth means the source is already "
+        "sitting in a space and a second one stacks on it",
+        "The antonym of 'dry', and the weakest evidence in this file: the "
+        "report carries no blind reverb time, so modulation depth is all there "
+        "is and it is indirect. A request for 'wetter' on a source that already "
+        "measures shallow is worth questioning rather than executing.",
+        aliases=("wetter", "reverby", "more_space"),
+    ),
+    Descriptor(
+        "roomy", "spatial", 0.0, 0.0, 0,
+        "the envelope modulation depth is shallow — the gaps between notes are "
+        "filled — and no reverb node in the chain accounts for it, so the space "
+        "is in the recording",
+        "A room in the recording cannot be removed, only masked, and gating "
+        "trades it for a different artefact. One of the honest 'no' answers, "
+        "and much better given before rendering than after.",
+        aliases=("room_sound", "live_sounding", "ambient"),
     ),
     Descriptor(
         "washy", "spatial", 0.0, 0.0, 0,
@@ -303,6 +496,38 @@ GLOSSARY: tuple[Descriptor, ...] = (
         "saturated", "character", 0.0, 0.0, 0,
         "the source is not already clipped",
         aliases=("hot", "cooked", "pushed"),
+    ),
+    Descriptor(
+        "distorted", "character", 0.0, 0.0, 0,
+        "whether the clipping measurement shows flat-topped runs: if it does, "
+        "the distortion is in the file and nothing downstream removes it; if it "
+        "does not, the user means the drive already in the chain and the answer "
+        "is to reduce it",
+        "The same sound as 'crunchy', unwanted, and the measurement is the only "
+        "thing that separates them. Do not reach for a repair on the strength "
+        "of the word alone — on an unclipped source there is nothing to repair.",
+        aliases=("distortion", "broken_up", "clipped", "fuzzed"),
+    ),
+    Descriptor(
+        "crackly", "character", 0.0, 0.0, 0,
+        "the hygiene measurements report non-finite samples, or clipping runs; "
+        "if neither is present the user means 'fizzy' or 'gritty' and the "
+        "answer is tonal rather than a repair",
+        "A defect, like hiss, not a taste. Nothing in the chain repairs a "
+        "damaged file, and processing one carries the damage into every "
+        "measurement downstream.",
+        aliases=("crackle", "crackling", "glitchy"),
+    ),
+    Descriptor(
+        "sterile", "character", 0.0, 0.0, 0,
+        "the source measures clean — no clipping, and a crest factor that has "
+        "not already been squashed — so the complaint is a lack of harmonic "
+        "content rather than a tonal one",
+        "The complaint form of 'clean'. A low-mid boost is the wrong answer and "
+        "reads as muddy; low-order saturation adds the harmonics the word is "
+        "actually about. If the source already clips, this is not sterility and "
+        "adding drive makes it worse.",
+        aliases=("cold", "clinical", "characterless", "antiseptic"),
     ),
     Descriptor(
         "clean", "character", 0.0, 0.0, 0,

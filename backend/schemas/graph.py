@@ -37,6 +37,7 @@ then fail to render, or worse, render with a silently defaulted parameter.
 
 from __future__ import annotations
 
+import copy
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -443,9 +444,19 @@ class EffectGraph(_Strict):
                     "true_peak_limiter and dither belong here, in that order.",
     )
     explanation: str = Field(
-        default="", max_length=1200,
-        description="Plain-language summary for the user. Never name an artist, "
-                    "band or commercial recording.",
+        # 1200 was too tight and rejected good graphs. Once the planning stage
+        # started producing a full analysis rather than a truncated one, the
+        # transcriber wrote a correspondingly fuller summary and blew the cap on
+        # two turns out of three — a graph thrown away over prose length.
+        #
+        # The number is stated in the description as well, because maxLength is
+        # in the same category as minimum and maximum: it appears in the schema,
+        # it is NOT enforced on the wire, and the only place the model reliably
+        # reads a bound is the text.
+        default="", max_length=2400,
+        description="Plain-language summary for the user, at most 2400 "
+                    "characters — a few paragraphs, not the full analysis. "
+                    "Never name an artist, band or commercial recording.",
     )
 
     @model_validator(mode="after")
@@ -514,9 +525,78 @@ def json_schema() -> dict[str, Any]:
     exist — and every bound is already stated in the description text, which the
     model does read. Enforcement happens in Python, against the same declaration.
     """
-    schema = EffectGraph.model_json_schema()
+    schema = _dereference(EffectGraph.model_json_schema())
     _strip_unenforced(schema)
+
+    # SAY WHICH FIELDS ARE REQUIRED, or the model is told a graph with nothing
+    # in it satisfies the schema. Pydantic omits `required` entirely here
+    # because every field has a default — sensible for a Python constructor,
+    # actively harmful as a tool schema.
+    #
+    # Measured: with no `required` and `additionalProperties: false`, the model
+    # returned a single top-level key literally named "$PARAMETER_VALUE" with
+    # the whole graph nested inside it — a filled-in template rather than an
+    # answer. It cost a retry on every planning turn, which read as ordinary
+    # schema friction rather than as a schema defect.
+    #
+    # `master` stays optional: a graph with no master section is legitimate, and
+    # validation adds the delivery ceiling. `schema_version` has exactly one
+    # allowed value and nothing is gained by making the model type it.
+    schema["required"] = ["nodes", "explanation"]
     return schema
+
+
+def _dereference(schema: dict[str, Any]) -> dict[str, Any]:
+    """Inline every `$ref`, leaving a schema with no `$defs`.
+
+    THE MODEL CANNOT SEE THROUGH A `$ref`. Pydantic factors repeated
+    definitions — `GraphNode`, `EqBand`, every params model — into `$defs` and
+    points at them, which is correct JSON Schema and the right thing for a
+    validator. Handed to the API as a tool's `input_schema` it is not resolved,
+    so the model is shown properties whose shapes are references it cannot
+    follow, and it does what anyone does when asked to fill in a form with no
+    field names: it invents them.
+
+    The symptom was a tool call whose top-level keys were `$PARAMETER_NAME` and
+    `$PARAMETER_VALUE` — the literal placeholders — with the real graph
+    sometimes nested one level down under a made-up key. It cost a retry on
+    most turns and a total failure on some, and it read as ordinary schema
+    friction rather than as the schema being unreadable.
+
+    Measured after inlining: three trials for three, top-level keys came back
+    as `['explanation', 'nodes', 'master']` with no envelope and no
+    placeholders.
+
+    Costs about 50% more characters, since a definition used twice is now
+    written twice. That is the whole price, and it buys a schema the model can
+    actually read.
+    """
+    defs = schema.get("$defs", {})
+
+    def walk(node: Any, seen: tuple[str, ...] = ()) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                name = node["$ref"].rsplit("/", 1)[-1]
+                if name not in defs:
+                    raise KeyError(f"schema references unknown definition {name!r}")
+                if name in seen:
+                    # A genuinely recursive schema cannot be inlined. Nothing
+                    # here is recursive today; this refuses rather than looping
+                    # forever if that ever changes.
+                    raise ValueError(
+                        f"cannot inline recursive definition {name!r}; the "
+                        f"model API needs a flat schema and this one cycles")
+                resolved = walk(copy.deepcopy(defs[name]), seen + (name,))
+                resolved.update({k: v for k, v in node.items() if k != "$ref"})
+                return resolved
+            return {k: walk(v, seen) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [walk(v, seen) for v in node]
+        return node
+
+    flat = walk(copy.deepcopy(schema))
+    flat.pop("$defs", None)
+    return flat
 
 
 def _strip_unenforced(node: Any) -> None:

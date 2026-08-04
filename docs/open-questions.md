@@ -48,11 +48,38 @@ resolved: "Day Tripper" was recorded 16 Oct 1965 and ADT was invented in April
 citations with page numbers and confidence levels precisely so this class of
 error is catchable.
 
-### Twenty glossary terms are missing
+### Twenty-one glossary conditions name a measurement that does not exist
 
-Forty of the sixty the plan calls for. The missing ones are the genre- and
-instrument-specific vocabulary, which should be authored alongside the presets by
-someone who mixes for a living rather than guessed at here.
+The glossary is now sixty terms, but the count was never the risk. Twenty-one of
+the original forty carry a `check_first` that nothing can evaluate, and four of
+those are outright wrong rather than merely vague: `dry`, `washy` and `distant`
+turn on **reverb decay**, and `pumping` on an **existing compressor's release**.
+The measurement report produces neither. The rest are unactionable on purpose
+(`vintage`, `honest`, `clean`) or true of a spectrum without naming one field
+(`boxy`, `warm`, `nasal`).
+
+This is worse than a missing term, which is the reason it is here rather than in
+a backlog. A planner reading "reverb decay is long relative to the material's own
+note rate" cannot check it, falls back on the stock move, and now has a
+rigorous-looking sentence to justify it with. A term with no condition at least
+announces itself.
+
+Resolves either by adding a blind reverb-time estimate to the report — the
+report's own docstring already claims one exists, which is how this was noticed —
+or by rewriting the four conditions against what is measured. `test_planner`
+holds the exemption list, and asserts it can only shrink.
+
+Cost of being wrong: reverb and compression moves made on conditions nobody
+evaluated, on exactly the material where a spatial mistake is most audible.
+
+### The genre- and instrument-specific vocabulary is still missing
+
+Sixty terms is the plan's number, and the twenty-one added to reach it are
+general engineering vocabulary — the antonyms users type alongside the terms
+already present, plus the words that separate three neighbouring complaints
+(`harsh`, `shrill`, `sibilant`) by measurement. None of them is genre- or
+instrument-specific, and that vocabulary still belongs with the presets, authored
+by someone who mixes for a living. "Motown bass" names a record, not a region.
 
 ---
 
@@ -112,26 +139,50 @@ tonal chains. The report may genuinely not carry this information for dense
 material. A planner that recovers it would be demonstrating something real rather
 than pattern-matching.
 
-### The codec detector is unstable near its own threshold
+### The codec detector picks its wall by slope alone
 
-Running the demo surfaced this. The vocal source and the processed output have
-near-identical spectra above 5 kHz — within about 4 dB at every band, both
-rolling off steeply and both with essentially nothing above 12 kHz — yet the
-detector reports no wall on the source and a wall at 21.2 kHz on the output,
-at **confidence 0.9**.
+Fixed separately: the *confidence* the detector reports now measures distance
+from the decision (see the Resolved table). What was not touched is which
+candidate it reports. The wall is still chosen by `argmax(slope)` among the
+eligible bands, so a very steep cliff sitting one decibel inside the depth guard
+beats a moderately steep one with 35 dB of margin. The confidence is then
+honest — it comes out near zero — but the reported `bandwidth_limit_hz` is the
+less informative of the two.
 
-Both readings are individually defensible. The pair is not: a 0.9 confidence on
-a case that flips from a few dB of change means the confidence is describing the
-steepness of the cliff and not the certainty of the detection.
+Measured: lifting a 3 kHz bell on the demo vocal chain's output by 10 dB moves
+the reported wall from 21223 Hz to 20791 Hz while the audio above 15 kHz is
+untouched. Both readings are low-confidence now, so nothing acts on either.
 
-Nothing downstream currently acts on it — the verify gate's bandwidth check
-passed, and it compares against the source rather than reading this field. But
-the planner is instructed to skip air-band moves when this fires above 0.4
-confidence, so a spurious high-confidence wall would silently forbid a legitimate
-move.
+**What would resolve it:** select the candidate by the same weakest-link margin
+the confidence uses, rather than by slope, and confirm on the real encode corpus
+(lame 64/96/128/192, afconvert AAC 64/96/128 over the acoustic guitar, vocal and
+bass stems) that no genuine wall moves frequency.
 
-Not urgent, and not worth a hasty threshold change. What it wants is a confidence
-that accounts for how close the measurement sits to the decision boundary.
+**What it costs to be wrong:** little today. Every case where the two rules
+disagree is a case with a small depth margin, which now reports below the 0.4
+the planner acts on, so a mis-chosen frequency is attached to a verdict nobody
+uses. It becomes a real cost only if the 0.4 threshold is ever lowered.
+
+### The grid and span in the bandwidth detector are not the sizes they are called
+
+`bandwidth_limit_hz` documents "a 1/12-octave grid" and a slope "measured over a
+third of an octave". The grid is 120 points from 2 kHz to 23 kHz, which is 3.53
+octaves in 119 steps — a 1/33.7-octave grid — and `span = 4` makes the slope
+window 0.118 octaves, about 1/8.4 of an octave.
+
+The numbers the detector is calibrated against were measured on this grid, so
+the thresholds are right and nothing is currently mis-detecting. The risk is
+purely that someone reads the comment, "corrects" the grid to the 1/12 it claims,
+and silently moves every threshold: the drop gate's effective slope threshold is
+`min_drop_db / span_octaves`, so tripling the span width would move it from
+169 dB/octave to 56 and start flagging acoustic sources again.
+
+**What would resolve it:** decide which is intended, then either fix the comment
+or fix the grid and re-derive the thresholds against the real encode corpus.
+
+**What it costs to be wrong:** nothing until someone edits it, then a false
+positive on exactly the dark acoustic material the detector was rewritten to
+stop flagging.
 
 ### The reference corpus has two gaps
 
@@ -263,6 +314,7 @@ Kept so the reasoning is not re-litigated.
 
 | Was | Resolution |
 |---|---|
+| The codec detector is unstable near its own threshold | Fixed. The confidence read the slope alone, which is the strength of the evidence and not the certainty of the verdict. It is now the weaker of two margins — slope past the gate that actually binds, and depth inside the 60 dB guard — so it falls to zero as either boundary is approached. The demo vocal chain's output went from 0.88 to 0.15; the seven real lame/AAC encodes of the acoustic guitar all still report 1.00. Ten mutations, ten caught. |
 | Stereo width unmeasurable — every stem was mono or dual-mono | Two genuinely stereo files were already in the user's library. `stereo.correlation` tracks width at r = −0.99. |
 | "Drive does not brighten" | Wrong. An artifact of full-band pink noise plus a summary statistic; on real stems 12 dB of drive moves the 8 kHz band by +33.5 dB on a bass. |
 | "The report cannot localise mid-band EQ" | Wrong. The analysis was dropping band lists; the bell is recovered at +0.98 dB per dB, r = 1.00. |

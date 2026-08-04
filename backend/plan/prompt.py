@@ -20,8 +20,37 @@ ONE TIMESTAMP IN THE PREFIX DESTROYS THE ENTIRE SAVING. A request id, a user id,
 a formatted date, anything per-request in the system block moves the cache
 boundary to before it and every subsequent token becomes a cache miss. This is
 silent: the request succeeds, the answer is fine, and the bill is five times
-larger. So `system_blocks()` takes NO arguments, and a test asserts that two
+larger. So the prefix builders take NO arguments, and a test asserts that two
 independently-built prefixes are byte-identical.
+
+THE TWO STAGES DO NOT SHARE A PREFIX, AND SHARING ONE WAS A BUG. They ran the
+same 30,680-token prefix and used different models — Opus to reason, Sonnet to
+transcribe — so the prefix was written into two separate caches and neither call
+could ever read the other's. The cost was paid twice for a saving that could
+only ever be collected once.
+
+Splitting them is the fix, and the split is not a compromise: it is what each
+stage actually needs. PLAN reasons about audio and gets everything. EMIT is a
+transcriber working from a decision already made in prose, so it needs the
+schema it is serialising into and nothing else. Dropping the DSP source and the
+glossary from EMIT removes 64% of its prefix:
+
+    block               PLAN      EMIT
+    role                 607       ~250
+    graph schema       1,276     1,276
+    per-node params    9,105     9,105
+    glossary           1,851         -      descriptors were resolved in stage 1
+    DSP source        17,840         -      a transcriber does not reason
+    TOTAL             30,680    ~10,600
+
+Those figures are from the forty-term glossary. At sixty terms the glossary block
+measures 3,616 tokens by the same estimator and the PLAN prefix 33,440 — inside
+the 26k-36k band the test asserts, with about 2,500 tokens of headroom left. The
+other rows have not been re-measured, so the table is kept as it was rather than
+made to add up to a number nobody counted.
+
+Watch `repair_rate` after any change here. If EMIT starts emitting values the
+validators have to fix, the missing context is the first suspect.
 
 WHY THE DSP SOURCE CODE IS IN THE PROMPT. It is the single highest-leverage item
 in it. Putting the effect implementations in front of the model is what moved
@@ -116,6 +145,24 @@ Finish with one paragraph a paying engineer would accept as an explanation of \
 what you did and why.\
 """
 
+EMIT_ROLE = """\
+You are the serialisation stage of an offline audio processing engine. An \
+engineering decision about what processing to apply has already been made, in \
+prose, by a stage that reasoned about the measurements. Your only job is to \
+transcribe that decision into the schema.
+
+You are not the engineer. Do not re-derive, second-guess, improve or complete \
+the decision — if it looks wrong to you, transcribe it anyway and let the \
+validators reject it, because a validator's objection is legible to the user \
+and yours would not be.
+
+Ranges in the schema are enforced after you reply. A value outside one is \
+clamped or the graph is rejected, so copy the decided value rather than \
+rounding it toward what you expect.
+
+Never name an artist, band, producer or commercial recording in your output.\
+"""
+
 STAGE2_TASK = """\
 You are a transcriber. The engineering decision has already been made and is \
 written above. Serialise it into the schema exactly as described.
@@ -185,37 +232,64 @@ def _dsp_reference() -> str:
     return "\n".join(parts)
 
 
+def _schema_blocks() -> list[dict[str, Any]]:
+    """The schema, which both stages need: one to aim at, one to hit."""
+    return [
+        {"type": "text",
+         "text": "The graph schema you will eventually emit:\n\n"
+                 + json.dumps(json_schema(), indent=2, sort_keys=True)},
+        {"type": "text",
+         "text": "Per-node parameter schemas. Ranges are stated in each "
+                 "description and ARE enforced after you reply, so a value "
+                 "outside one will be clamped or rejected:\n\n"
+                 + json.dumps(param_schemas(), indent=2, sort_keys=True)},
+    ]
+
+
+def _cached(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Put the breakpoint on the last block, caching everything above it."""
+    blocks[-1] = dict(blocks[-1], cache_control={"type": "ephemeral"})
+    return blocks
+
+
 def system_blocks() -> list[dict[str, Any]]:
-    """The cacheable prefix.
+    """PLAN's cacheable prefix: everything.
 
     TAKES NO ARGUMENTS, AND THAT IS THE POINT. Anything per-request that reached
     this function would move the cache boundary before it and turn every
     subsequent token into a miss — silently, since the request still succeeds and
     only the bill changes. A test asserts two independent calls are byte-equal.
     """
-    schema = json.dumps(json_schema(), indent=2, sort_keys=True)
-    per_node = json.dumps(param_schemas(), indent=2, sort_keys=True)
-
-    blocks = [
+    return _cached([
         {"type": "text", "text": ROLE},
-        {"type": "text",
-         "text": "The graph schema you will eventually emit:\n\n" + schema},
-        {"type": "text",
-         "text": "Per-node parameter schemas. Ranges are stated in each "
-                 "description and ARE enforced after you reply, so a value "
-                 "outside one will be clamped or rejected:\n\n" + per_node},
+        *_schema_blocks(),
         {"type": "text",
          "text": "Descriptor glossary. The `check first` column is a condition "
                  "on the MEASUREMENTS that must hold before the conventional "
                  "move is justified; if it does not hold, say so instead of "
                  "making the move:\n\n" + as_prompt_table()},
         {"type": "text", "text": _dsp_reference()},
-    ]
+    ])
 
-    # Cache the whole prefix. The breakpoint goes on the last block, so
-    # everything above it is cached as one unit.
-    blocks[-1] = dict(blocks[-1], cache_control={"type": "ephemeral"})
-    return blocks
+
+def emit_system_blocks() -> list[dict[str, Any]]:
+    """EMIT's cacheable prefix: the schema, and nothing else.
+
+    DELIBERATELY NOT THE SAME PREFIX AS PLAN'S. They run on different models, so
+    a shared prefix is written to two caches and read from neither — the cost
+    paid twice for a saving collectable once.
+
+    What is dropped is dropped because a transcriber cannot use it. The DSP
+    source is in PLAN's prefix so the model can reason about what a parameter
+    does rather than what its name suggests; this stage is forbidden from
+    reasoning and is working from a decision already written out in prose. The
+    glossary resolves descriptors like "boxy" into bands, which stage 1 already
+    did. Keeping either here would cost 19,700 tokens per call to supply
+    context for a judgement that has already been made.
+
+    Also takes no arguments, for the same reason.
+    """
+    return _cached([{"type": "text", "text": EMIT_ROLE}, *_schema_blocks()])
 
 
 def _report_for_prompt(report: dict[str, Any]) -> str:
@@ -301,7 +375,7 @@ def emit_prompt(
     ]
 
     return Prompt(
-        system=system_blocks(),
+        system=emit_system_blocks(),
         messages=[{"role": "user", "content": "\n\n".join(parts)}],
     )
 

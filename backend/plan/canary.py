@@ -38,6 +38,12 @@ GREEN, RED, YELLOW, DIM, BOLD, OFF = (
 # economics of the whole design change.
 MIN_CACHE_READ_TOKENS = 15000
 
+# EMIT's prefix is deliberately about a third the size — it carries the schema
+# and nothing else — so it needs its own floor rather than one scaled from
+# PLAN's. Set below the ~10.7 k the prefix estimates at, with room for the
+# schema to grow or shrink without turning this into a flaky test.
+MIN_EMIT_CACHE_READ_TOKENS = 8000
+
 
 def load_env() -> None:
     """Read .env.local without printing anything from it."""
@@ -84,12 +90,23 @@ def usage_of(response: Any) -> dict[str, int]:
     return {k: int(v) for k, v in raw.items() if isinstance(v, int)}
 
 
-def check_cache(client: Any, model: str) -> bool:
-    print(f"\n{BOLD}1. prompt cache{OFF}")
+def check_cache(client: Any, model: str, *, label: str = "plan",
+                blocks: Any = None, floor: int = MIN_CACHE_READ_TOKENS) -> bool:
+    """Prove one stage's prefix caches ON THE MODEL THAT STAGE ACTUALLY USES.
 
-    system = prompts.system_blocks()
-    prompt = prompts.plan_prompt(report=REPORT, request="a little warmer")
-    estimated = prompt.estimated_prefix_tokens()
+    THE MODEL ARGUMENT IS THE WHOLE POINT AND USED TO BE A LIE. This ran once,
+    with one model, against the prefix both stages shared — and passed, reading
+    30,938 tokens. The pipeline runs PLAN on Opus and EMIT on Sonnet. A prefix
+    is cached per model, so the number this reported was real for a call the
+    pipeline never made, while both real calls paid full price.
+
+    A canary that tests a configuration the product does not run is worse than
+    no canary: it produces a green tick and a wrong bill.
+    """
+    print(f"\n{BOLD}1. prompt cache — {label} stage on {model}{OFF}")
+
+    system = blocks if blocks is not None else prompts.system_blocks()
+    estimated = int(sum(len(b.get("text", "")) for b in system) / 2.4)
     print(f"   prefix is roughly {estimated} tokens by character count")
 
     # The same request twice. The first populates the cache, the second reads
@@ -108,9 +125,9 @@ def check_cache(client: Any, model: str) -> bool:
     read = usages[1].get("cache_read_input_tokens", 0)
     written = usages[0].get("cache_creation_input_tokens", 0)
 
-    if read >= MIN_CACHE_READ_TOKENS:
+    if read >= floor:
         print(f"   {GREEN}PASS{OFF} — the second call read {read} cached tokens, "
-              f"above the {MIN_CACHE_READ_TOKENS} threshold")
+              f"above the {floor} threshold")
         return True
 
     print(f"   {RED}FAIL{OFF} — the second call read only {read} cached tokens")
@@ -178,15 +195,25 @@ def main() -> int:
         print(f"{RED}the anthropic SDK is not installed{OFF}")
         return 2
 
-    model = os.environ.get("ANTHROPIC_PLAN_MODEL", "claude-sonnet-5")
-    print(f"{BOLD}live API canary{OFF}  model: {model}")
+    # THE DEFAULTS MUST MATCH THE PIPELINE'S DEFAULTS. A canary run against a
+    # different model than the product uses tests a configuration nobody ships.
+    plan_model = os.environ.get("ANTHROPIC_PLAN_MODEL", "claude-opus-5")
+    emit_model = os.environ.get("ANTHROPIC_EMIT_MODEL", "claude-sonnet-5")
+    print(f"{BOLD}live API canary{OFF}  plan: {plan_model}  emit: {emit_model}")
 
     client = anthropic.Anthropic()
 
     results = {}
     try:
-        results["cache"] = check_cache(client, model)
-        results["enums"] = check_enums(client, model)
+        # Both stages, each on its own model and its own prefix. Two caches,
+        # checked separately, because that is what the pipeline creates.
+        results["cache_plan"] = check_cache(
+            client, plan_model, label="plan",
+            blocks=prompts.system_blocks(), floor=MIN_CACHE_READ_TOKENS)
+        results["cache_emit"] = check_cache(
+            client, emit_model, label="emit",
+            blocks=prompts.emit_system_blocks(), floor=MIN_EMIT_CACHE_READ_TOKENS)
+        results["enums"] = check_enums(client, emit_model)
     except Exception as error:
         print(f"\n{RED}the API call failed:{OFF} {type(error).__name__}: {error}")
         return 1

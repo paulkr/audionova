@@ -310,6 +310,220 @@ def test_glossary() -> None:
             "one line per term plus a header")
 
 
+# Prose in `check_first`, and the report field it can only mean. The glossary is
+# written for a reader, so its conditions say "the noise floor" rather than
+# `hygiene.noise_floor_dbfs` — but a condition naming a measurement that does not
+# exist is unevaluable, and reads exactly like one that does. This table is what
+# lets the test tell those apart, and every path in it is checked against a real
+# report below so the table cannot itself go stale.
+MEASUREMENT_MARKERS = {
+    "own band average": "spectrum.third_octave_db",
+    "own average": "spectrum.third_octave_db",
+    "band levels": "spectrum.third_octave_db",
+    "per-erb crest": "dynamics.per_erb_crest_db",
+    "crest factor": "dynamics.crest_factor_db",
+    "peak-to-loudness": "dynamics.peak_to_loudness_ratio_db",
+    "short-term rms percentile": "dynamics.short_term_rms_percentiles",
+    "envelope modulation": "dynamics.envelope_modulation",
+    "noise floor": "hygiene.noise_floor_dbfs",
+    "clipping": "hygiene.clipping",
+    "clipped": "hygiene.clipping",
+    "non-finite": "hygiene.non_finite_samples",
+    "codec wall": "spectrum.bandwidth_limit_hz",
+    "bandwidth limit": "spectrum.bandwidth_limit_hz",
+    "hf rolloff": "spectrum.hf_rolloff_db_per_octave",
+    "tilt": "spectrum.tilt_db_per_octave_re_pink",
+    "mono-compatibility": "stereo.mono_loss_db",
+    "mono loss": "stereo.mono_loss_db",
+    "correlation": "stereo.correlation",
+    "loudness range": "loudness.loudness_range_lu",
+    "integrated loudness": "loudness.integrated_lufs",
+    "true peak": "loudness.true_peak_dbtp",
+    "gated coverage": "source.gated_coverage_percent",
+    "channels": "source.channels",
+}
+
+# The terms whose conditions predate the rule that a condition must name a
+# measurement. Named individually rather than skipped by a date or a range, so
+# that ANY term added from now on is enrolled in the grounding check without
+# anyone remembering to do it, and so that the size of this list is a visible
+# measure of how much of the glossary is still prose.
+#
+# They fall into three kinds, and only the third is a defect:
+#   - unactionable on purpose: honest, clean, vintage, modern, lofi, woody
+#   - true of a spectrum but not of one named field: fat, boxy, honky, hollow,
+#     nasal, forward, edgy, fizzy, rumbly, sibilant, warm
+#   - naming a measurement THAT DOES NOT EXIST: dry, washy, distant and pumping
+#     all turn on a reverb decay or an existing compressor's release, and the
+#     report produces neither. See docs/open-questions.md.
+UNGROUNDED_LEGACY_TERMS = frozenset({
+    "rumbly", "fat", "boxy", "honky", "woody", "hollow", "nasal", "forward",
+    "honest", "edgy", "sibilant", "fizzy", "pumping", "dry", "washy", "distant",
+    "warm", "clean", "vintage", "modern", "lofi",
+})
+
+
+def _measure_a_real_report() -> dict:
+    """A genuine report, not a hand-written dict of field names.
+
+    A literal is the one thing that cannot verify this property: it would be
+    written by reading the same source the glossary was written from, and would
+    keep agreeing with a field the analyser had stopped producing.
+    """
+    import numpy as np
+
+    from backend.measure.report import measure
+
+    rng = np.random.default_rng(7)
+    sample_rate = 48000.0
+    frames = int(3 * sample_rate)
+    t = np.arange(frames) / sample_rate
+    # Amplitude-modulated noise: loud enough and varied enough that the gate
+    # keeps material and every section of the report is populated.
+    envelope = 0.4 + 0.6 * np.abs(np.sin(2 * np.pi * 2.0 * t))
+    samples = rng.normal(0.0, 0.05, size=(2, frames)) * envelope
+    return measure(samples, sample_rate).to_dict()
+
+
+def _has_path(report: dict, path: str) -> bool:
+    node: object = report
+    for key in path.split("."):
+        if not isinstance(node, dict) or key not in node:
+            return False
+        node = node[key]
+    return True
+
+
+def test_glossary_conditions() -> None:
+    print("[4b] glossary conditions name real measurements")
+
+    report = _measure_a_real_report()
+
+    # The marker table first. If a path here has gone stale the grounding check
+    # below would still pass on the prose alone, which is the failure mode this
+    # whole test exists to prevent one level down.
+    stale = sorted({path for path in MEASUREMENT_MARKERS.values()
+                    if not _has_path(report, path)})
+    R.check(not stale, f"every marker names a field a real report produces; {stale}")
+
+    # THE CENTRAL ASSERTION. A condition that names nothing measurable is worse
+    # than a missing term: the planner reads it, cannot evaluate it, and falls
+    # back on the stock move with a rigorous-looking sentence attached.
+    ungrounded = []
+    for entry in glossary.GLOSSARY:
+        if entry.term in UNGROUNDED_LEGACY_TERMS:
+            continue
+        text = entry.check_first.lower()
+        if not any(marker in text for marker in MEASUREMENT_MARKERS):
+            ungrounded.append(entry.term)
+    R.check(not ungrounded,
+            f"every non-legacy term's condition names a measured field; {ungrounded}")
+
+    # And the exemption list cannot outlive the terms it exempts. Without this a
+    # renamed term would silently take its exemption with it.
+    unknown = sorted(UNGROUNDED_LEGACY_TERMS
+                     - {entry.term for entry in glossary.GLOSSARY})
+    R.check(not unknown, f"the exemption list names only real terms; {unknown}")
+
+    # THE EXEMPTION LIST MAY ONLY SHRINK. Found by mutation: adding a new term to
+    # it silenced the grounding check for that term and the suite still passed —
+    # so the assertion above was, on its own, an assertion the next author could
+    # satisfy by editing the list instead of the entry. Twenty-one is what it was
+    # when the rule was introduced. Grounding an old term lowers it; nothing
+    # raises it.
+    R.check(len(UNGROUNDED_LEGACY_TERMS) <= 21,
+            f"the exemption list only shrinks, now {len(UNGROUNDED_LEGACY_TERMS)} "
+            "of the original 21")
+
+    # THE SIGN MUST FOLLOW THE CONDITION, not the other way round. A term whose
+    # condition describes an EXCESS and whose default move is a boost has one of
+    # the two written backwards, and the entry will read as authoritative either
+    # way. Checked across the whole glossary, legacy terms included: this one
+    # needs no field to exist, only the two halves of the entry to agree.
+    for entry in glossary.GLOSSARY:
+        text = entry.check_first.lower()
+        excess = ("above the source's own" in text
+                  or "a peak exists" in text
+                  or ("elevated" in text and "not already elevated" not in text))
+        deficit = ("below the source's own" in text
+                   or "beneath the source's own" in text
+                   or "scooped" in text)
+        if excess and not deficit:
+            R.check(entry.direction <= 0,
+                    f"{entry.term}: condition describes an excess, so the default "
+                    f"move cannot be a boost (got {entry.direction:+d})")
+        if deficit and not excess:
+            R.check(entry.direction >= 0,
+                    f"{entry.term}: condition describes a deficit, so the default "
+                    f"move cannot be a cut (got {entry.direction:+d})")
+
+    # The words themselves, independent of what the entry says about itself. A
+    # term that means less of something must never carry a positive default, and
+    # a term that means more of something must never carry a negative one — a
+    # sign error here inverts the move on a source the planner never questions
+    # because the condition it checked was satisfied.
+    means_less = ("plosive", "chesty", "midrangey", "ringy", "shrill", "smooth",
+                  "clicky", "muddy", "boomy", "harsh", "sibilant", "hissy")
+    means_more = ("bassy", "breathy", "lispy", "thin", "fat", "bright", "airy",
+                  "hollow", "buried")
+    for term in means_less:
+        entry = glossary.lookup(term)
+        R.check(entry is not None and entry.direction <= 0,
+                f"{term!r} names an excess, so it cannot default to a boost")
+    for term in means_more:
+        entry = glossary.lookup(term)
+        R.check(entry is not None and entry.direction >= 0,
+                f"{term!r} asks for more of a region, so it cannot default to a cut")
+
+    # Every region a term claims has to be a region a filter can be placed in.
+    # 20 Hz to 20 kHz is not a style rule: a centre outside it is either a typo
+    # or a unit error, and both survive review because the number looks like a
+    # frequency.
+    for entry in glossary.GLOSSARY:
+        if not (entry.low_hz or entry.high_hz):
+            continue
+        R.check(20.0 <= entry.low_hz < entry.high_hz <= 20000.0,
+                f"{entry.term} claims a placeable region, got "
+                f"{entry.low_hz}-{entry.high_hz} Hz")
+
+    # THE DUPLICATE-ALIAS GUARD, restated without the exception. The import-time
+    # guard in glossary.py raises, which means a collision takes the whole module
+    # down and this file never loads — so this check is here to name the offender
+    # if the guard is ever softened to a warning, which is the obvious "fix" for
+    # a module that will not import.
+    seen: dict[str, str] = {}
+    collisions = []
+    for entry in glossary.GLOSSARY:
+        for name in (entry.term, *entry.aliases):
+            if name in seen:
+                collisions.append(f"{name} ({seen[name]} / {entry.term})")
+            seen[name] = entry.term
+    R.check(not collisions, f"no alias is claimed twice; {collisions}")
+    R.check(len(glossary.INDEX) == sum(1 + len(e.aliases) for e in glossary.GLOSSARY),
+            "the index holds every term and alias exactly once")
+
+    # The words from the prompt's own example list all resolve. 'presence' was
+    # the one that did not: 'present' was an alias of 'forward' and 'presence'
+    # was not, so the commonest spelling of the commonest request returned None.
+    for term in ("warm", "boxy", "muddy", "harsh", "presence", "air", "punch"):
+        R.check(glossary.lookup(term) is not None, f"{term!r} resolves")
+
+    # Separator and case handling has to reach the new aliases too, since several
+    # of them are multi-word phrases a user would type with spaces.
+    R.check(glossary.lookup("More Bass") is glossary.lookup("bassy"),
+            "a multi-word alias resolves with spaces and capitals")
+    R.check(glossary.lookup("over-de-essed") is glossary.lookup("lispy"),
+            "and with hyphens")
+
+    # The terms that answer a request with "no". These are the entries most
+    # likely to be quietly given a direction later by someone tidying up, and
+    # the whole value of them is that they do not have one.
+    for term in ("tinny", "clear", "tight", "roomy", "distorted", "sterile"):
+        entry = glossary.lookup(term)
+        R.check(entry is not None and entry.direction == 0,
+                f"{term!r} has no default move, because the measurement decides it")
+
+
 def test_cache_boundary() -> None:
     print("[5] the prompt cache boundary")
 
@@ -384,8 +598,37 @@ def test_cache_boundary() -> None:
             "the emit prompt reframes the model as a transcriber")
     R.check("do X" in emit.messages[0]["content"],
             "and carries the decision to transcribe")
-    R.check(json.dumps(emit.system) == json.dumps(prompt_a.system),
-            "both stages share the same cached prefix")
+    # THE TWO STAGES MUST NOT SHARE A PREFIX. This assertion used to say the
+    # opposite, and the opposite was a bug: the stages run on different models,
+    # so one shared prefix is written into two caches and read from neither.
+    # The cost was paid twice for a saving collectable once.
+    R.check(json.dumps(emit.system) != json.dumps(prompt_a.system),
+            "the two stages do not share a prefix, because they do not share a model")
+
+    emit_tokens = emit.estimated_prefix_tokens()
+    R.check(emit_tokens < tokens * 0.5,
+            f"the emit prefix is far smaller: {emit_tokens} against {tokens}")
+    R.check(emit_tokens > 8000,
+            f"but still worth caching on its own, {emit_tokens} tokens")
+
+    # What EMIT drops, it drops because a transcriber cannot use it. Probed on
+    # content rather than on size, so shrinking the prefix some other way while
+    # leaving these in would not pass.
+    emit_prefix = emit.prefix_text()
+    for gone in ("===== ParametricEQ.h =====", "shapeFromString", "boxy"):
+        R.check(gone not in emit_prefix,
+                f"the emit prefix drops {gone!r}: the decision is already made")
+    for kept in ("effect_graph_v1", "ceiling_dbtp"):
+        R.check(kept in emit_prefix,
+                f"but keeps {kept!r}, which is what it is serialising into")
+
+    # The transcriber framing moved into the cached prefix. It is static, so
+    # paying for it in the volatile half every call was waste.
+    R.check("not the engineer" in emit_prefix.lower(),
+            "the transcriber framing is in the cached prefix")
+    R.check(json.dumps(prompts.emit_system_blocks())
+            == json.dumps(prompts.emit_system_blocks()),
+            "and the emit prefix is byte-identical across builds too")
 
 
 def test_json_extraction() -> None:
@@ -416,7 +659,9 @@ def test_json_extraction() -> None:
 def test_pipeline_happy_path() -> None:
     print("[7] pipeline, accepted first time")
 
-    client = pipeline.ScriptedClient(reasoning="I chose an EQ and a compressor.",
+    # Deliberately the realistic default: a one-line reasoning is now refused,
+    # and the refusal is the point of test [15].
+    client = pipeline.ScriptedClient(
                                     emissions=[graph_json()])
     counters = pipeline.Counters()
     outcome = pipeline.plan(client, report=REPORT, request="warmer, less harsh",
@@ -426,7 +671,8 @@ def test_pipeline_happy_path() -> None:
     R.check(outcome.attempts == 1, f"in one attempt, got {outcome.attempts}")
     R.check(outcome.graph is not None and len(outcome.graph.nodes) == 2,
             "with both nodes")
-    R.check(outcome.reasoning.startswith("I chose"), "the reasoning is retained")
+    R.check(outcome.reasoning == pipeline.ScriptedClient.DEFAULT_REASONING,
+            "the reasoning is retained")
     R.check(not outcome.used_fallback, "and no fallback was needed")
 
     # Stage 1 must be unconstrained and stage 2 constrained. Getting this
@@ -439,7 +685,7 @@ def test_pipeline_happy_path() -> None:
             "and the constrained call carries the schema")
 
     # Stage 2 must see the reasoning, or the split achieves nothing.
-    R.check("I chose an EQ" in client.calls[1]["messages"][0]["content"],
+    R.check("4. PARAMETER PLANNING" in client.calls[1]["messages"][0]["content"],
             "stage 2 receives stage 1's reasoning")
 
     R.check(counters.report()["turns"] == 1, "the turn was counted")
@@ -682,12 +928,161 @@ def test_delivery_ceiling_is_never_optional() -> None:
 
 
 
+def test_stage_one_must_finish() -> None:
+    """A truncated or missing decision must never reach stage 2.
+
+    THE BUG THIS PINS DOWN RAN IN PRODUCTION FOR THE WHOLE BUILD. Stage 1 was
+    called with max_tokens=8192. Opus spends output tokens on thinking and
+    thinking counts against that ceiling, so a real call returned ONE thinking
+    block, ZERO text blocks, and stop_reason max_tokens. The client filtered for
+    text blocks, found none, and returned "".
+
+    Stage 2 was then handed an empty decision. It could not tell that apart from
+    a decision with no prose, so it invented the chain from the measurement
+    report — which is exactly what the two-stage split exists to prevent, and
+    the reason it exists is that constrained decoding degrades reasoning.
+
+    Nothing downstream noticed. The chains were plausible, the validators passed
+    them, the safety gate passed the renders, and the only visible trace was a
+    single retry that looked like ordinary schema friction.
+    """
+    print("[15] stage 1 must finish before stage 2 begins")
+
+    class Truncating(pipeline.ScriptedClient):
+        def complete(self, system, messages):
+            raise pipeline.TruncatedReply("hit the ceiling")
+
+    client = Truncating(emissions=[graph_json()])
+    counters = pipeline.Counters()
+    outcome = pipeline.plan(client, report=REPORT, request="warmer",
+                            counters=counters)
+
+    R.check(not outcome.ok, "a truncated stage 1 fails the turn")
+    R.check(any("ceiling" in f for f in outcome.fatal),
+            f"and says why: {outcome.fatal}")
+    R.check(not any(c["kind"] == "structured" for c in client.calls),
+            "and stage 2 is never called, so it cannot invent a chain")
+    R.check(counters.fell_back == 1, "and it counts as a fallback")
+
+    # Text that arrives but is too short is the same failure wearing prose. The
+    # four-step task cannot be answered in one line.
+    short = pipeline.ScriptedClient(reasoning="Use an EQ.",
+                                    emissions=[graph_json()])
+    outcome = pipeline.plan(short, report=REPORT, request="warmer")
+    R.check(not outcome.ok, "a one-line decision fails too")
+    R.check(not any(c["kind"] == "structured" for c in short.calls),
+            "and again stage 2 never runs")
+
+    # With a previous graph, the turn falls back to something already accepted
+    # rather than failing outright — the same policy as an exhausted repair loop.
+    previous = EffectGraph.model_validate(json.loads(graph_json()))
+    fell = pipeline.plan(Truncating(emissions=[graph_json()]), report=REPORT,
+                         request="warmer", previous_graph=previous)
+    R.check(fell.ok and fell.used_fallback,
+            "with a previous graph it falls back to one that already passed")
+
+    # And the healthy path must still reach stage 2, or this test would pass by
+    # breaking the pipeline entirely.
+    healthy = pipeline.ScriptedClient(emissions=[graph_json()])
+    R.check(pipeline.plan(healthy, report=REPORT, request="warmer").ok,
+            "a complete decision still goes through")
+    R.check(any(c["kind"] == "structured" for c in healthy.calls),
+            "and does reach stage 2")
+
+
+
+def test_envelope_unwrapping() -> None:
+    """The model wraps the graph in one key. Unwrap it, but only when it is one.
+
+    Measured against the live API across four trials crossing prefix size with
+    reasoning length: every reply nested the graph inside a single key rather
+    than returning it directly. The key was "graph" with the small prefix and
+    "$PARAMETER_VALUE" or "$PARAMETER_NAME" with the full one.
+    """
+    print("[16] single-key envelopes are unwrapped, degenerate ones are not")
+
+    graph = json.loads(graph_json())
+
+    for key in ("graph", "$PARAMETER_VALUE", "effect_graph", "input"):
+        notes = []
+        got = pipeline.extract_json(json.dumps({key: graph}), notes)
+        R.check(got == graph, f"a {key!r} envelope is unwrapped")
+        R.check(any(key in n for n in notes),
+                f"and the {key!r} unwrap is recorded, not silent")
+
+    # A real graph is passed through untouched and nothing is recorded.
+    notes = []
+    R.check(pipeline.extract_json(json.dumps(graph), notes) == graph,
+            "an unwrapped graph is returned as-is")
+    R.check(notes == [], "and nothing is recorded for it")
+
+    # THE DEGENERATE REPLY MUST STAY A HARD ERROR. This one really was returned
+    # by the API. There is no graph inside it, so there is nothing to recover
+    # and anything this function did would be an invention.
+    degenerate = {"$PARAMETER_NAME": "schema_version",
+                  "$PARAMETER_NAME2": "effect_graph_v1"}
+    R.check(pipeline.extract_json(json.dumps(degenerate)) == degenerate,
+            "a degenerate reply is not rescued")
+    try:
+        EffectGraph.model_validate(pipeline.extract_json(json.dumps(degenerate)))
+        R.check(False, "and it should fail validation")
+    except Exception:
+        R.check(True, "and it fails validation, as it must")
+
+    # Two keys is not an envelope even when one of them holds a graph — that is
+    # a reply this function does not understand, and guessing which key matters
+    # is exactly the overreach the module docstring warns about.
+    two = {"graph": graph, "notes": "something else"}
+    R.check(pipeline.extract_json(json.dumps(two)) == two,
+            "a two-key object is not treated as an envelope")
+
+    # A single key whose value is not a graph is left alone too.
+    R.check(pipeline.extract_json(json.dumps({"graph": "not a graph"}))
+            == {"graph": "not a graph"},
+            "a single key wrapping a non-graph is left alone")
+
+
+
+def test_failures_always_state_a_reason() -> None:
+    """An exhausted turn must say why, including when nothing ever parsed.
+
+    This was a real hole. The parse-failure branch set the finding for the
+    retry prompt but never put it on the outcome, so a turn where all three
+    attempts failed to parse returned ok=False with fatal=[] — a failure with
+    no stated reason at all. It cost real time to diagnose the first time it
+    happened, because the empty list looked like a different bug entirely.
+    """
+    print("[17] a failed turn always states a reason")
+
+    # Nothing ever parses.
+    client = pipeline.ScriptedClient(emissions=["not json", "still not", "nope"])
+    outcome = pipeline.plan(client, report=REPORT, request="warmer")
+    R.check(not outcome.ok, "a turn where nothing parses fails")
+    R.check(outcome.fatal, f"and says why, got {outcome.fatal}")
+    R.check(any("parse" in f for f in outcome.fatal),
+            f"naming the parse failure: {outcome.fatal}")
+
+    # Parses, but violates a validator every time. This path already worked;
+    # it is here so the test covers both ways of exhausting the loop.
+    hot = json.loads(graph_json())
+    hot["nodes"][0]["params"]["bands"] = [
+        {"filter_type": "bell", "center_freq_hz": f, "gain_db": 17.0,
+         "q_factor": 1.0} for f in (100.0, 1000.0, 5000.0)]
+    hot["explanation"] = "x" * 5000        # over the cap, so it cannot validate
+    client = pipeline.ScriptedClient(emissions=[json.dumps(hot)] * 3)
+    outcome = pipeline.plan(client, report=REPORT, request="warmer")
+    R.check(not outcome.ok and outcome.fatal,
+            f"a turn that never validates also states a reason: {outcome.fatal}")
+
+
+
 if __name__ == "__main__":
     print("Audionova planner scaffolding\n")
     test_quantifier_ladder()
     test_intent_vocabulary()
     test_patch_application()
     test_glossary()
+    test_glossary_conditions()
     test_cache_boundary()
     test_json_extraction()
     test_pipeline_happy_path()
@@ -698,5 +1093,8 @@ if __name__ == "__main__":
     test_counters()
     test_end_to_end_renders()
     test_delivery_ceiling_is_never_optional()
+    test_stage_one_must_finish()
+    test_envelope_unwrapping()
+    test_failures_always_state_a_reason()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)
