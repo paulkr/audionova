@@ -578,6 +578,50 @@ with the DSP reference dropped from the prompt entirely, as long as the docs sti
 mentioned it. Probes now come from the source files themselves, plus a size band
 on the prefix — well under and the reference has silently stopped being included.
 
+### The audition could not promise anything about the delivery
+
+Found by the user, at the download button, which is the worst place to find it.
+The excerpt render passed every gate; the full render came back
+`true_peak` — *"The processed audio would clip on playback, so it was not used."*
+
+The gate was right both times. The two renders genuinely differed:
+
+| | source true peak | rendered | gate bar | verdict |
+|---|---|---|---|---|
+| excerpt, 20 s | −2.53 dBTP | −2.08 | 0.0 | passes |
+| full, 250 s | **+0.52 dBTP** | +0.30 | 0.0 | fails |
+
+The chain had no limiter, so the gate's bar was 0 dBTP — anything above that
+clips on conversion whatever the graph intended. And the 20-second window the
+plan was made from sat **2.5 dB below the file's own loudest moment**. A chain
+that never touched level therefore cleared the bar on everything anyone had
+listened to and failed on the part nobody had.
+
+First suspicion was the limiter, since a true-peak limiter that leaks
+inter-sample peaks is the classic version of this bug. It does not: driven at
+0, 6, 12 and 18 dB into a −1.0 dBTP ceiling it returned −0.98, −0.96, −0.94 and
+−0.92 dBTP. The limiter was never in the chain to fail.
+
+**The excerpt is not at fault, and no choice of window fixes it.** Twenty
+seconds cannot promise anything about the two hundred and thirty it excludes,
+and picking the window by peak instead of by gated coverage would trade a
+representative audition for an unrepresentative one — worse, because the whole
+excerpt-first design rests on the audition predicting the delivery.
+
+So the ceiling is not optional. `_check_order` now adds a −1.0 dBTP limiter to
+any graph whose master section lacks one, as a **repair rather than a
+rejection**, for the same reason the master ordering is repaired: there is
+exactly one right answer and no intent to guess at. It is reported, not silent.
+A ceiling the planner chose deliberately is left alone.
+
+Afterwards, same file, same chain: excerpt −2.08 dBTP, full −0.98, both pass.
+The limiter does nothing at all on the excerpt, which is the point — it is
+insurance against the part of the file you did not audition.
+
+Mutation-tested four ways: removing the repair, applying it without reporting
+it, letting it clobber a deliberately chosen ceiling, and setting the ceiling to
+0.0 instead of −1.0. Each was caught by a different assertion.
+
 ## Frontend findings
 
 Kept for completeness; the hero animation predates the engine work.

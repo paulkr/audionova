@@ -312,12 +312,20 @@ def test_boost_budget() -> None:
     cuts = G.EffectGraph(nodes=[eq(
         "e", band(120.0, -6.0), band(900.0, -6.0), band(3000.0, -6.0),
     )])
+    # Named rather than "no repairs at all": validation also guarantees a
+    # delivery ceiling on every graph, so the list is never empty and asserting
+    # that it is would test the wrong thing.
     cut_result = validator.validate(cuts)
-    R.check(not cut_result.repairs,
+    R.check(not budget_repairs(cut_result),
             f"18 dB of cuts is untouched, repairs were {cut_result.repairs}")
 
     under = G.EffectGraph(nodes=[eq("e", band(1000.0, 4.0), band(5000.0, 3.0))])
-    R.check(not validator.validate(under).repairs, "7 dB of boosts passes")
+    R.check(not budget_repairs(validator.validate(under)), "7 dB of boosts passes")
+
+
+def budget_repairs(result) -> list[str]:
+    """Repairs about the boost budget, ignoring ones about anything else."""
+    return [r for r in result.repairs if "budget" in r or "scaled" in r]
 
 
 def test_filter_stability() -> None:
@@ -333,7 +341,8 @@ def test_filter_stability() -> None:
     R.check(any("rings" in r for r in result.repairs), "and the reason is logged")
 
     sane = G.EffectGraph(nodes=[eq("e", band(1000.0, 3.0, q=2.0))])
-    R.check(not validator.validate(sane).repairs, "an ordinary bell is untouched")
+    R.check(not any("rings" in r for r in validator.validate(sane).repairs),
+            "an ordinary bell is untouched")
 
 
 def test_chain_order() -> None:

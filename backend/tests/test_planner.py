@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from backend.plan import glossary, ladder, pipeline  # noqa: E402
 from backend.plan import prompt as prompts  # noqa: E402
 from backend.plan.ladder import Patch  # noqa: E402
+from backend.plan.validate import validate  # noqa: E402
 from backend.schemas.graph import EffectGraph, GraphNode  # noqa: E402
 
 
@@ -634,6 +635,53 @@ def test_end_to_end_renders() -> None:
             "and it sounds different, since the refinement changed something")
 
 
+def test_delivery_ceiling_is_never_optional() -> None:
+    """A graph with no limiter must acquire one, not be rejected.
+
+    THE BUG THIS PINS DOWN was invisible on the excerpt. Planning and
+    auditioning run on a 20-second window; on a real guitar track that window
+    measured -2.53 dBTP while the whole file measured +0.52. A chain that never
+    touched level therefore cleared 0 dBTP on the audition and blew through it
+    on delivery, and the failure surfaced only at download, which is the worst
+    possible moment for it.
+
+    The excerpt is not at fault and no window choice fixes it — 20 seconds
+    cannot promise anything about the 230 it excludes. The ceiling is what makes
+    the audition predict the delivery.
+    """
+    print("[14] a delivery ceiling is added, not demanded")
+
+    graph = EffectGraph.model_validate(json.loads(graph_json()))
+    graph.master = []
+    result = validate(graph, None)
+
+    R.check(result.ok, "a graph with no limiter is repaired rather than rejected")
+
+    limiters = [n for n in result.graph.master if n.type == "true_peak_limiter"]
+    R.check(len(limiters) == 1, "exactly one true-peak limiter is present after validation")
+    R.check(limiters and limiters[0].params["ceiling_dbtp"] == -1.0,
+            "and it holds the conventional -1.0 dBTP delivery ceiling")
+    R.check(any("ceiling" in r for r in result.repairs),
+            "and the repair is reported rather than applied silently")
+
+    # It must not duplicate one the planner already placed, or two limiters
+    # end up in series and the second one meters a signal the first flattened.
+    twice = validate(result.graph, None)
+    R.check(len([n for n in twice.graph.master if n.type == "true_peak_limiter"]) == 1,
+            "re-validating does not add a second limiter")
+
+    # And it must not silently displace a ceiling the planner chose on purpose.
+    chosen = EffectGraph.model_validate(json.loads(graph_json()))
+    chosen.master = [GraphNode(id="ceiling", type="true_peak_limiter",
+                               params={"ceiling_dbtp": -0.3},
+                               rationale="the plan asked for -0.3")]
+    kept = validate(chosen, None)
+    R.check([n.params["ceiling_dbtp"] for n in kept.graph.master
+             if n.type == "true_peak_limiter"] == [-0.3],
+            "a ceiling the planner chose deliberately is left alone")
+
+
+
 if __name__ == "__main__":
     print("Audionova planner scaffolding\n")
     test_quantifier_ladder()
@@ -649,5 +697,6 @@ if __name__ == "__main__":
     test_pipeline_unparseable()
     test_counters()
     test_end_to_end_renders()
+    test_delivery_ceiling_is_never_optional()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

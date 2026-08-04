@@ -314,6 +314,38 @@ ORDER_RULES: tuple[tuple[str, str, str], ...] = (
 
 
 def _check_order(graph: EffectGraph, result: ValidationResult) -> None:
+    # A DELIVERY CEILING IS NOT OPTIONAL, and its absence is a repair rather
+    # than a rejection for the same reason the master order is: there is exactly
+    # one right answer and no intent to guess at.
+    #
+    # Found the hard way. A chain with no limiter passed the audition and failed
+    # the render, and the mismatch was not the gate being inconsistent — it was
+    # the excerpt. Planning and auditioning run on a 20-second window, and on a
+    # real guitar track that window measured -2.53 dBTP against the whole file's
+    # +0.52. Two and a half dB of the file's own peaks were simply not in the
+    # sample the decision was made from, so a chain that never touched level
+    # still cleared 0 dBTP on the excerpt and cleared it on delivery too.
+    #
+    # No excerpt fixes this: a 20-second window cannot promise anything about
+    # the 230 seconds it excludes, and choosing the window by peak instead would
+    # trade a representative audition for an unrepresentative one. The ceiling
+    # is what makes the excerpt predict the delivery, which is the property the
+    # whole excerpt-first design depends on.
+    if not any(node.type == "true_peak_limiter" and not node.bypass
+               for node in graph.master):
+        graph.master.append(GraphNode(
+            id="delivery_ceiling", type="true_peak_limiter",
+            params={"ceiling_dbtp": -1.0, "lookahead_ms": 5.0,
+                    "release_ms": 90.0},
+            rationale="added by validation: every render needs a true-peak "
+                      "ceiling, because inter-sample peaks clip on conversion "
+                      "no matter what the rest of the chain intended",
+        ))
+        result.repairs.append(
+            "added a true-peak limiter at -1.0 dBTP: the graph had no delivery "
+            "ceiling, and without one a render can clip on playback"
+        )
+
     positions: dict[str, int] = {}
     for index, node in enumerate(graph.nodes):
         positions.setdefault(node.type, index)
