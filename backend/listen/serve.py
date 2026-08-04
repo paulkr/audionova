@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -57,6 +58,7 @@ class SessionStore:
 
         self.responses_dir = os.path.join(self.directory, "responses")
         os.makedirs(self.responses_dir, exist_ok=True)
+        self._write_lock = threading.Lock()
 
     def listeners(self) -> list[str]:
         return sorted(self.public.get("listeners", {}))
@@ -83,12 +85,35 @@ class SessionStore:
                 "listeners": self.listeners()}
 
     def record(self, body: dict[str, Any]) -> str:
+        """Write a submission, never over another one.
+
+        A SUBMISSION IS THIRTY TRIALS OF SOMEBODY'S AFTERNOON, and the
+        interface holds every answer in memory until the last one. A name of
+        `{listener}-{unix seconds}` collides whenever two submissions land in
+        the same second — two listeners finishing together, a POST retried
+        after a timeout, a second tab — and the first file was then silently
+        overwritten behind a 200 and the word "saved". Data loss reported as
+        success is the worst failure this process can have, because nobody
+        looks for it until scoring, by which time the panel has gone home.
+
+        The counter is taken under a lock because this is a
+        `ThreadingHTTPServer`: two concurrent POSTs can both see the same free
+        name, and an exists() check without the lock is the same bug with a
+        smaller window.
+        """
         listener = str(body.get("listener", "")) or "unknown"
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", listener)
-        name = f"{safe}-{int(time.time())}.json"
-        path = os.path.join(self.responses_dir, name)
-        with open(path, "w") as handle:
-            json.dump(body, handle, indent=2, sort_keys=True)
+        stem = f"{safe}-{int(time.time())}"
+        with self._write_lock:
+            name = f"{stem}.json"
+            path = os.path.join(self.responses_dir, name)
+            attempt = 1
+            while os.path.exists(path):
+                name = f"{stem}-{attempt}.json"
+                path = os.path.join(self.responses_dir, name)
+                attempt += 1
+            with open(path, "w") as handle:
+                json.dump(body, handle, indent=2, sort_keys=True)
         return path
 
 

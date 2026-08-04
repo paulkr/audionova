@@ -204,7 +204,13 @@ def build_screening(
             [raw_plain, raw_bell], [out_plain, out_bell],
             gain_solver=gain_solver, tolerance_lu=tolerance_lu,
             ceiling_dbtp=ceiling_dbtp, bit_depth=bit_depth,
-            what=f"screening trial {index}",
+            # The time range, not just the index. The commonest way to fail
+            # here is a silent lead-in — segments are cut consecutively from
+            # frame zero — and the fix is to start the screen later in the
+            # source, which needs the seconds rather than the trial number.
+            what=(f"screening trial {index} "
+                  f"({start / sample_rate:.1f}-"
+                  f"{(start + segment_frames) / sample_rate:.1f} s of the source)"),
         )
         groups.append(group)
 

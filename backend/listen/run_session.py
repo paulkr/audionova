@@ -47,10 +47,26 @@ def _load_manifest(path: str) -> list[session_mod.Comparison]:
 
 
 def _read_responses(directory: str) -> list[score_mod.Response]:
+    """Read every submission in the directory, naming the one that is broken.
+
+    THE FILE IS HALF THE ERROR. `parse_responses` reports the position within
+    one payload, which is the right thing for it to say and useless here: the
+    directory holds one file per listener per submission, the server accepts
+    anything JSON-shaped with a 200, and scoring is the first place a bad one
+    is noticed. Without the path, "expected a list of responses, got str"
+    sends whoever ran the panel opening files one at a time.
+    """
     out: list[score_mod.Response] = []
     for path in sorted(glob.glob(os.path.join(directory, "responses", "*.json"))):
-        with open(path) as handle:
-            out.extend(score_mod.parse_responses(json.load(handle)))
+        try:
+            with open(path) as handle:
+                payload = json.load(handle)
+        except ValueError as error:
+            raise SystemExit(f"{path}: not JSON — {error}") from error
+        try:
+            out.extend(score_mod.parse_responses(payload))
+        except score_mod.ResponseError as error:
+            raise SystemExit(f"{path}: {error}") from error
     if not out:
         raise SystemExit(f"no responses under {directory}/responses")
     return out

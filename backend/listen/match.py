@@ -216,7 +216,20 @@ def match_group(
             "a mono/stereo A/B is a width comparison, not the one asked for")
 
     before = [float(loudness.integrated_lufs(clip, sample_rate)) for clip in trimmed]
-    gains = list(gain_solver(before))
+    try:
+        gains = list(gain_solver(before))
+    except (UnmeasurableLoudness, ClipGroupError) as error:
+        # A SOLVER SEES LOUDNESSES AND INDICES; AN OPERATOR NEEDS A FILE. The
+        # solver is handed a list of numbers by design — that is what makes it
+        # unit-testable — so "clip 0 measures -inf LUFS" is all it can say. It
+        # is also useless at three in the afternoon with a ten-trial screen
+        # half built, because the cause is nearly always a silent lead-in in
+        # one specific input and the message names neither the input nor which
+        # of the ten trials stopped. Re-raised with the same type and the same
+        # reason, plus the context the caller already had.
+        raise type(error)(
+            f"{what}: {error}. Inputs in the order the solver saw them: "
+            f"{[os.path.basename(path) for path in inputs]}") from error
     if len(gains) != len(trimmed):
         raise ClipGroupError(
             f"{what}: gain solver returned {len(gains)} gains for "

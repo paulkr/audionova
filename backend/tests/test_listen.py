@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.audio import wavio  # noqa: E402
 from backend.engine.render import DEFAULT_BINARY  # noqa: E402
-from backend.listen import correlate, match, score, screen, serve, session  # noqa: E402
+from backend.listen import correlate, match, run_session, score, screen, serve, session  # noqa: E402
 from backend.measure import loudness, spectrum  # noqa: E402
 
 SR = 48000.0
@@ -1489,6 +1489,121 @@ def test_server_blinds_at_the_wire() -> None:
             thread.join(timeout=5.0)
 
 
+# --- 7. what an operator sees when it goes wrong -------------------------------
+
+
+def test_failures_name_what_broke() -> None:
+    """The three refusals a first real panel actually hit.
+
+    Every one of these was already REFUSED correctly before this test existed —
+    the audio was never wrong. What was wrong is that the refusal did not carry
+    enough for the person holding the laptop to act on it, or (in the third
+    case) did not happen at all and reported success instead. `findings.md`
+    records the same shape twice already: a check that fires with the wrong
+    message is a check nobody can follow, and a failure reported as a 200 is
+    worse than a crash.
+    """
+    print("[20] a refusal names the thing the operator has to change")
+
+    with tempfile.TemporaryDirectory(prefix="anv_operator_") as work:
+        # -- a silent segment stops a screen, and the message must say WHICH ---
+        #
+        # This is the first thing a real run hit: `01-Rhythm Guitar` opens with
+        # eight seconds of lead-in, `build_screening` cuts its first segment
+        # from frame zero, and the whole ten-trial screen died on
+        # "clip 0 measures -inf LUFS" — a message that names neither the file,
+        # nor the trial, nor the fact that the fix is to start later in the
+        # source. The solver cannot know any of that; the caller already does.
+        lead_in = write(os.path.join(work, "silent-lead-in.wav"),
+                        np.zeros((1, int(SR * 4.0))))
+        music = write(os.path.join(work, "music.wav"), pink(4.0))
+        outputs = [os.path.join(work, "s0.wav"), os.path.join(work, "s1.wav")]
+
+        R.raises(match.UnmeasurableLoudness,
+                 lambda: match.match_group([lead_in, music], outputs,
+                                           what="screening trial 7"),
+                 "a silent input is refused with the caller's context",
+                 contains="screening trial 7")
+        R.raises(match.UnmeasurableLoudness,
+                 lambda: match.match_group([lead_in, music], outputs,
+                                           what="screening trial 7"),
+                 "a silent input is refused naming the file that is silent",
+                 contains="silent-lead-in.wav")
+        R.raises(match.UnmeasurableLoudness,
+                 lambda: match.match_group([lead_in, music], outputs,
+                                           what="screening trial 7"),
+                 "and still says why, not just where",
+                 contains="above the absolute gate")
+
+        # -- two submissions in one second are two submissions ----------------
+        #
+        # The response filename was `{listener}-{unix seconds}`. A retried POST
+        # after a timeout, a second tab, or two listeners finishing together
+        # wrote the same name, and the first file — a completed thirty-trial
+        # session — disappeared behind a 200 and the word "saved". The
+        # collision is forced here rather than raced for, because a test that
+        # depends on two writes landing in the same second is a test that
+        # passes on a slow machine.
+        store_dir = os.path.join(work, "store")
+        os.makedirs(os.path.join(store_dir, "clips"), exist_ok=True)
+        with open(os.path.join(store_dir, "session.json"), "w") as handle:
+            json.dump({"listeners": {"L1": []}, "scales": [], "preferences": []},
+                      handle)
+        with open(os.path.join(store_dir, "key.json"), "w") as handle:
+            json.dump({"clips": {}}, handle)
+        store = serve.SessionStore(store_dir)
+
+        first = R.guard(lambda: store.record({"listener": "L1", "mark": "first"}),
+                        "the first submission is written")
+        second = R.guard(lambda: store.record({"listener": "L1", "mark": "second"}),
+                         "the second submission is written")
+        R.check(first != second,
+                "two submissions in the same second get two filenames")
+        written = sorted(os.listdir(store.responses_dir))
+        R.check(len(written) == 2,
+                f"both submissions survive on disk, got {written}")
+        marks = set()
+        for name in written:
+            with open(os.path.join(store.responses_dir, name)) as handle:
+                marks.add(json.load(handle).get("mark"))
+        R.check(marks == {"first", "second"},
+                f"neither submission overwrote the other, got {sorted(marks)}")
+
+        # -- a bad response file is named ------------------------------------
+        #
+        # The server accepts anything JSON-shaped with a 200, so scoring is the
+        # first place a broken submission is noticed — and by then the
+        # directory holds one file per listener. `parse_responses` reports a
+        # position within one payload, which is correct and, without the path,
+        # unusable.
+        scored_dir = os.path.join(work, "scored")
+        responses_dir = os.path.join(scored_dir, "responses")
+        os.makedirs(responses_dir, exist_ok=True)
+        good = [{"listener": "L1", "trial_id": "t0", "preference": "A",
+                 "ratings": {"A": {"match": 4, "quality": 4},
+                             "B": {"match": 2, "quality": 2}}}]
+        with open(os.path.join(responses_dir, "L1-1.json"), "w") as handle:
+            json.dump({"listener": "L1", "responses": good}, handle)
+        with open(os.path.join(responses_dir, "L2-2.json"), "w") as handle:
+            json.dump({"listener": "L2", "responses": "nonsense"}, handle)
+
+        R.raises(SystemExit, lambda: run_session._read_responses(scored_dir),
+                 "a malformed submission names the file it came from",
+                 contains="L2-2.json")
+        R.raises(SystemExit, lambda: run_session._read_responses(scored_dir),
+                 "and still carries the parser's own reason",
+                 contains="expected a list of responses")
+
+        # Replaced rather than added: the loop stops at the first bad file, so
+        # leaving the previous one in place would test the sort order.
+        os.remove(os.path.join(responses_dir, "L2-2.json"))
+        with open(os.path.join(responses_dir, "L3-3.json"), "w") as handle:
+            handle.write("{not json at all")
+        R.raises(SystemExit, lambda: run_session._read_responses(scored_dir),
+                 "a file that is not JSON names itself too",
+                 contains="L3-3.json")
+
+
 if __name__ == "__main__":
     if not os.path.exists(DEFAULT_BINARY):
         print(f"engine binary missing at {DEFAULT_BINARY}; run `make render` in engine/")
@@ -1514,5 +1629,6 @@ if __name__ == "__main__":
     test_gate_rule()
     test_correlate_proxies()
     test_server_blinds_at_the_wire()
+    test_failures_name_what_broke()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)
