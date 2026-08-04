@@ -1305,6 +1305,70 @@ private:
   std::vector<std::vector<double>> branches_;
 };
 
+
+// ------------------------------------- EXACT true peak, by spectral padding ---
+//
+// THE POLYPHASE REFERENCE BELOW SHARES A BLIND SPOT WITH THE THING IT CHECKS,
+// and that is why this exists. Both evaluate the reconstruction on a GRID of
+// `factor` points per sample and take the largest, so both can only ever read
+// low. Thirty times the filter length does not help when the error is not about
+// the filter: it is about only ever looking between the samples at a fixed set
+// of places. Measured, the polyphase reference read 0.093 dB under the truth on
+// transient material — the one signal class a delivery ceiling is most at risk
+// from — while appearing to independently confirm the engine's meter.
+//
+// "Independent" has to mean independent on every axis that carries error.
+//
+// This method has no grid and no filter. For a buffer that decays to zero at
+// both ends, the band-limited reconstruction of its samples is exactly the
+// inverse transform of its spectrum zero-padded to a higher rate. That is not
+// an approximation of the reconstruction, it IS the reconstruction, evaluated
+// at whatever density the padding chooses. There is no window to design, no
+// stopband to trade against a transition, and no passband droop near Nyquist —
+// the three things that make an FIR interpolator inexact.
+//
+// It is also CHEAPER than the 6145-tap convolution it replaces.
+//
+// The one requirement is the one the polyphase version also has and states: the
+// signal must decay to zero at both ends, or the implied periodic extension
+// wraps the end into the start. Every stimulus here is built with silence at
+// both ends for exactly that reason.
+double exactTruePeak(const double* x, int64_t n, int pad = 16) {
+  if (n <= 0) return 0.0;
+  // A power of two for the transform, with the signal centred so the
+  // zero-padding at the ends is genuine silence rather than a truncation.
+  size_t m = 1;
+  while (m < static_cast<size_t>(n)) m <<= 1;
+  std::vector<double> framed(m, 0.0);
+  for (int64_t i = 0; i < n; ++i) framed[static_cast<size_t>(i)] = x[i];
+
+  auto spec = fftOfReal(framed);
+
+  // Zero-pad the SPECTRUM, splitting the Nyquist bin so the result stays real.
+  // This is the whole method: interleaving zeros in frequency is interpolation
+  // in time, and it is exact.
+  const size_t up = m * static_cast<size_t>(pad);
+  std::vector<std::complex<double>> padded(up, {0.0, 0.0});
+  const size_t half = m / 2;
+  for (size_t k = 0; k < half; ++k) padded[k] = spec[k];
+  padded[half] = spec[half] * 0.5;
+  padded[up - half] = spec[half] * 0.5;
+  for (size_t k = half + 1; k < m; ++k) padded[up - (m - k)] = spec[k];
+
+  ifftInPlace(padded);
+
+  // ifftInPlace normalises by its own length; the interpolated signal needs the
+  // ratio back so a unit sinusoid still reads 0 dBTP.
+  const double scale = static_cast<double>(pad);
+  double best = 0.0;
+  for (size_t i = 0; i < up; ++i)
+    best = std::max(best, std::abs(padded[i].real()) * scale);
+  // The sample peak is a hard lower bound: interpolation cannot produce a
+  // reconstruction that passes below the samples it interpolates.
+  for (int64_t i = 0; i < n; ++i) best = std::max(best, std::abs(x[i]));
+  return best;
+}
+
 double engineTruePeak(const double* x, int64_t n) {
   TruePeakUpsampler up;
   up.design(4, 80.0, 0.05); // exactly what TruePeakLimiter uses
@@ -1619,6 +1683,58 @@ std::vector<SelfCheck> selfValidation(const ReferenceTruePeak& meter) {
     c.unit = "";
     c.threshold = 1.0;
     c.pass = ScopedNoDenormals::enabled();
+    checks.push_back(c);
+  }
+
+
+  {
+    // THE EXACT REFERENCE, VALIDATED AGAINST ARITHMETIC RATHER THAN AGAINST
+    // ANOTHER ESTIMATOR. A sampled sinusoid's band-limited reconstruction IS
+    // that sinusoid, so a unit sinusoid's true peak is exactly 0 dBTP at every
+    // frequency and every phase. Anything a meter reports other than 0 is its
+    // own error, with no modelling assumption in the way.
+    //
+    // Swept close to Nyquist deliberately, because that is where an FIR
+    // interpolator's passband droop lives and where the polyphase reference it
+    // replaces is worst.
+    // COHERENTLY SAMPLED, AND NOT ENVELOPED. The first version of this check
+    // faded the tone in and out so the buffer would decay to zero at both ends,
+    // and then asserted the analytic answer was 0 dBTP. That is wrong: the peak
+    // of envelope-times-sine is not the envelope's peak, because the sine does
+    // not crest where the envelope does. It read 1.04e-03 dB and the error was
+    // entirely mine.
+    //
+    // An integer number of cycles in the buffer removes the need for an
+    // envelope altogether. The periodic extension of a coherent tone IS the
+    // continuous tone, so there is no discontinuity to fade out and the
+    // analytic peak really is exactly 1.0.
+    double worstExact = 0.0;
+    constexpr int64_t kN = 8192;
+    for (int cycles : {83, 683, 1621, 2559, 3413, 3923}) {
+      const double f = static_cast<double>(cycles) * kFs / static_cast<double>(kN);
+      for (double phase : {0.0, 0.31, 0.79, 1.13}) {
+        std::vector<double> x(static_cast<size_t>(kN), 0.0);
+        for (int64_t i = 0; i < kN; ++i)
+          x[static_cast<size_t>(i)] =
+              std::sin(2.0 * M_PI * f * static_cast<double>(i) / kFs + phase);
+        const double e = exactTruePeak(x.data(), kN);
+        worstExact = std::max(worstExact, std::abs(dbFromLinear(e)));
+      }
+    }
+    SelfCheck c;
+    c.label = "exact true-peak reference";
+    c.detail = "worst deviation from the analytic 0 dBTP of a unit sinusoid, "
+               "over six coherent frequencies and four phases. The polyphase "
+               "reference is not compared here: a coherent tone does not decay "
+               "to zero at the ends and that meter is not built for one, so the "
+               "honest comparison between them is on the stress signal, "
+               "reported as tp_reference_delta_db";
+    c.value = Value::of(worstExact);
+    c.unit = "dB";
+    // Well inside the arithmetic floor of the transform, and two orders of
+    // magnitude under the 0.093 dB error this method exists to remove.
+    c.threshold = 0.001;
+    c.pass = worstExact <= c.threshold;
     checks.push_back(c);
   }
 
@@ -2160,7 +2276,9 @@ int main(int argc, char** argv) {
     // --- true peak ---
     {
       const AudioBuffer out = renderOne(cfg, stress, false);
-      const double refLin = meter.measure(out.channel(0), std::min(out.frames(), stress.frames() + 4096), 0);
+      const int64_t span = std::min(out.frames(), stress.frames() + 4096);
+      const double refLin = meter.measure(out.channel(0), span, 0);
+      const double exactLin = exactTruePeak(out.channel(0), span);
       const double engLin = engineTruePeak(out.channel(0), out.frames());
       double samplePk = 0.0;
       for (int64_t i = 0; i < out.frames(); ++i)
@@ -2173,7 +2291,15 @@ int main(int argc, char** argv) {
       rep.add(plain("tp_engine_meter_dbtp", "true peak (engine meter)", "dBTP",
                     Value::of(dbFromLinear(engLin))));
       rep.add(plain("tp_meter_delta_db", "engine - reference", "dB",
-                    Value::of(dbFromLinear(engLin) - dbFromLinear(refLin))));
+                    Value::of(dbFromLinear(engLin) - dbFromLinear(exactLin))));
+      // HOW WRONG THE OLD REFERENCE WAS, kept as a measurement rather than a
+      // claim in a comment. The polyphase reference evaluates on a grid of 32
+      // points per sample and so can only read low; the spectral method has no
+      // grid. On transient material the gap is around 0.09 dB, and it was
+      // invisible for as long as the only thing checking the engine's meter
+      // shared its blind spot.
+      rep.add(plain("tp_reference_delta_db", "polyphase - exact reference", "dB",
+                    Value::of(dbFromLinear(refLin) - dbFromLinear(exactLin))));
 
       if (cfg.type == "true_peak_limiter") {
         const double ceiling = cfg.params.num("ceiling_dbtp", -1.0);
@@ -2181,9 +2307,11 @@ int main(int argc, char** argv) {
         // number picked to make the node pass. It is 0.01 dB because that is
         // what selfValidation just proved the meter to.
         Metric m = gated("tp_conformance_dbtp", "output true peak vs ceiling", "dBTP",
-                         Value::of(dbFromLinear(refLin)), ceiling + 0.01);
-        m.note = "measured by the independent reference meter, never the "
-                 "engine's own";
+                         Value::of(dbFromLinear(exactLin)), ceiling + 0.01);
+        m.note = "measured by the EXACT spectral reference, which has no "
+                 "interpolation grid to under-read on — never the engine's own "
+                 "meter, and no longer the polyphase one that shared its "
+                 "blind spot";
         rep.add(m);
       }
     }

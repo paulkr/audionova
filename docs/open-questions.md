@@ -737,6 +737,50 @@ a model plan takes a minute or two before it starts. Do not let that stand in
 for fixing it.
 
 
+### The limiter is 0.07 dB permissive, and the fix that "verified" it did not
+
+Reopened, with a better instrument. `true_peak_limiter` was reported fixed —
+from −0.996 dBTP (permissive) to −1.041 (conservative) against a −1.0 ceiling.
+That verification used the measurement suite's polyphase reference, and the
+polyphase reference under-reads.
+
+Measured against an EXACT reference — spectral zero-padding, which has no
+interpolation grid and no filter, validated to **1.18e−09 dB** against the
+analytic fact that a coherent unit sinusoid is exactly 0 dBTP:
+
+| meter | reads |
+|---|---|
+| engine's own detector | −1.0419 dBTP |
+| polyphase reference (32×, 6145 taps) | −1.0209 |
+| **exact spectral reference** | **−0.9284** |
+
+So the delivered true peak is **0.07 dB above the ceiling**, the engine's
+detector is **0.11 dB low**, and the reference that was supposed to catch that
+is **0.09 dB low**. Three meters, two of them agreeing with each other because
+they share a grid, and the one that disagreed was the one without one.
+
+**What is left is the transition-band term**, not the grid term. The grid term
+was fixed by raising the oversampling to 16× and subtracting the analytic bound
+`−20log10(cos(π/2f))`. The remainder comes from the interpolator's passband
+ending at 0.475·fs, is unbounded and signal-dependent, and narrowing it costs
+10–39× runtime for an improvement only on content near Nyquist.
+
+**Resolving it needs a decision, not more measurement.** Either the limiter
+subtracts a further fixed margin — cheap, but it costs every render that
+loudness whether or not the material has energy near Nyquist — or the detector's
+transition band narrows and the limiter gets slower. The stress signal that
+shows it is deliberately adversarial: an fs/4 tone at 45°, which is the textbook
+worst case, normalised so the sample peak sits at exactly 0 dBFS. Ordinary
+programme material is nowhere near it.
+
+**Cost of being wrong:** a −1.0 dBTP delivery reads −0.93 on a conformance meter
+that is itself exact. Nothing clips. It matters if a user sets the ceiling to
+0.0 dBTP, which nothing currently stops them doing.
+
+Recorded as a known failure in `engine/tests/measurements.baseline.json` rather
+than fixed by moving the threshold, and the conformance metric now uses the
+exact reference so the number cannot go back to looking fine.
+
 ---
 
 ## Resolved
