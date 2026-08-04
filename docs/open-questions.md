@@ -48,6 +48,102 @@ resolved: "Day Tripper" was recorded 16 Oct 1965 and ADT was invented in April
 citations with page numbers and confidence levels precisely so this class of
 error is catchable.
 
+### The priors half of the preset schema has no vocabulary, and nowhere to put a parameter
+
+Raised by building the authoring tool (`backend/knowledge/author.py`), which is
+the schema's first user. The evidence half of `Preset` is tight — a claim cannot
+exist without a citation or a stated reason to doubt it. The priors half is not,
+and the two gaps compound:
+
+**`targets` is `dict[str, TargetRange]` with no closed vocabulary.** Any string
+is a valid key. Nothing in the repository consumed `parameter_priors` before the
+authoring tool, so nothing had ever had to decide what a key means. This is the
+one place in the codebase where an unknown value is neither rejected nor
+defaulted — it is simply carried, and `as_dossier` passes it to the model, which
+will interpret `warmth` as best it can. The tool declares a closed vocabulary of
+four keys and treats anything else as a hard error, but **that vocabulary lives
+in the tool, not in the schema**, so a dossier written by hand can still carry
+`warmth` and load cleanly.
+
+**`chain_skeleton` is `list[str]` with no node ids and no parameters.** Three
+consequences, all found by trying to author with it:
+
+- An entry is not checked against the engine's node set, so `parametric_eqq`
+  loads and silently contributes nothing.
+- The same node type twice is ambiguous — there are no ids, so nothing can say
+  which instance a target moves. The tool refuses; the schema allows it.
+- **There is nowhere to state a parameter value at all.** "A 15 ips machine with
+  a 2 dB head bump at 50 Hz" is a perfectly ordinary era claim and it is
+  unrepresentable: `chain_skeleton` holds the string `"tape"` and `targets` is
+  documented as measured outcomes with tolerances, which a tape speed is not.
+  The authoring tool renders such a node at the engine's schema defaults and
+  says so loudly, because at defaults `drive` is 6 dB and `tape` has a 2 dB head
+  bump — "the dossier said nothing" is not the same as "nothing happens".
+
+Resolves by moving the target vocabulary into `schema.py` as an enum, validating
+`chain_skeleton` entries against `PARAM_MODELS`, and deciding whether a preset
+may pin a device parameter — which is a design question, not a typing one: a
+pinned parameter is the "boost 3 kHz by 4 dB" the dossier format exists to
+avoid, unless it is explicitly marked as a starting point rather than a target.
+
+Cost of being wrong: a preset that reads as authoritative and specifies nothing
+a planner can act on, which is the failure the evidence half was built to
+prevent, arriving through the half nobody hardened.
+
+### `parameter_priors` has never been read by anything that plans
+
+The authoring tool's `audition` turns priors into an effect graph so an author
+can hear them, and it is emphatically **not** the planner: it is a
+deterministic, documented, single-move interpretation with no model in it. The
+planner will compose the same priors against the same measurements differently,
+and nothing today makes the two agree or even notices when they diverge.
+
+That is acceptable while the planner does not read priors at all, and stops
+being acceptable the moment it does — at which point an author will tune a
+dossier by ear against one interpretation and ship it to another.
+
+Resolves by making the planner's prior-handling explicit enough to reuse, and
+having `audition` call it. Cost of being wrong: presets tuned against a tool
+that does not predict the product.
+
+### Nothing in the priors vocabulary can express a stereo or spatial character
+
+The four targets the authoring tool can interpret are all tonal or dynamic:
+spectral tilt, top-end slope, a bandwidth ceiling, crest factor. There is no
+honest way to write a stereo target, because the measurement report has
+`correlation` and `mono_loss_db` — properties of a field — and no width figure a
+prior could name, so mapping either to `stereo_width.width_percent` would be an
+invented correspondence.
+
+This matters more than the count suggests: era character is substantially a
+spatial matter (a 1965 mix is not a 2015 mix mostly because of where things sit),
+and it is precisely the axis the priors cannot describe.
+
+Resolves by adding a width measure to the report that a target can name, or by
+accepting that spatial character stays in `evidence` prose and never reaches a
+number. Cost of being wrong: twelve presets that all differ tonally and are
+indistinguishable in the dimension a listener notices first.
+
+### The output name filter is blind to the one field written in snake_case
+
+`schema.name_filter_hits` matches denied aliases on word boundaries, and `_` is
+a word character — so `\bBeatles\b` does not match `era_beatles_1965_guitar`.
+`preset_id` is the **only** field of a dossier that crosses into the effect graph
+and it is offered to the model as an enum value, so it is exactly the field where
+a name would be echoable.
+
+Found by trying to write a test for the authoring tool's name check. The tool now
+carries a second, token-based check for `preset_id` specifically
+(`author._name_in_preset_id`), which closes the hole and creates a smaller one:
+the guarantee now has two implementations, and `findings.md` is clear that a
+property with two implementations is a property no single test can falsify.
+
+Resolves by moving the identifier check into `schema.py` beside
+`name_filter_hits`, so the two rules are read together and the catalogue is
+covered whether or not it was authored with the tool. Cost of being wrong: an
+artist's name reaching a prompt through the one field the whole alias-routing
+design exists to keep clean.
+
 ### Twenty-one glossary conditions name a measurement that does not exist
 
 The glossary is now sixty terms, but the count was never the risk. Twenty-one of
@@ -924,6 +1020,26 @@ counter, then deciding a ceiling on purpose. Costs, if wrong: a per-call bill
 larger than the design assumed, discovered from an invoice rather than a test.
 The `SOURCE_NODES` list is the obvious lever — it is six headers chosen by hand,
 and neither of the two nodes added here is in it.
+
+### Four make targets cannot run from the directory their Makefile is in
+
+`sweep`, `recover`, `recover-synthetic` and `manifest` invoke
+`$(PY) -m backend.eval.…`, and `make` runs with `backend/` as the working
+directory, so the `backend` package is not importable and every one of them
+exits with `ModuleNotFoundError: No module named 'backend'`. `README.md`
+documents them as `cd backend && make sweep …`, which is precisely the
+invocation that fails.
+
+Not caught by anything, and structurally cannot be: none of the four is part of
+`make test`, because all four need the gitignored stems or rewrite a committed
+manifest. Found while adding a fifth target of the same shape, which was written
+to invoke the file directly instead (`$(PY) knowledge/author.py`) — the same
+form the test targets use, and the reason they work.
+
+Resolves either by invoking the files directly or by setting
+`PYTHONPATH=..` for those targets. Cost of being wrong: small and annoying —
+`make recover-synthetic` is the one that is supposed to work on a machine with
+no audio, so it is the target most likely to be tried first by someone new.
 
 ### The engine is invoked per render as a subprocess
 

@@ -5,7 +5,7 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api listen sweep recover recover-synthetic manifest knowledge
+.PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api listen sweep recover recover-synthetic manifest knowledge author
 
 test: loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api listen knowledge
 
@@ -85,6 +85,29 @@ verify:
 # state cannot quietly become a half-cited one.
 knowledge:
 	@$(PY) tests/test_knowledge.py
+
+# The preset authoring tool, which is the mitigation for the plan's risk #7:
+# authoring is the schedule bottleneck and is not an engineering task, so
+# everything an engineer can do to shorten it is tooling.
+#
+#   make author                                       the help, where to start
+#   make author AUTHOR_ARGS="check"                   validate the catalogue
+#   make author AUTHOR_ARGS="new -o d.json"           interactive scaffold
+#   make author AUTHOR_ARGS="audition d.json s.wav -o out"    hear the priors
+#   make author AUTHOR_ARGS="diff a.json b.json s.wav"        what separates them
+#
+# NOT part of `test`: `audition` and `diff` need a source file and the engine
+# binary, and `check` over an empty catalogue asserts nothing. The properties
+# are tested in tests/test_knowledge.py, which synthesises its own audio.
+# Invoked as a FILE rather than with `-m`, like the test targets and unlike
+# `sweep`/`recover`/`manifest`. Make runs with this directory as the working
+# directory, so `python -m backend.knowledge.author` cannot resolve the
+# `backend` package — the three `-m` targets above have the same problem and
+# only work when run from the repository root. See open-questions.md.
+AUTHOR_ARGS ?= --help
+
+author:
+	@$(PY) knowledge/author.py $(AUTHOR_ARGS)
 
 # The local API, driven through TestClient. Synthesises its own audio so it does
 # not need the gitignored stems, and only ever plans with `rules`, so no suite

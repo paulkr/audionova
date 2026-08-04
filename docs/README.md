@@ -71,6 +71,16 @@ Built and verified:
   intervals, and Spearman rho that refuses to print without its interval.
   242 checks, and 94 of 95 mutations caught. See `evaluation.md`.
 
+- **Preset authoring tool** — the mitigation for the plan's risk #7, that preset
+  authoring is the schedule bottleneck and is not an engineering task.
+  `backend/knowledge/author.py`: `new` scaffolds a dossier with every prompt
+  stating the rule it enforces, `check` translates the schema's refusals into
+  something an author can act on, `audition` renders the priors against a
+  measured source and writes a loudness-matched A/B against a **null render** so
+  the author can hear them, and `diff` reports what measurably separates two
+  dossiers. 146 checks, and 39 of 39 mutations caught after the first pass
+  caught 31. `cd backend && make author`.
+
 Not built:
 
 - **The live model calls.** Everything around them exists and is tested offline
@@ -87,8 +97,13 @@ Not built:
   synthetic listeners, scored, correlated — so the plumbing is validated.
   **No session has ever been taken by a person.**
   [listening-protocol.md](listening-protocol.md) is the recipe for running one.
-- **Presets.** Zero authored. The plan budgets 4–6 person-weeks for twelve and
-  notes this is not an engineering task.
+- **Presets.** Zero authored, and the catalogue directory does not exist. The
+  plan budgets 4–6 person-weeks for twelve and notes this is not an engineering
+  task. The tooling now exists (above); what is missing is the source books and
+  a person who can verify a claim about a session. **Nothing in this repository
+  contains a factual claim about a recording**, including the authoring tool's
+  test fixture, which is called `example_not_a_real_preset` and cites a source
+  named as fictional.
 - **The platform.** No API, no queue, no storage, no auth.
 - **CI on a second machine.** The pipeline and its matrix exist; nothing has run
   anywhere but here, so the cross-architecture claim is still untested.

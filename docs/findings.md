@@ -2277,6 +2277,113 @@ that a message exists.
 
 ---
 
+## Findings from the preset authoring tool
+
+`backend/knowledge/author.py`, built as the mitigation for the plan's risk #7.
+The tool is the preset schema's first user, and most of what follows is what
+using a schema tells you that reading it does not.
+
+### The word-boundary name filter is blind to snake_case
+
+`schema.name_filter_hits` matches denied aliases on word boundaries, which is
+right for prose and was chosen deliberately — a substring match would flag
+"beatles" inside "beatlesque" and an author who saw that would loosen the
+filter. But `_` is a word character, so `\bBeatles\b` **does not match**
+`era_beatles_1965_guitar`.
+
+`preset_id` is the only field of a dossier that crosses into the effect graph,
+and it is offered to the model as an enum value — so it is the one field where a
+name is directly echoable, and the one field the filter cannot see. Found by
+writing a test for the *other* name check and picking an id that looked
+realistically bad.
+
+The tool now carries a token-based check for identifiers specifically. That
+closes the hole and opens a smaller one, recorded in `open-questions.md`: the
+guarantee now has two implementations, which this document already says is a
+property no single test can falsify.
+
+### A shelf pair does not deliver its nominal slope, and does not miss consistently
+
+`audition` implements a spectral-tilt prior as mirrored shelves at 1 kHz, with
+the gain derived from the measurement layer's own fit window (100 Hz to 10 kHz,
+so half-span is 3.32 octaves). The delivered slope is not the requested one,
+which was expected. What was not expected is that **the direction of the error
+depends on the source**: measured, the mapping delivers 1.38× the requested
+slope change on pink noise and 0.76× on an acoustic guitar stem, because the
+least-squares fit is over band levels and the residual structure of the source
+pulls the fitted line.
+
+The consequence is that there is no calibration constant to apply — a fudge
+factor tuned on one source is wrong on the next. The tool prints what the render
+achieved beside what was asked, measured off the written file, and the docstring
+says which way it went on which material rather than claiming a nominal figure.
+
+This also produced the round's most instructive surviving mutation. The first
+test asserted the move "covered more than half the distance to the target",
+which **survives halving the span constant**: the correct version overshoots by
+38% and the halved version undershoots by about the same amount, so both are
+comparably close to the target on opposite sides. Only the ratio of delivered to
+requested slope change separates them — 1.38 correct, 0.69 halved, 2.77 doubled.
+A distance-to-target assertion measures the wrong quantity and looks like a
+tight one.
+
+### Refusing on "did it parse" is not the same as refusing on "is it valid"
+
+`audition` must refuse a dossier that would not validate. The first test fed it
+a dossier with an uncited claim — which fails Pydantic, so `check_path` returns
+no model at all. A mutation reducing the refusal to `if preset is None` passed
+that test completely: the guard had been deleted and the behaviour was
+unchanged, because the input never exercised it.
+
+The dossiers that need this guard are the ones that parse *perfectly* and are
+still wrong — an unknown target key, a node type the engine does not have, an
+artist's name in a claim. Every one of those is valid JSON, valid against the
+schema, and unrenderable. The test now uses one, and asserts the refusal names
+the offending key.
+
+### Mutation results
+
+Thirty-nine semantic mutations against `author.py`.
+
+| | mutations | survived first pass | survived after |
+|---|---|---|---|
+| `check` and its translations | 13 | **2** | 0 |
+| `new` | 2 | 0 | 0 |
+| `audition` and graph building | 18 | **3** | 0 |
+| `diff` | 6 | **3** | 0 |
+
+**Eight of thirty-nine survived first exposure**, against 42 of 72, 81 of 139
+and 10 of 95 in the project's earlier Python rounds. All eight were the same
+three shapes this document has now recorded five times:
+
+- **Self-referential expectation** (2). The `diff` thresholds were probed at
+  `threshold * 0.99` and `threshold * 1.01` read from the module under test, so
+  doubling every threshold passed unchanged. Fixed by writing the eight numbers
+  out in the test as an independent table and asserting the module agrees with
+  it, which also means adding a compared field is now a decision someone has to
+  make rather than something that happens.
+- **A property with two implementations** (2). The assertion that a citation
+  error names the offending claim searched the whole problem — location, message
+  and fix — and Pydantic's own message happens to repeat the claim for that one
+  rule. Removing the claim from the location changed nothing. Every *other*
+  complaint about that claim does not repeat it, so the test was passing on the
+  one case that did not need it. Same shape for the near-miss field suggestion,
+  where `"citation" in fix` was satisfied by the list of known field names the
+  fix prints anyway.
+- **A guard or a constant measured where it does not bind** (4). The `audition`
+  refusal above; the tilt span, above; the `diff` render filenames, which only
+  collide when two dossiers share a `preset_id` and the test used two that did
+  not; and the manifest's recorded loudness spread, which is genuinely 2.1e-8 LU,
+  so a mutation hard-coding zero passed any tolerance loose enough to write
+  comfortably. That last one is fixed with exact float equality — both sides are
+  the same arithmetic on the same written files, so they are the same float or
+  one of them is reporting something it did not measure.
+
+**Final: 39 of 39 caught by a named failure, none as a crash.** The suite went
+from 138 checks to 146.
+
+---
+
 ## Frontend findings
 
 Kept for completeness; the hero animation predates the engine work.
