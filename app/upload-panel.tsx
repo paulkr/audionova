@@ -1,15 +1,41 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
+import { upload } from "./lib/api";
+
 export default function UploadPanel() {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function pick(list: FileList | null) {
     const next = list?.[0];
-    if (next) setFile(next);
+    if (next) {
+      setFile(next);
+      setError(null);
+    }
+  }
+
+  // The bytes go straight to the audio API, never through a Next route.
+  // Server Actions cap bodies at 1 MB and a three-minute 24-bit WAV is about
+  // 50 MB — and a proxy would silently truncate anything over 10 MB with only
+  // a console warning, which is a data-corruption bug that returns success.
+  async function submit() {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const project = await upload(file);
+      router.push(`/studio/${project.id}`);
+    } catch (e) {
+      setError(String((e as Error).message));
+      setBusy(false);
+    }
   }
 
   return (
@@ -59,7 +85,7 @@ export default function UploadPanel() {
         </button>
 
         <span className="hidden shrink-0 text-[11px] uppercase leading-[1.58] tracking-[0.06em] text-white/40 sm:block">
-          {file ? `${(file.size / 1_048_576).toFixed(1)} MB` : "WAV · MP3 · FLAC"}
+          {file ? `${(file.size / 1_048_576).toFixed(1)} MB` : "WAV"}
         </span>
 
         <input
@@ -73,11 +99,18 @@ export default function UploadPanel() {
 
       <button
         type="button"
-        disabled={!file}
+        disabled={!file || busy}
+        onClick={submit}
         className="pill-filled px-[33.7px] py-[11.2px] text-[16px] leading-[1.25]"
       >
-        Process
+        {busy ? "Analysing…" : "Process"}
       </button>
+
+      {error && (
+        <p className="max-w-[46ch] text-center text-[13px] leading-[1.45] text-[#ff9b9b]">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
