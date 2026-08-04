@@ -62,6 +62,13 @@ Built and verified:
 - **Post-render verify gate** — re-measures the render and refuses to ship
   corruption, ceiling overshoot, mono incompatibility, an introduced resonance,
   a level collapse or destroyed bandwidth. 36 checks.
+- **Blinded listening harness** — the tooling for the Phase 0 panel and for
+  calibrating any proxy metric against human judgement. Seeded blinded
+  sessions whose mapping is not recoverable from the payload, loudness
+  matching verified on the written files at a 0.1 LU bar, the plan's 3 kHz
+  screen rendered by the real engine, two rating scales with listener-clustered
+  intervals, and Spearman rho that refuses to print without its interval.
+  239 checks. See `evaluation.md`.
 
 Not built:
 
@@ -72,7 +79,10 @@ Not built:
 - **CLASSIFY**.
 - **The Phase 0 listening gate.** Three engineers, ten guitar DIs, prefer-or-tie
   in at least 6 of 10. This is the plan's explicit stop-or-go point and has not
-  been attempted.
+  been attempted. **The harness for running it now exists** (`backend/listen/`,
+  `make listen`); what is missing is three engineers, their own chains, and ten
+  guitar DIs. No session has ever been taken by a person, so the interface is
+  tested and unused.
 - **Presets.** Zero authored. The plan budgets 4–6 person-weeks for twelve and
   notes this is not an engineering task.
 - **The platform.** No API, no queue, no storage, no auth.

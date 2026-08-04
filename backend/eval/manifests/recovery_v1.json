@@ -1,0 +1,2415 @@
+{
+ "chain_count": 67,
+ "chains": [
+  {
+   "family": "ordering_pair",
+   "name": "pair00_fwd",
+   "nodes": [
+    {
+     "mix": 0.2522,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 4473.0,
+      "decay_s": 2.96,
+      "pre_delay_ms": 5.9
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 1264.9,
+        "filter_type": "bell",
+        "gain_db": -12.84,
+        "q_factor": 1.0
+       }
+      ]
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair00_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 1264.9,
+        "filter_type": "bell",
+        "gain_db": -12.84,
+        "q_factor": 1.0
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2522,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 4473.0,
+      "decay_s": 2.96,
+      "pre_delay_ms": 5.9
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair01_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 11.83,
+      "output_trim_db": -5.92
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.2146,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 8880.0,
+      "decay_s": 1.02,
+      "pre_delay_ms": 19.2
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 15.8,
+      "knee_db": 0.0,
+      "ratio_to_1": 2.767,
+      "release_ms": 105.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair01_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 15.8,
+      "knee_db": 0.0,
+      "ratio_to_1": 2.767,
+      "release_ms": 105.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.2146,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 8880.0,
+      "decay_s": 1.02,
+      "pre_delay_ms": 19.2
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 11.83,
+      "output_trim_db": -5.92
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair02_fwd",
+   "nodes": [
+    {
+     "mix": 0.2879,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 12.7,
+      "time_ms": 369.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3455,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 6480.0,
+      "decay_s": 1.91,
+      "pre_delay_ms": 4.7
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 12.72,
+      "output_trim_db": -6.36
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair02_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 12.72,
+      "output_trim_db": -6.36
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3455,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 6480.0,
+      "decay_s": 1.91,
+      "pre_delay_ms": 4.7
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2879,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 12.7,
+      "time_ms": 369.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair03_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 459.8,
+        "filter_type": "bell",
+        "gain_db": 8.41,
+        "q_factor": 0.7
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 11.1,
+      "knee_db": 6.0,
+      "ratio_to_1": 2.544,
+      "release_ms": 193.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair03_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 11.1,
+      "knee_db": 6.0,
+      "ratio_to_1": 2.544,
+      "release_ms": 193.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 459.8,
+        "filter_type": "bell",
+        "gain_db": 8.41,
+        "q_factor": 0.7
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair04_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 13.21,
+      "output_trim_db": -6.61
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 6.8,
+      "knee_db": 9.0,
+      "ratio_to_1": 3.985,
+      "release_ms": 134.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3133,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7741.0,
+      "decay_s": 1.64,
+      "pre_delay_ms": 5.5
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair04_rev",
+   "nodes": [
+    {
+     "mix": 0.3133,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7741.0,
+      "decay_s": 1.64,
+      "pre_delay_ms": 5.5
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 6.8,
+      "knee_db": 9.0,
+      "ratio_to_1": 3.985,
+      "release_ms": 134.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 13.21,
+      "output_trim_db": -6.61
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair05_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 466.8,
+        "filter_type": "bell",
+        "gain_db": 7.94,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 9.63,
+      "output_trim_db": -4.81
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1457,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 26.9,
+      "time_ms": 272.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair05_rev",
+   "nodes": [
+    {
+     "mix": 0.1457,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 26.9,
+      "time_ms": 272.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 9.63,
+      "output_trim_db": -4.81
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 466.8,
+        "filter_type": "bell",
+        "gain_db": 7.94,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair06_fwd",
+   "nodes": [
+    {
+     "mix": 0.2846,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 35.2,
+      "time_ms": 213.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 17.1,
+      "knee_db": 6.0,
+      "ratio_to_1": 3.001,
+      "release_ms": 282.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair06_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 17.1,
+      "knee_db": 6.0,
+      "ratio_to_1": 3.001,
+      "release_ms": 282.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2846,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 35.2,
+      "time_ms": 213.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair07_fwd",
+   "nodes": [
+    {
+     "mix": 0.1283,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7678.0,
+      "decay_s": 2.31,
+      "pre_delay_ms": 5.2
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 6167.4,
+        "filter_type": "bell",
+        "gain_db": -9.09,
+        "q_factor": 1.4
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1327,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 16.7,
+      "time_ms": 238.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair07_rev",
+   "nodes": [
+    {
+     "mix": 0.1327,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 16.7,
+      "time_ms": 238.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 6167.4,
+        "filter_type": "bell",
+        "gain_db": -9.09,
+        "q_factor": 1.4
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1283,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7678.0,
+      "decay_s": 2.31,
+      "pre_delay_ms": 5.2
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair08_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 16.31,
+      "output_trim_db": -8.16
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 8.1,
+      "knee_db": 9.0,
+      "ratio_to_1": 3.421,
+      "release_ms": 195.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2919,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 23.5,
+      "time_ms": 186.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair08_rev",
+   "nodes": [
+    {
+     "mix": 0.2919,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 23.5,
+      "time_ms": 186.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 8.1,
+      "knee_db": 9.0,
+      "ratio_to_1": 3.421,
+      "release_ms": 195.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 16.31,
+      "output_trim_db": -8.16
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair09_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 128.5,
+        "filter_type": "bell",
+        "gain_db": 8.62,
+        "q_factor": 1.4
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 6.3,
+      "knee_db": 9.0,
+      "ratio_to_1": 2.835,
+      "release_ms": 130.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair09_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 6.3,
+      "knee_db": 9.0,
+      "ratio_to_1": 2.835,
+      "release_ms": 130.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 128.5,
+        "filter_type": "bell",
+        "gain_db": 8.62,
+        "q_factor": 1.4
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair10_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 16.39,
+      "output_trim_db": -8.19
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2982,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 19.9,
+      "time_ms": 124.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2432,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 5801.0,
+      "decay_s": 1.75,
+      "pre_delay_ms": 0.9
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair10_rev",
+   "nodes": [
+    {
+     "mix": 0.2432,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 5801.0,
+      "decay_s": 1.75,
+      "pre_delay_ms": 0.9
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2982,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 19.9,
+      "time_ms": 124.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 16.39,
+      "output_trim_db": -8.19
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair11_fwd",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 139.1,
+        "filter_type": "bell",
+        "gain_db": -8.82,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1921,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 6869.0,
+      "decay_s": 1.52,
+      "pre_delay_ms": 29.4
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 7.65,
+      "output_trim_db": -3.82
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "ordering_pair",
+   "name": "pair11_rev",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 7.65,
+      "output_trim_db": -3.82
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1921,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 6869.0,
+      "decay_s": 1.52,
+      "pre_delay_ms": 29.4
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 139.1,
+        "filter_type": "bell",
+        "gain_db": -8.82,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": true
+  },
+  {
+   "family": "varied",
+   "name": "varied00",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 4.35
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied01",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 206.8,
+        "filter_type": "lowshelf",
+        "gain_db": -6.24,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 20.68
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied02",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 12.14
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1637,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 4681.0,
+      "decay_s": 0.96,
+      "pre_delay_ms": 26.6
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1429,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 8626.0,
+      "decay_s": 2.33,
+      "pre_delay_ms": 5.7
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied03",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 102.0,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 1265.6,
+        "filter_type": "bell",
+        "gain_db": -8.8,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 3.6,
+      "knee_db": 9.0,
+      "ratio_to_1": 2.499,
+      "release_ms": 70.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1331,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7972.0,
+      "decay_s": 2.32,
+      "pre_delay_ms": 31.7
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied04",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 1830.1,
+        "filter_type": "bell",
+        "gain_db": 7.91,
+        "q_factor": 1.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 2344.7,
+        "filter_type": "bell",
+        "gain_db": -5.82,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 8450.7,
+        "filter_type": "highshelf",
+        "gain_db": 4.65,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 7.3,
+      "knee_db": 0.0,
+      "ratio_to_1": 2.524,
+      "release_ms": 63.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 46.74
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied05",
+   "nodes": [
+    {
+     "mix": 0.1447,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 51.4,
+      "time_ms": 219.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied06",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 9.26,
+      "output_trim_db": -4.63
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1503,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 11.1,
+      "time_ms": 143.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied07",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 419.1,
+        "filter_type": "bell",
+        "gain_db": -8.6,
+        "q_factor": 0.7
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 2730.3,
+        "filter_type": "highshelf",
+        "gain_db": 6.95,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 14.94
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied08",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 164.8,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 4799.1,
+        "filter_type": "highshelf",
+        "gain_db": -10.84,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3298,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 8715.0,
+      "decay_s": 1.72,
+      "pre_delay_ms": 0.1
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3228,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 6051.0,
+      "decay_s": 2.56,
+      "pre_delay_ms": 8.6
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied09",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 7.7,
+      "knee_db": 9.0,
+      "ratio_to_1": 3.684,
+      "release_ms": 114.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 13.54,
+      "output_trim_db": -6.77
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2539,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 14.8,
+      "time_ms": 419.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3277,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 4875.0,
+      "decay_s": 2.27,
+      "pre_delay_ms": 5.6
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.3134,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 8183.0,
+      "decay_s": 1.03,
+      "pre_delay_ms": 38.2
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied10",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 165.1,
+        "filter_type": "lowshelf",
+        "gain_db": -6.65,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied11",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 153.5,
+        "filter_type": "lowshelf",
+        "gain_db": -4.21,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 37.51
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied12",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 75.6,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 2117.4,
+        "filter_type": "bell",
+        "gain_db": 8.32,
+        "q_factor": 3.0
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 3.9,
+      "knee_db": 0.0,
+      "ratio_to_1": 2.169,
+      "release_ms": 114.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied13",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 81.3,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 9.93,
+      "output_trim_db": -4.96
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 9.45
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1796,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 16.6,
+      "time_ms": 439.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied14",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 593.1,
+        "filter_type": "bell",
+        "gain_db": 14.92,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 112.3,
+        "filter_type": "lowshelf",
+        "gain_db": 10.74,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 6193.4,
+        "filter_type": "highshelf",
+        "gain_db": -11.35,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 0.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.2018,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 12.2,
+      "time_ms": 397.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied15",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 337.0,
+        "filter_type": "lowshelf",
+        "gain_db": -10.89,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied16",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 8.2,
+      "output_trim_db": -4.1
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1942,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 11.1,
+      "time_ms": 149.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied17",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 90.6,
+        "filter_type": "lowshelf",
+        "gain_db": 4.82,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 7983.8,
+        "filter_type": "highshelf",
+        "gain_db": -7.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 8.86,
+      "output_trim_db": -4.43
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied18",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 3353.1,
+        "filter_type": "bell",
+        "gain_db": -7.32,
+        "q_factor": 1.4
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 11.82,
+      "output_trim_db": -5.91
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 197.5
+     },
+     "tier": "demonstrated"
+    },
+    {
+     "mix": 0.1006,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 44.1,
+      "time_ms": 218.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "varied",
+   "name": "varied19",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 2644.3,
+        "filter_type": "highshelf",
+        "gain_db": 10.14,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 10676.0,
+        "filter_type": "highshelf",
+        "gain_db": -9.69,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 4.1,
+      "knee_db": 6.0,
+      "ratio_to_1": 3.933,
+      "release_ms": 304.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 14.77,
+      "output_trim_db": -7.38
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 0.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint00",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 20.0,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint01",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 9794.5,
+        "filter_type": "highshelf",
+        "gain_db": -2.6,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "borderline"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 3.4,
+      "knee_db": 0.0,
+      "ratio_to_1": 3.944,
+      "release_ms": 96.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint02",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 0.0
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.0048,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 21.1,
+      "time_ms": 339.0
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint03",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 30.4,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint04",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 13.84,
+      "output_trim_db": -6.92
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 98.21
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint05",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 92.1,
+        "filter_type": "bell",
+        "gain_db": 10.32,
+        "q_factor": 2.0
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 79.9,
+        "filter_type": "lowshelf",
+        "gain_db": -2.6,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint06",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 20.0,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint07",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 132.3,
+        "filter_type": "lowshelf",
+        "gain_db": 10.72,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 9.8,
+      "knee_db": 3.0,
+      "ratio_to_1": 1.371,
+      "release_ms": 105.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint08",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 240.9,
+        "filter_type": "lowshelf",
+        "gain_db": 9.25,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.0056,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 16.1,
+      "time_ms": 166.0
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint09",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 133.6,
+        "filter_type": "lowshelf",
+        "gain_db": -1.86,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint10",
+   "nodes": [
+    {
+     "mix": 0.0033,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 45.3,
+      "time_ms": 351.0
+     },
+     "tier": "sub_threshold"
+    },
+    {
+     "mix": 0.2951,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 4553.0,
+      "decay_s": 1.1,
+      "pre_delay_ms": 31.5
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint11",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 9343.5,
+        "filter_type": "highshelf",
+        "gain_db": 10.04,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.0603,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 31.2,
+      "time_ms": 415.0
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint12",
+   "nodes": [
+    {
+     "mix": 0.0082,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7181.0,
+      "decay_s": 0.91,
+      "pre_delay_ms": 32.9
+     },
+     "tier": "sub_threshold"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "faint",
+   "name": "faint13",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 179.4,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    },
+    {
+     "mix": 0.0701,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 7574.0,
+      "decay_s": 2.23,
+      "pre_delay_ms": 7.3
+     },
+     "tier": "borderline"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_bell",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "bell",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 176.9,
+        "filter_type": "bell",
+        "gain_db": -11.89,
+        "q_factor": 1.0
+       }
+      ]
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_high_shelf",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "high_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 4857.2,
+        "filter_type": "highshelf",
+        "gain_db": 5.44,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_low_shelf",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "low_shelf",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 150.7,
+        "filter_type": "lowshelf",
+        "gain_db": -8.87,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_highpass",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "highpass",
+     "node_type": "parametric_eq",
+     "params": {
+      "bands": [
+       {
+        "center_freq_hz": 82.2,
+        "filter_type": "highpass",
+        "gain_db": 0.0,
+        "q_factor": 0.707
+       }
+      ]
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_compression",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "compression",
+     "node_type": "compressor",
+     "params": {
+      "attack_ms": 3.2,
+      "knee_db": 6.0,
+      "ratio_to_1": 3.204,
+      "release_ms": 92.0,
+      "threshold_offset_db": -6.0
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_drive",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "drive",
+     "node_type": "drive",
+     "params": {
+      "drive_db": 6.81,
+      "output_trim_db": -3.41
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_plate_reverb",
+   "nodes": [
+    {
+     "mix": 0.2812,
+     "move": "plate_reverb",
+     "node_type": "plate_reverb",
+     "params": {
+      "damping_hz": 5370.0,
+      "decay_s": 1.99,
+      "pre_delay_ms": 34.4
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_delay",
+   "nodes": [
+    {
+     "mix": 0.1699,
+     "move": "delay",
+     "node_type": "delay",
+     "params": {
+      "feedback_percent": 16.3,
+      "time_ms": 378.0
+     },
+     "tier": "demonstrated"
+    }
+   ],
+   "ordering_eligible": false
+  },
+  {
+   "family": "single",
+   "name": "single_stereo_width",
+   "nodes": [
+    {
+     "mix": 1.0,
+     "move": "stereo_width",
+     "node_type": "stereo_width",
+     "params": {
+      "width_percent": 240.85
+     },
+     "tier": "strong"
+    }
+   ],
+   "ordering_eligible": false
+  }
+ ],
+ "digest": "409f4922eca932580db3c1b9614671dd1872b5a7a741b9ac517d9b1782fd4f55",
+ "generator_version": "recovery_v1",
+ "seed": 20260804
+}

@@ -117,6 +117,13 @@ of nine defensible ones. The total EQ boost across the whole graph is budgeted \
 at 12 dB and exceeding it produces something that sounds like an EQ rather than \
 like a record.
 
+EVERY GRAPH ENDS WITH A DELIVERY CEILING. Put a `true_peak_limiter` in the \
+`master` section of every chain you produce, at -1.0 dBTP unless the request \
+gives you a reason to choose otherwise, and put `dither` after it if the \
+delivery format is fixed point. Inter-sample peaks clip on conversion whatever \
+the rest of the chain intended, so this is not a stylistic choice and not \
+something to leave out when the source already has headroom.
+
 Confidence fields: disregard any estimate below 0.4. Those measurements are \
 inferences and they are least reliable on exactly the material where they \
 matter most.

@@ -344,14 +344,52 @@ technical grounds — see `licensing.md`.
 
 ### The ordering score may deserve retirement
 
-The recovery baseline scores **+0.498** on ordering while carrying *no ordering
-information at all* — it emits a fixed conventional sequence, so the number
-measures how conventional the corpus is.
+**The artifact is fixed; the underlying question is not.** The +0.498 is gone —
+ordering is now scored only over mirrored chains and reported as an excess over a
+matched order-blind control, and the rule-based baseline reads **+0.000** on 81
+mirrored chains, which is the honest floor. See `evaluation.md`.
 
-The corpus deliberately contains `eq_then_compress` and its exact reverse. **If no
-planner can separate them, measurement deltas do not carry ordering and the
-metric should be retired rather than chased.** That is a decision to take
-deliberately when there is a planner to test, not a bug to fix now.
+What remains open is whether the metric can ever read anything else. The
+corrected floor is zero *by construction* for any predictor that does not reason
+about order, and nothing has yet demonstrated a non-zero excess. **If no planner
+can separate a chain from its reverse, measurement deltas do not carry ordering
+and the metric should be retired rather than chased.**
+
+Resolving it needs a planner that tries. Costs of being wrong in each direction:
+keeping a dead metric invites optimising against noise; retiring a live one
+discards the property LLM2Fx-Tools found decided perceptual preference between two
+systems with identical parameter accuracy.
+
+### Detection floors are derived from a sweep of four values
+
+Every "is this move detectable" decision in the recovery corpus comes from
+`evidence_floor`, which returns the **smallest amount the sensitivity sweep ever
+applied** — 5 dB for a bell, 4 dB for a shelf, 6 dB of drive, 2:1, 0.12 reverb
+mix. That is the smallest amount anything here has evidence for, and deriving it
+beats writing a number down.
+
+It is still not a *measured* floor. The true detection threshold is somewhere
+between the sub-threshold tier and the demonstrated one, and the `borderline`
+tier — 0.35 to 0.7 of the floor — sits in that gap with no evidence either way
+and is excluded from the headline for that reason.
+
+Resolving it means sweeping each perturbation *downward* until the report stops
+tracking it, which is a sensitivity-harness run rather than new code. Cost of
+being wrong: the floor excludes moves a planner could actually have found, which
+makes the headline flatteringly easy, or includes ones it could not, which makes
+it unfairly hard. Both are bounded by a factor of about three.
+
+### The recovery corpus scores parameters only for EQ
+
+Frequency in octaves and gain in dB are scored; compressor ratio, drive amount,
+reverb mix and delay time are not. That is not a principled boundary — it is
+where the recogniser happens to produce a number.
+
+The risk is a planner that recovers every node type and every EQ band while
+getting a 20:1 ratio where a 2:1 was applied, and the harness reporting that as a
+clean run. Resolving it means the recogniser estimating those parameters at all,
+which the sensitivity table says is possible for ratio (modulation centroid
+tracks it at r = 0.94) and says nothing about for the rest.
 
 ### Gain staging cannot model what it is bounding
 
@@ -551,6 +589,99 @@ the best MAE and nearly the worst perceptual score.
 Nothing here has been calibrated, because there is no human data. Every number in
 `evaluation.md` should be read as "this measures what it says it measures", not as
 "this predicts quality".
+
+**The blocker is now people rather than code.** `backend/listen/` collects the
+human data and `backend/listen/correlate.py` computes the ρ. Neither has ever
+seen a real listener. The entries below are what is unresolved about the harness
+itself.
+
+### The listening harness has never been used by a person
+
+Every property of it is tested and none of it is validated. The tests establish
+that the mapping is not recoverable, that clips are matched, that rho is
+arithmetically right — they establish nothing about whether a working engineer
+can complete a session, whether the two scales mean to them what the labels say,
+or whether thirty trials is past the point of fatigue.
+
+The specific risks a test cannot reach: an 8 ms gain ramp that turns out to be
+audible as a click on percussive material; a `decodeAudioData` failure on some
+browser's 24-bit WAV handling; and a session length nobody has sat through.
+
+Resolves by running one session with one colleague before booking three
+engineers. Cost of skipping it: the panel is the expensive, hard-to-repeat step,
+and discovering the interface is unusable during it wastes the only three
+engineers who agreed.
+
+### The request text can reveal a repeat trial
+
+One of the two scales asks whether the render matched the request, so the request
+has to be on screen. A repeated pair therefore carries the same request text
+twice, and an attentive listener may notice.
+
+Mitigated rather than solved: repeats sit at least three trials from their
+original, and the A/B assignment is independently re-randomised between the two
+occurrences, so noticing a repeat does not tell a listener what they answered
+last time. The residual is that a listener who *knows* it is a repeat may try to
+be consistent on purpose, which inflates the consistency figure — the one number
+that exists to say how much to trust them.
+
+Resolves either by using a different excerpt of the same material for the second
+occurrence — which changes the stimulus and so measures something slightly
+different — or by paraphrasing the request, which risks changing the question.
+Cost of being wrong: `reversal_rate` reads better than the listener is, and a
+noisy listener is not caught.
+
+### Two clip identifiers resolving to one file are byte-identical over the wire
+
+Clip identifiers are per trial occurrence, so a repeat's filenames do not give it
+away. The bytes do: the server resolves both identifiers to the same file, so the
+two responses have the same length and the same content, and a listener with the
+network tab open could pair them.
+
+Not fixed, because the fix is worse: padding or re-encoding a clip per occurrence
+means shipping audio nobody measured, and the whole match-and-verify chain exists
+so that the served bytes are the measured bytes. The threat is a colleague's
+curiosity, not an attacker.
+
+### `may_gate_ci` is stricter than the plan's literal wording
+
+The plan says a metric may gate CI at ρ > 0.6. `may_gate_ci` requires the 95%
+interval's **lower bound** to clear 0.6, not the point estimate. On twenty
+paired points a sample rho of 0.62 has a lower bound of 0.28, so the two
+readings disagree on exactly the cases that matter.
+
+This is a decision, not a reading, and it is recorded here so it is argued with
+rather than discovered. `use_lower_bound=False` gives the literal reading and is
+tested. Cost of being wrong in this direction: a genuinely good proxy waits for a
+larger panel. Cost of being wrong in the other: a proxy blessed on noise becomes
+a CI gate, which is the proxy-metric capture the plan names as its top risk.
+
+### `MIN_N = 15` applied to both axes means no Phase 0 panel produces a usable rho
+
+`usable` is false below fifteen paired points **or** fifteen human ratings per
+point. The Phase 0 gate is three engineers on ten files: ten points, three
+ratings each. Both axes fail, by a factor of five on one of them.
+
+That is the honest answer — ten points cannot support a correlation — but it
+means the harness will refuse to bless anything on the data the plan actually
+budgets for. Whoever runs the panel needs to know that calibrating a proxy is a
+*separate*, larger exercise from passing the gate, and that the two cannot be
+done with one session.
+
+Resolves by deciding the calibration panel's size on purpose. Cost of not
+deciding: someone reads `NOT USABLE` as a harness bug and lowers the constant.
+
+### The identifier-collision check cannot be made to fire
+
+`plan_session` refuses a session in which two trials or two clips share an
+identifier. With 64 bits from a seeded Mersenne Twister that does not happen, and
+mutation testing confirms the check can be deleted with no test failing.
+
+Kept rather than removed, unlike the post-write ceiling check that was deleted in
+the same round. The difference is that the ceiling check guards an invariant that
+is provable from three lines above it, whereas this one guards an assumption
+about a random number generator that a future change could break — and the
+failure it prevents is two listeners' answers silently merging.
 
 ---
 

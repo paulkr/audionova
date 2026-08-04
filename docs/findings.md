@@ -685,6 +685,53 @@ so the number measures how conventional the corpus is. Pinned by a test so it
 cannot be mistaken for skill, and the corpus deliberately contains a chain and its
 exact reverse.
 
+**Fixed, 4 August 2026, and the obvious fix was the wrong one.** The reflex is a
+shuffled-baseline control: score a random permutation of the same prediction and
+report the excess. That does nothing. Permutations come in reversing pairs and
+reversing a permutation negates its rank correlation, so **the shuffled control
+is identically zero** and excess-over-shuffled is algebraically the raw score
+again. Measured, not argued: it comes out at exactly 0.000 on every corpus, and
+a test now asserts it to 1e−12 so the next person to propose it can see the
+number.
+
+What does work is two things, and the harness does both:
+
+- **The corpus is mirrored.** Every chain scored for ordering is generated
+  together with its exact reverse, sharing the same parameter draws, so a
+  fixed-sequence predictor scores +ρ on one and −ρ on the other. The mirror only
+  holds when the chain's node types are all distinct — reversing "eq, comp, eq"
+  gives "eq, comp, eq" back — so ordering-eligible chains are built from distinct
+  types and everything else is excluded from the metric outright.
+- **An order-blind control runs beside the score.** The same predicted multiset,
+  re-emitted in a fixed conventional sequence. Its precision and recall are
+  identical by construction, so the difference between the two is ordering
+  information and nothing else. On a *balanced* corpus it agrees with the raw
+  score; on an unbalanced one it is the only one of the three that is honest.
+
+The rule-based baseline now scores **+0.000 excess** on the mirrored chains,
+which is what +0.498 should have read all along. The raw figure comes out at
++0.000 too, which is the corpus balance working.
+
+### A harness whose ceiling nobody could raise
+
+The corpus deliberately contains moves nothing can recover — a 0.2 dB shelf, a
+1.05:1 compressor, a 20 Hz high-pass. Scoring those as misses puts a ceiling
+below 1.0 into the harness for reasons no planner can address, and **a number
+that cannot improve is a number nobody acts on**. They are excluded from the
+headline instead, and counted on their own line.
+
+Excluding them is not free either, and the first version got it wrong in the
+other direction: cancelling *every* prediction of an ignored type meant a chain
+with one loud EQ and one faint one scored zero for naming a single EQ — a
+correct answer marked wrong by the fairness adjustment. Only a *surplus*
+prediction is cancelled now.
+
+The floors are read from `corpus.PERTURBATIONS` rather than written down: the
+smallest amount of each move the sensitivity sweep ever applied is the smallest
+amount anything here has evidence is detectable. Writing the numbers by hand
+would have been inventing a detection threshold, which is the same class of
+mistake as substituting a plausible constant for a missing measurement.
+
 ### A recogniser that could not name two nodes at once
 
 Reverb and delay were selected with an if/else, so a chain containing both was
@@ -1594,6 +1641,81 @@ by ≤ 0.009 dB and the phase at 1 kHz by 0.0029°, and a 1-ULP break moves them
 nothing. No cross-platform-safe tolerance can resolve that, and it should not
 try: the contract suite asserts symmetry **on the kernel itself**, which is
 where a bit-exactness claim belongs. A 5% break is caught, with 18 regressions.
+
+---
+
+## Findings from expanding the recovery harness
+
+The corpus went from six hand-written templates to 67 generated chains from a
+fixed seed, and the harness gained a per-type breakdown, parameter scoring and
+two controls. The floor moved **F1 0.580 → 0.509** — the corpus got harder, not
+the recogniser worse.
+
+### The headline was hiding a node that is never detected
+
+Averaged, the six templates said "F1 0.58". Broken out by type, the same
+recogniser is at **recall 0.91 on compression and 0.14 on drive**, and drive's
+precision is **1.00** — when it fires it is right, and it almost never fires. The
+rule needs harmonics up top *and* flattened peaks, and on already-bright material
+the first condition never arrives.
+
+Two other facts the average could not carry: `stereo_width` is recalled perfectly
+and proposed five times too often, so it is a precision problem rather than a
+detection one; and `plate_reverb` fails in both directions, which is the
+dense-material limitation showing up as a number instead of a paragraph.
+
+A per-type table costs twenty lines and turns one unactionable number into three
+different pieces of work.
+
+### The generated corpus is harder in a way the templates could not be
+
+Six hand-written chains cannot vary length, type and parameter extremity
+independently, and with six of them one template gaining a node moves the
+headline by four points. 67 chains at 1–5 nodes, drawn from four tiers of
+extremity, with duplicates allowed, moved the floor down eleven points and made
+it stable enough that the per-family numbers separate: `varied` 0.58,
+`ordering_pair` 0.55, `single` 0.55, `faint` 0.32.
+
+### Nearest-neighbour parameter matching flatters, and by how much
+
+Matching a proposed band to the nearest applied one means a proposal placed
+*anywhere* lands near something. The control — same proposals, frequencies
+replaced by log-uniform guesses — scores **1.80 octaves** median error against
+the recogniser's **0.27**, and 11% within a third of an octave against 52%. The
+signal is real, and without the control there would be no way to know.
+
+The gain control is blunter and more useful: predicting **0 dB for every band**
+scores 8.80 dB median error against the recogniser's 1.22. A metric where "say
+nothing moved" is the baseline needs that baseline printed next to it.
+
+### Mutation results
+
+Forty semantic mutations across `backend/eval/chains.py`, `recover.py` and
+`generate.py`. **Thirty-one caught first pass, nine survived**, in line with the
+42-of-72 and 81-of-139 the Python stages ran before. After strengthening,
+**39 of 40**.
+
+| survived first contact | why | fix |
+|---|---|---|
+| excess taken over the shuffled control | on a *balanced* corpus the two controls agree, so every test case was balanced | added a one-chain corpus, the smallest unbalanced one there is: raw +1, order-blind +1, shuffled 0, honest excess 0 |
+| unmirrored chains enter the ordering mean | `score_recovery` already blanks those, so `aggregate` was never tested on its own | construct a `RecoveryScore` directly and assert `aggregate` still refuses it |
+| bands matched by linear frequency distance | every test case put the right answer nearest in both metrics | 400 Hz and 1900 Hz against a 1 kHz truth — 400 is nearer in hertz, 1900 in octaves |
+| the gain tolerance loosened 3 dB → 12 dB | probed at 0 dB error and at 4 dB, never at the bar | 2.9 dB inside, 3.1 dB outside |
+| a boost and a cut merge into one run | the two moves in the test were *distant*, so the zeros between them separated them whatever the sign rule was | adjacent bands, +5 dB at 1 kHz and −5 dB at 1.25 kHz |
+| recovered gain is the run's mean, not its peak | the gain was never asserted on a case with a skirt | a bell whose skirt averages 4.0 against a 6 dB peak |
+| an unknown perturbation name yields a floor | the dictionary lookup two lines later raises the same `KeyError`, so asserting the type tested nothing | assert the message says there is no evidence for a floor |
+| the manifest's recorded digest is not checked | every tampered manifest also failed the *seed* check, so one of the two checks was free | a manifest with only its digest field corrupted, which regenerates perfectly |
+
+The pattern is the one this project keeps finding: **the check existed, the check
+fired, and the test sat far enough past the bar that the constant could move by
+half its value.** Two of the eight are a second variant — a test whose case was
+constructed so that two different implementations give the same answer.
+
+**M08 is an equivalent mutation, not a gap.** Reading the shared-node list off a
+sorted set instead of the predicted sequence changes nothing on any input: the
+rank correlation is taken over *paired* index lists, and permuting both the same
+way leaves it unchanged. It is written down in the code so the next person to
+notice does not go looking for the test that should have caught it.
 
 ---
 
