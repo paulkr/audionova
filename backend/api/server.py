@@ -74,9 +74,16 @@ app = FastAPI(title="Audionova", version="0.1.0")
 # must never traverse a Next route: Server Actions cap bodies at 1 MB, and a
 # proxy silently truncates anything over 10 MB with only a console warning —
 # a data-corruption bug that returns success.
+# ANY LOCAL PORT, because Next picks 3001 when 3000 is taken and pinning one
+# turns an ordinary occupied port into a CORS error the user has to decode.
+#
+# A regex over loopback only, NOT allow_origins=["*"]. The wildcard would let
+# any page on the internet drive this API while the user has it running, and
+# "it is only local" is exactly the reasoning that ships a wildcard to
+# production. In production this becomes the single deployed origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["*"], allow_headers=["*"],
 )
 
