@@ -13,13 +13,19 @@ patterns matter more than the sequence.
 ## The recurring lesson
 
 **Every mutation-testing run on a new node found at least one test that passed
-while the property it named was broken.** Eighteen nodes, eighteen times. The
-tests were not sloppy; they were subtly measuring something adjacent to what they
+while the property it named was broken.** Twenty nodes, twenty times. The tests
+were not sloppy; they were subtly measuring something adjacent to what they
 claimed.
 
 `Dither` was the first node where all nine mutations were caught on the first
 pass. It took eighteen nodes of practice to write a test suite that worked
-immediately.
+immediately — and the streak did not survive the next node. `ZeroPhaseEQ`
+caught all nine of its mutations first time; `LinearPhaseEQ` let two of seven
+through, both of them defences whose effect is invisible at the parameter values
+the test happened to use. See "the textbook window made the design worse" below,
+and the tap-count parity case: forcing an even `taps` down to odd changes
+nothing observable through `latencyFrames()`, because `(512-1)/2` and `(511-1)/2`
+are both 255. Only the kernel's LENGTH shows it.
 
 Second recurring lesson, arrived at later: **synthetic test material is more
 flattering than real audio, twice in a row and in the same direction.** The codec
@@ -50,6 +56,21 @@ The gate's lookahead test could not isolate `RunningMax`, because delay alone
 anticipates a step onset. A dip test *also* failed to isolate it: with lookahead
 L, the gain dip lands L samples *before* the audio event. Fixed by scanning the
 whole loud region.
+
+Same category, twice over, on the offline EQs. The registry's shared
+steady-state gain probe analyses the **last** window of the render, which is
+right for every causal node and wrong for a two-sided one. A zero-phase filter
+reaches backwards as well as forwards, so the end of a render is the response
+decaying into the silence past the signal, not a steady state. A +6 dB bell at
+200 Hz read +11.96 dB instead of +12.00 — an error that scaled with the filter's
+reach, which is exactly the pattern that makes it look like a filter bug. Moving
+the window into the middle of the signal made it read +12.0000.
+
+The same trap one level up: the phase probe for the reach-capped filter used a
+65 536-sample analysis window on a filter that rings for ~56 000 samples, and
+the window's own truncation contributed 0.08° of the measured error. Widening
+the window made the number *worse*, which is how it was caught — a measurement
+artifact shrinks when the measurement improves, and this one grew.
 
 ### Insufficiently independent references
 
@@ -127,6 +148,71 @@ It reported crossover latency even when running as a mono pass-through, so the
 chain trimmed thousands of samples off the front of the render. **A node's
 declared latency must describe what it actually does in the configuration it was
 prepared for.**
+
+### "Zero phase" was assumed to mean "zero declared latency"
+
+`ZeroPhaseEQ` was specified with `latencyFrames() == 0`, on the reasonable
+grounds that filtfilt is latency-free everywhere it appears — MATLAB, SciPy, and
+every offline EQ that advertises the property. **It is latency-free only because
+those implementations are handed the whole signal as one array.** A zero-phase
+filter's impulse response extends backwards in time: output sample `k` depends
+on input samples after `k`. Under a block-streaming node contract that is
+lookahead, and lookahead is latency.
+
+There is no way around it and no existing mechanism in the engine to exploit:
+`Chain::render` is a whole-signal driver, but it drives `processBlock` in order,
+so the node still sees the file a block at a time. Declaring 0 would not make
+the node faster — it would make the chain trim the wrong number of samples off
+the head of the render, which is the `StereoWidth` bug above with the sign
+flipped.
+
+The node declares `chunk + reach` exactly and the chain compensates it. Phase
+measured after compensation is 1.2e−11 degrees across 20 Hz–20 kHz, which is the
+property the name was actually about.
+
+### `ZeroPhaseEQ` is not zero-phase below ~100 Hz at high Q
+
+The reverse pass is started from rest `reach` samples ahead of each output
+sample, where `reach` is measured as the point at which the cascade's remaining
+impulse-response tail falls below 1e−12 of its L1 norm. For a 20 Hz bell at
+Q 12 that point is **506 000 samples — 5.3 seconds.** The cap is 24 000, so the
+filter gets 4.7% of the memory it needs and the reverse pass is missing 27% of
+the response's L1 norm.
+
+Measured consequence: 6.6° of residual phase below 100 Hz and 0.12° above it,
+against 1.2e−11° for any filter that fits inside the cap. The same filter as
+`parametric_eq` is 19.3°, so it is still the better of the two — but "zero
+phase" is a claim it cannot keep there, and the contract test asserts the
+degraded number rather than a wish. See `open-questions.md`.
+
+The general shape of this: **the reach criterion has to be the L1 sum of the
+discarded tail, not the amplitude of the last sample kept.** A high-Q filter
+sits far below any per-sample threshold while several thousand of those samples
+still add up to something audible. Mutating the criterion from a running sum to
+a single sample was caught, and it is the only mutation in this pair that a
+plausible implementation would have gotten wrong by accident.
+
+### The textbook window made the linear-phase design *worse*
+
+`LinearPhaseEQ` frequency-samples the target magnitude and windows the result,
+which is the standard recipe and exists to suppress Gibbs ripple from
+truncating an infinite ideal kernel. Removing the Kaiser entirely passed every
+assertion in the node's test section — so the window was measured directly.
+
+At 4095 taps the **unwindowed** design is the more accurate one: +6.0000 dB at
+a +6 dB bell's centre against +5.9910 windowed, and 0.0000 dB worst deviation
+from `parametric_eq` against 0.0034. The reason is that the tap budget already
+exceeds what the filter needs, so there is no truncation to suppress and the
+window is only tapering coefficients that had converged.
+
+At 255 taps it reverses hard: a −15 dB Q 4 cut at 300 Hz leaks **0.238 dB**
+into 2–20 kHz unwindowed and **0.0035 dB** windowed, a factor of 68. The window
+is kept, the 0.009 dB is the price, and the test now measures at 255 taps
+because that is the only place the window's job exists.
+
+**The general lesson:** a defensive measure whose benefit depends on a parameter
+has to be tested at the parameter value where it binds. Tested anywhere else it
+looks like pure cost, and the obvious conclusion — delete it — is wrong.
 
 ### `DynamicEQ` upward mode pinned at full boost
 
@@ -367,6 +453,8 @@ because each one cost time chasing a phantom bug.
 | Two independent pink-noise signals correlate within 0.05 | Pink noise has far fewer effective degrees of freedom than samples. 0.15 is the honest bound; tighter is flaky, not strict. |
 | The chain "made it louder" | A 3:1 compressor at −24 dBFS takes ~6.8 dB off pink noise well above threshold; +2 dB makeup does not restore it. That was asserting a property of the test signal. |
 | A clamped 40 dB band gain ends at 18 dB | It ends at 12. The clamp fires first, then the boost budget scales 18 dB to the 12 dB total. The test was asserting an intermediate state, and would have broken the moment the budget threshold moved. |
+| A Q 1 bell at 1 kHz is 0 dB at 80 Hz | +0.0416 dB. That is the skirt, and a linear-phase design reproducing it as +0.046 dB is correct rather than 0.046 dB in error. The assertion was rewritten to compare against `parametric_eq` at the same settings, where the honest bound is 0.0034 dB. |
+| A zero-phase filter can declare zero latency | Only if it is handed the whole signal. Under a block contract, needing R samples of the future *is* R samples of latency. |
 
 ---
 
@@ -783,6 +871,72 @@ The lesson is not about token budgets. It is that a pipeline stage which
 silently substitutes for a failed upstream stage produces output indistinguishable
 from correct at every layer below it. `complete()` returning `""` was the whole
 bug; everything downstream was working exactly as designed.
+
+## Findings from the local API
+
+### The edit endpoint wrote numbers into parameters that are names
+
+`POST /api/projects/{id}/graphs/{gid}/edit` checked the value against the
+parameter's declared range and then stored `float(value)` unconditionally. Every
+`Literal` in the schema — `filter_type`, `detector`, `mode`, `curve`,
+`noise_shaping`, `stereo_mode` — has no numeric range to be checked against, so
+`_bounds_for` returned `None`, the bound check was skipped as "nothing to check",
+and the coercion ran anyway.
+
+Measured: `filter_type` set to `2.0` on an EQ band returned 200. The stored graph
+then failed `EffectGraph.model_validate` on its own dump —
+
+```
+nodes.0.bands.0.filter_type
+  Input should be 'bell', 'lowshelf', 'highshelf', 'notch', 'lowpass' or 'highpass'
+  [type=literal_error, input_value=2.0, input_type=float]
+```
+
+— and `to_recipe` emitted `"filter_type": 2.0`, which the engine reads with
+`str("filter_type", "bell")` and therefore silently answers with a bell. Someone
+asking for a notch got a bell and was told nothing. That is the silent enum
+fallback this project refuses everywhere else, arrived at through a type
+coercion rather than through a fallback anyone wrote.
+
+`detector` on a compressor behaved the same way. `inverted` on a polarity node
+was a milder version: stored as `0.0` where the schema declares a bool, which the
+engine happens to read identically because it reads that key as a number, but
+which is the wrong type in the graph the inspector renders and the next model
+turn reads.
+
+**The fix is to key on the type already in the slot** rather than on the presence
+of a bound. Every params dict got there through the per-type Pydantic model, so
+the value sitting in the slot is the authority on what the slot accepts: a bool
+takes a bool, a number takes a bounded number, and anything else is refused with
+a message saying it is a name rather than a number. "No declared bound" and "no
+check needed" are not the same statement, and treating them as the same is what
+made a schema violation look like an accepted edit.
+
+### Two of the three whole-graph rejections the endpoint's comment names are repairs
+
+The endpoint documents that a single in-range parameter can still break the
+graph, and names "a Q that rings, a boost budget now exceeded, a chain that no
+longer has a delivery ceiling". Measured against `validate()`, only the third is
+even a finding, and none of the three is fatal: the Q is repaired by reduction,
+the budget by proportional scaling, the missing ceiling by insertion. The only
+fatal a hand edit can actually reach is `gain_staging`.
+
+So the test that claims "an edit that breaks the graph as a whole is rejected"
+has to be built on gain staging. Written against the boost budget it would have
+asserted a 200 and passed while proving nothing — the exact failure mode this
+project keeps finding.
+
+### Mutation results
+
+Nineteen mutations of `backend/api/server.py`, nineteen caught. Two of them were
+caught only as a crash rather than as a named failure, which stops the suite at
+the first defect and reports one bug per round trip: serving a render whose file
+has gone raises inside `FileResponse` after the response has started, and
+removing the planner-name pattern sent an unknown planner down the model branch.
+Both are now routed through a helper that compares the raised exception's name
+like any other wrong answer, and the planner probes run with `ANTHROPIC_API_KEY`
+removed from the environment — otherwise a regression in an enum pattern would be
+"proved" by making a paid API call on every CI run.
 
 ## Frontend findings
 

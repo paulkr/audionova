@@ -69,6 +69,13 @@ PARAMS: dict[str, tuple[str, float, float, float, str]] = {
                  "bells; above 4 is surgical and rarely what a record needs"),
     "band_gain_db": ("dB", -18.0, 18.0, 0.0,
                      "Band gain. Ignored by highpass, lowpass and notch"),
+    # linear_phase_eq
+    "taps": ("", 127.0, 8191.0, 2047.0,
+             "FIR length, forced odd. Latency is exactly (taps-1)/2 samples and "
+             "cost is linear in taps, so this is the one knob that decides "
+             "whether the node is cheap. Frequency resolution is 96000/taps Hz: "
+             "2047 taps resolves about 47 Hz, so a narrow move below 100 Hz "
+             "needs a large value or, better, parametric_eq"),
     # compressor
     "threshold_dbfs": ("dBFS", -60.0, 0.0, -18.0,
                        "Level above which gain reduction begins. Set from the "
@@ -254,6 +261,29 @@ class ParametricEqParams(_Strict):
     )
 
 
+class ZeroPhaseEqParams(_Strict):
+    """Forward-backward EQ. Same bands, twice the dB, no phase shift at all.
+
+    The gain doubling is not a quirk to work around: filtering twice gives
+    |H|^2, so a band written as 3 dB lands as 6. Write half of what is wanted.
+    """
+
+    bands: list[EqBand] = Field(
+        default_factory=list, max_length=8,
+        description="EQ bands. The applied response is the SQUARE of these — a "
+                    "3 dB band produces 6 dB — because the filter runs forwards "
+                    "and then backwards. Halve the gain you want. At most 8.",
+    )
+
+
+class LinearPhaseEqParams(_Strict):
+    taps: float = _field("taps")
+    bands: list[EqBand] = Field(
+        default_factory=list, max_length=8,
+        description="EQ bands, applied in series. At most 8.",
+    )
+
+
 class DynamicEqParams(_Strict):
     bands: list[DynamicEqBand] = Field(
         default_factory=list, max_length=4,
@@ -373,6 +403,8 @@ PARAM_MODELS: dict[str, type[_Strict]] = {
     "mono_to_stereo": MonoToStereoParams,
     "mid_side": MidSideParams,
     "parametric_eq": ParametricEqParams,
+    "zero_phase_eq": ZeroPhaseEqParams,
+    "linear_phase_eq": LinearPhaseEqParams,
     "dynamic_eq": DynamicEqParams,
     "compressor": CompressorParams,
     "gate_expander": GateExpanderParams,
@@ -392,9 +424,10 @@ MASTER_ONLY = ("true_peak_limiter", "dither")
 
 NodeType = Literal[
     "gain", "pan", "polarity", "dc_block", "mono_to_stereo", "mid_side",
-    "parametric_eq", "dynamic_eq", "compressor", "gate_expander", "drive",
-    "delay", "plate_reverb", "convolution_reverb", "chorus", "stereo_width",
-    "true_peak_limiter", "dither",
+    "parametric_eq", "zero_phase_eq", "linear_phase_eq", "dynamic_eq",
+    "compressor", "gate_expander", "drive", "delay", "plate_reverb",
+    "convolution_reverb", "chorus", "stereo_width", "true_peak_limiter",
+    "dither",
 ]
 
 

@@ -200,6 +200,31 @@ export function importRecipe(id: string, recipe: unknown) {
   });
 }
 
+// A reference is reduced to a spectral curve on upload and the audio is
+// discarded in the same request. No filename and no content hash are stored —
+// a hash would let the service answer "has anyone else uploaded this master",
+// which is not a question it should be able to answer.
+export function setReference(id: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  return request<{
+    stored: string; points: number; reference_lufs: number;
+    kept: string[]; not_kept: string[];
+  }>(`/api/projects/${id}/reference`, { method: "POST", body });
+}
+
+export function matchReference(id: string, graphId: string, maxBands = 5) {
+  return request<{
+    graph_id: string; parent: string; bands: Band[];
+    error_db_before: number; error_db_after: number;
+    level_offset_db: number; clamped: boolean; nodes: GraphNode[];
+  }>(`/api/projects/${id}/graphs/${graphId}/match`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_bands: maxBands }),
+  });
+}
+
 export function intents() {
   return request<{
     intents: { id: string; label: string; node_type: string }[];

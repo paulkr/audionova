@@ -72,7 +72,7 @@ for suite in loudness measure schema planner rules; do
 done
 
 # These render audio, so they are slower and are grouped after the fast ones.
-for suite in bridge refine dynamics verify sensitivity recovery; do
+for suite in bridge refine dynamics verify sensitivity recovery api; do
   run "backend: $suite"   make -C backend --no-print-directory "$suite"
 done
 

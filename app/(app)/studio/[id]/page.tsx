@@ -51,6 +51,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return () => clearInterval(timer);
   }, [busy]);
 
+  const [referenceSet, setReferenceSet] = useState<number | null>(null);
+  const [match, setMatch] = useState<
+    Awaited<ReturnType<typeof api.matchReference>> | null
+  >(null);
+
   const [tab, setTab] = useState<Tab>("A");
   const [playing, setPlaying] = useState(false);
   const sourceRef = useRef<HTMLAudioElement>(null);
@@ -168,6 +173,38 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setHistory((h) => [...h, result.graph_id]);
       setPlan((p) => (p ? { ...p, nodes: result.nodes } : p));
       if (result.warnings.length) setError(result.warnings.join(" "));
+      setBusy("rendering");
+      setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadReference(file: File) {
+    setBusy("measuring the reference");
+    setError(null);
+    try {
+      const info = await api.setReference(id, file);
+      setReferenceSet(info.points);
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function matchToReference() {
+    if (!graphId) return;
+    setBusy("fitting to the reference");
+    setError(null);
+    try {
+      const result = await api.matchReference(id, graphId);
+      setMatch(result);
+      setGraphId(result.graph_id);
+      setHistory((h) => [...h, result.graph_id]);
+      setPlan((p) => (p ? { ...p, nodes: result.nodes } : p));
       setBusy("rendering");
       setRendered(await api.render(id, result.graph_id));
     } catch (e) {
@@ -350,6 +387,58 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                      onEnded={() => setPlaying(false)} preload="auto" />
               <audio ref={processedRef} src={api.audioUrl(id, rendered.render_key)}
                      onEnded={() => setPlaying(false)} preload="auto" />
+            </Section>
+          )}
+
+          {plan && (
+            <Section title="Match a reference">
+              <p className="mb-4 max-w-[70ch] text-[13px] leading-[1.55] text-white/40">
+                Drop in a track whose tonal balance you want, and the fit is
+                computed against it — deterministically, by least squares, not by
+                the model. It lands as an ordinary EQ node you can read and
+                retype like any other.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="pill-ghost cursor-pointer px-5 py-2 text-[14px]">
+                  {referenceSet ? "Replace reference" : "Choose reference"}
+                  <input type="file" accept="audio/wav,.wav" className="hidden"
+                         disabled={!!busy}
+                         onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           e.target.value = "";
+                           if (file) void uploadReference(file);
+                         }} />
+                </label>
+                {referenceSet && (
+                  <button onClick={matchToReference} disabled={!!busy}
+                          className="pill-filled px-5 py-2 text-[14px] disabled:opacity-40">
+                    Match to it
+                  </button>
+                )}
+              </div>
+              {referenceSet && (
+                <p className="mt-3 text-[12px] leading-[1.5] text-white/30">
+                  Kept: {referenceSet} numbers describing its spectral balance.
+                  Not kept: the audio, the filename, or any hash of it — the
+                  file itself never touched the disk.
+                </p>
+              )}
+              {match && (
+                <p className="mt-3 text-[13px] tabular-nums text-white/55">
+                  spectral difference {match.error_db_before} →{" "}
+                  {match.error_db_after} dB RMS
+                  {match.clamped && (
+                    <span className="text-white/35">
+                      {" "}· clamped, so the two are further apart than an EQ
+                      should try to close
+                    </span>
+                  )}
+                  <span className="text-white/35">
+                    {" "}· a {match.level_offset_db} dB level difference was
+                    measured and deliberately not folded in
+                  </span>
+                </p>
+              )}
             </Section>
           )}
 

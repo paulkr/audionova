@@ -435,9 +435,56 @@ def match(
     like it did something it did not.
     """
     grid = log_grid(points=points)
+    return match_to_curve(
+        source, _psd_on_grid(reference, sample_rate, grid), sample_rate,
+        max_bands=max_bands, clamp_db=clamp_db, smoothing=smoothing,
+        points=points)
+
+
+def reference_curve(reference: np.ndarray, sample_rate: float,
+                    points: int = 256) -> np.ndarray:
+    """The only thing worth keeping from a reference recording.
+
+    THE POINT IS WHAT THIS THROWS AWAY. A reference is somebody else's master,
+    very often unreleased, and the product's promise is that we do not keep it.
+    This reduces it to `points` numbers on a fixed log grid — a spectral balance
+    and nothing else. It is not audio, it cannot be inverted into audio, and it
+    is not a fingerprint: the grid is coarse and the curve is level-normalised
+    downstream, so two different masters with the same tonal balance produce the
+    same numbers.
+
+    That last property is deliberate. A content hash would let us answer "has
+    anyone else uploaded this file", which is a question a company holding
+    unreleased masters should not be able to answer.
+    """
+    return _psd_on_grid(reference, sample_rate, log_grid(points=points))
+
+
+def match_to_curve(
+    source: np.ndarray,
+    reference_db: np.ndarray,
+    sample_rate: float,
+    *,
+    max_bands: int = 5,
+    clamp_db: float = DEFAULT_CLAMP_DB,
+    smoothing: float = 6.0,
+    points: int = 256,
+) -> MatchResult:
+    """Fit against a stored reference curve rather than reference audio.
+
+    Split out from `match` so the API can measure a reference once, keep the
+    curve, and discard the audio in the same request it arrived in. Everything
+    below this line is identical either way — the fit never needed the reference
+    samples, only their spectrum, which is what makes the discard possible.
+    """
+    grid = log_grid(points=points)
+    if reference_db.shape != grid.shape:
+        raise ValueError(
+            f"reference curve has {reference_db.shape[0]} points against a "
+            f"{grid.shape[0]}-point grid; it was measured on a different grid "
+            f"and the two cannot be compared")
 
     source_db = _psd_on_grid(source, sample_rate, grid)
-    reference_db = _psd_on_grid(reference, sample_rate, grid)
 
     # Both curves are -inf wherever a band had no energy, and -inf minus -inf is
     # nan. That is the correct answer — the difference between two silences is

@@ -5,9 +5,9 @@
 # that format is that the two halves of the project report the same way.
 PY ?= ../.venv/bin/python
 
-.PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify sweep recover
+.PHONY: test loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api sweep recover
 
-test: loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify
+test: loudness measure bridge sensitivity recovery schema planner rules refine dynamics verify api
 
 loudness:
 	@$(PY) tests/test_loudness.py
@@ -66,3 +66,9 @@ dynamics:
 
 verify:
 	@$(PY) tests/test_verify.py
+
+# The local API, driven through TestClient. Synthesises its own audio so it does
+# not need the gitignored stems, and only ever plans with `rules`, so no suite
+# in this Makefile can make a model call.
+api:
+	@$(PY) tests/test_api.py

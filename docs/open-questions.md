@@ -247,6 +247,51 @@ filters. Under the excerpt-first default of 25 s that is ~1.7 s, which is what t
 product will actually run. Not worth optimising until the planner reveals which
 numbers it reads.
 
+### `linear_phase_eq` convolves directly, and the cost is linear in `taps`
+
+The node's contract is that its declared latency is **exactly** `(taps − 1) / 2`,
+which rules out the partitioned convolver `stereo_width` uses: that convolver's
+latency is one partition *plus* the kernel's group delay, so a node built on it
+could only ever declare `(taps − 1) / 2 + partition`. Direct convolution keeps
+the contract and costs `taps` multiplies per sample per channel — at the 8191-tap
+ceiling that is roughly 1.6e9 multiplies per second of stereo audio.
+
+Two ways out, neither taken yet:
+
+- Let the node declare `(taps − 1) / 2 + partition` and use the FFT convolver.
+  Cheap to do; costs the property that the declared latency is derivable from
+  the tap count alone, which is the thing that makes this node easy to reason
+  about in a chain.
+- A zero-latency convolver: run the first partition direct and the rest by FFT.
+  This is the non-uniform partitioning `Convolver.h` deliberately avoids, and
+  the header explains why — it is fiddly and a recurring source of bugs.
+
+**Cost of being wrong:** a long render with a high tap count is slow, not
+incorrect. Revisit when a real chain wants more than ~2047 taps.
+
+### `zero_phase_eq` stops being zero-phase below ~100 Hz at high Q
+
+The reverse pass needs the filter's whole future, approximated by a lookahead
+window whose length is measured from the cascade's own decay and capped at
+24 000 frames (0.25 s). A 20 Hz bell at Q 12 rings for **5.3 seconds** at the
+1e−12 criterion, so it gets 4.7% of the reach it needs and comes back with 6.6°
+of residual phase below 100 Hz — better than the 19.3° the same filter has as
+`parametric_eq`, but not the 1e−11° the node advertises. Measured in contract
+test 23; the mechanism is in `findings.md`.
+
+What would resolve it: nothing available. Raising the cap to 48 000 halves the
+error and doubles the latency of every slow filter, and only a half-million-frame
+reach makes it exact. The right fix is a planner-side rule that steers narrow
+low-frequency moves to `parametric_eq`, in the same family as `validate.py`'s
+existing "an extreme Q at 22 Hz rings" repair — but that repair currently keys on
+`parametric_eq` and `dynamic_eq` only, and does not know these two node types
+exist.
+
+**Cost of being wrong:** a mastering move at 30 Hz with Q above ~4 is quietly a
+minimum-phase-ish filter with a zero-phase label. It will still sound like the
+band it asked for; it will not deliver the phase coherence that was the reason
+to choose the node.
+
 ### The 20 kHz passband edge is a deliberate, stated loss
 
 The 48 → 96 → 48 kHz round trip nulls at −194 dB at 1 kHz and −168 dB at 18 kHz,
@@ -255,6 +300,43 @@ fourteen times the conversion compute for content nobody can hear.
 
 Both halves are asserted, so moving the edge shows up as an intentional change.
 Flagged because it has already been mistaken for a bug twice.
+
+---
+
+## The manual edit path
+
+### A hand edit is refused when it is out of range and quietly rewritten when it is not
+
+`POST .../graphs/{gid}/edit` promises, in its own docstring, that a person's
+number is never quietly replaced: "they typed a specific number, and quietly
+storing a different one is the sort of thing that gets noticed three renders
+later". That holds for the bound check, which refuses. It does not hold for
+whole-graph validation, which runs afterwards and *repairs*.
+
+Measured: setting an EQ band to +18 dB on a graph already carrying +2 dB of
+boost returns 200 with the band stored at **10.8 dB**, because the total boost
+budget scaled every boost by 0.60 to preserve the shape. The response carries a
+`repairs` list saying exactly that, so it is not silent at the protocol level —
+but nothing forces the UI to show it, and the inspector will read 10.8 next to a
+field the user typed 18 into.
+
+The repair behaviour is right for a planner and the refusal is right for a
+person, and the endpoint currently inherits the planner's. The three repairs a
+hand edit can actually trigger are the boost budget, the ringing-Q reduction and
+the inserted delivery ceiling.
+
+**What would resolve it:** decide whether a repairable finding on a *user edit*
+should refuse with the repair as its explanation ("18 dB would put the graph 8 dB
+over its boost budget; 10.8 is the most it can take") rather than apply it. That
+is a product decision, not a code one, which is why it is here rather than fixed.
+
+**What it costs to be wrong:** low severity, high annoyance. Nothing renders
+wrong; the number in the box is not the number the user typed, and the first time
+an engineer notices is the moment they stop trusting the inspector.
+
+`backend/tests/test_api.py` asserts the current behaviour — that the scaling
+happens and that `repairs` names it — so whichever way this resolves, the change
+is visible as a test change rather than as a silent drift.
 
 ---
 

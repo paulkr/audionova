@@ -52,6 +52,7 @@
 #include "anv/nodes/DynamicEQ.h"
 #include "anv/nodes/Gain.h"
 #include "anv/nodes/GateExpander.h"
+#include "anv/nodes/LinearPhaseEQ.h"
 #include "anv/nodes/MidSide.h"
 #include "anv/nodes/MonoToStereo.h"
 #include "anv/nodes/Pan.h"
@@ -60,6 +61,7 @@
 #include "anv/nodes/Polarity.h"
 #include "anv/nodes/StereoWidth.h"
 #include "anv/nodes/TruePeakLimiter.h"
+#include "anv/nodes/ZeroPhaseEQ.h"
 
 namespace anv {
 
@@ -80,6 +82,8 @@ inline std::unique_ptr<Node> makeNode(const std::string& type) {
   if (type == "mono_to_stereo")     return std::make_unique<MonoToStereo>();
   if (type == "mid_side")           return std::make_unique<MidSide>();
   if (type == "parametric_eq")      return std::make_unique<ParametricEQ>();
+  if (type == "zero_phase_eq")      return std::make_unique<ZeroPhaseEQ>();
+  if (type == "linear_phase_eq")    return std::make_unique<LinearPhaseEQ>();
   if (type == "compressor")         return std::make_unique<Compressor>();
   if (type == "gate_expander")      return std::make_unique<GateExpander>();
   if (type == "dynamic_eq")         return std::make_unique<DynamicEQ>();
@@ -267,7 +271,12 @@ inline void validateRecipe(const Recipe& r) {
       // Band-level parameters are checked here rather than in the node, so a
       // typo fails before anything is rendered rather than producing audio
       // that is quietly not what was asked for.
-      if (n.type == "parametric_eq" || n.type == "dynamic_eq") {
+      // Every node that reads a band list has to be named here. The node's own
+      // shape lookup falls through to a bell, so a type that is added to
+      // makeNode and forgotten in this condition gets the silent-fallback bug
+      // back — one node at a time.
+      if (n.type == "parametric_eq" || n.type == "dynamic_eq" ||
+          n.type == "zero_phase_eq" || n.type == "linear_phase_eq") {
         const auto& bands = n.params.items();
         for (size_t b = 0; b < bands.size(); ++b) {
           const std::string shape = bands[b].str("filter_type", "bell");

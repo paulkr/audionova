@@ -33,6 +33,8 @@ explicit action.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -59,11 +61,12 @@ from backend.eval import corpus  # noqa: E402
 from backend.measure import loudness  # noqa: E402
 from backend.measure.report import measure  # noqa: E402
 from backend.plan import ladder, pipeline, rules  # noqa: E402
+from backend.refine import match_eq  # noqa: E402
 from backend.plan.canary import load_env  # noqa: E402
 from backend.plan import validate as validate_module  # noqa: E402
 from backend.plan.validate import validate  # noqa: E402
 from backend.schemas.graph import (  # noqa: E402
-    PARAM_MODELS, DynamicEqBand, EffectGraph, EqBand,
+    PARAM_MODELS, DynamicEqBand, EffectGraph, EqBand, GraphNode,
 )
 from backend.verify import gate  # noqa: E402
 
@@ -114,6 +117,15 @@ class Project:
     graphs: dict[str, dict[str, Any]] = field(default_factory=dict)
     head: str | None = None
     renders: dict[str, str] = field(default_factory=dict)
+
+    # A reference track reduced to a spectral curve. NO AUDIO, NO FILENAME, AND
+    # DELIBERATELY NO CONTENT HASH. A reference is somebody else's master, very
+    # often unreleased. A hash would let this service answer "has anyone else
+    # uploaded this file", which is a question a company holding unreleased
+    # masters should not be able to answer — so it is not that the hash is
+    # unused, it is that it is never computed.
+    reference_curve: np.ndarray | None = field(repr=False, default=None)
+    reference_lufs: float | None = None
 
 
 PROJECTS: dict[str, Project] = {}
@@ -329,12 +341,34 @@ def edit_graph(project_id: str, graph_id: str,
                 404, f"{node.id} has no parameter {body.param!r}. It has "
                      f"{sorted(target)}.")
 
-        bounds = _bounds_for(node, body.param, body.band_index is not None)
-        if bounds and not bounds[0] <= float(body.value) <= bounds[1]:
+        # THE TYPE ALREADY IN THE SLOT IS THE CONTRACT. Every params dict got
+        # there through the per-type Pydantic model, so what is sitting in the
+        # slot says what the slot accepts.
+        #
+        # Coercing everything to float instead meant a parameter with no numeric
+        # bound — every Literal in the schema — was overwritten with a number and
+        # accepted. `filter_type` set to 2.0 was stored, the graph stopped
+        # round-tripping through its own schema, and the engine, which reads that
+        # key as a string, fell back to a bell. Someone asking for a notch got a
+        # bell with no error: exactly the silent enum fallback this project
+        # refuses everywhere else.
+        current = target[body.param]
+        if isinstance(current, bool):
+            # Before the numeric branch, because a bool IS an int in Python and
+            # the other branch would store 0.0 where the schema declares a bool.
+            target[body.param] = bool(body.value)
+        elif isinstance(current, (int, float)):
+            bounds = _bounds_for(node, body.param, body.band_index is not None)
+            if bounds and not bounds[0] <= float(body.value) <= bounds[1]:
+                raise HTTPException(
+                    422, f"{body.param} runs from {bounds[0]:g} to {bounds[1]:g} "
+                         f"on a {node.type}; you asked for {float(body.value):g}")
+            target[body.param] = float(body.value)
+        else:
             raise HTTPException(
-                422, f"{body.param} runs from {bounds[0]:g} to {bounds[1]:g} on "
-                     f"a {node.type}; you asked for {float(body.value):g}")
-        target[body.param] = float(body.value)
+                422, f"{body.param} on a {node.type} is a name, not a number — "
+                     f"it is currently {current!r}, one of a fixed set. This "
+                     f"endpoint edits numbers only.")
 
     # Still validated. A single in-range parameter can still break the graph —
     # a Q that rings, a boost budget now exceeded, a chain that no longer has a
@@ -447,9 +481,37 @@ def render_graph(project_id: str, graph_id: str,
     report = project.report if full else project.excerpt_report
     graph = entry["graph"]
 
-    recipe = graph.to_recipe(seed=7, output_sample_rate=project.sample_rate,
+    recipe = graph.to_recipe(seed=RENDER_SEED,
+                             output_sample_rate=project.sample_rate,
                              output_format="float64")
     started = time.time()
+
+    # The cache is keyed on the recipe and the source, so a hit is the same
+    # bytes by construction rather than by assumption — the engine is
+    # deterministic within one (engine_version, arch) and that is exactly the
+    # guarantee a render cache needs to be allowed to exist.
+    #
+    # Undo, redo, re-auditioning a chain and A/B-ing two of them all land here.
+    # Those are the commonest actions in a session and every one of them was
+    # re-rendering something already rendered.
+    # THE WHOLE RESULT IS CACHED, NOT JUST THE AUDIO. Everything downstream of
+    # the render — the safety gate, the loudness match, the measurement report —
+    # is a pure function of the rendered samples, and the samples are identical
+    # by determinism. Re-deriving them would burn 0.5 s to arrive at bytes we
+    # already have. Caching only the audio measured 1.3 s -> 0.5 s; caching the
+    # result takes it to nothing.
+    #
+    # The gate is not being skipped. Its verdict is part of what is stored, and
+    # a stored verdict is the verdict it reached on exactly these samples.
+    cache_key = _recipe_hash(recipe, f"{project.id}:{'full' if full else 'excerpt'}")
+    cached = RENDER_CACHE.get(cache_key)
+    if cached is not None and all(
+            os.path.exists(project.renders.get(k, ""))
+            for k in (cached.get("render_key"), cached.get("deliver_key"))
+            if k is not None):
+        return {**cached, "cached": True,
+                "elapsed_s": round(time.time() - started, 2)}
+
     rendered = render_array(source, project.sample_rate, recipe)
 
     verdict = gate.verify(rendered, project.sample_rate, graph=graph,
@@ -497,7 +559,7 @@ def render_graph(project_id: str, graph_id: str,
         wavio.write_wav(source_path, source, project.sample_rate, 24)
         project.renders[source_key] = source_path
 
-    return {
+    result = {
         "ok": True, "render_key": key, "source_key": source_key,
         "deliver_key": deliver_key, "full": full,
         "elapsed_s": round(time.time() - started, 1),
@@ -505,6 +567,11 @@ def render_graph(project_id: str, graph_id: str,
         "gate": {"passed": True, "checked": verdict.checked},
         "after": measure(rendered, project.sample_rate).to_dict(),
     }
+    # Only successful renders are cached. A gate failure returns before this
+    # point, deliberately: caching a refusal would mean a fix to the gate could
+    # not be seen without restarting the process.
+    RENDER_CACHE[cache_key] = result
+    return {**result, "cached": False}
 
 
 @app.get("/api/projects/{project_id}/audio/{key}")
@@ -552,6 +619,151 @@ def download_audio(project_id: str, key: str) -> FileResponse:
 # thing to forget when one of them changes.
 RENDER_SEED = 7
 RECIPE_FORMAT = "audionova_recipe_v1"
+
+
+def _recipe_hash(recipe: dict[str, Any], source_key: str) -> str:
+    """A cache key for one render.
+
+    Canonical JSON — sorted keys, no incidental whitespace — so two graphs that
+    differ only in the order their fields were written hash the same. The source
+    is in the key because the same chain on a different excerpt is a different
+    render, and leaving it out would be the kind of cache bug that returns
+    somebody else's audio.
+    """
+    payload = json.dumps({"source": source_key, "recipe": recipe},
+                         sort_keys=True, separators=(",", ":"))
+    return hashlib.blake2b(payload.encode(), digest_size=16).hexdigest()
+
+
+# WHY THIS IS A WHOLE-RENDER CACHE AND NOT THE STAGE-LEVEL ONE THE PLAN ASKS FOR.
+#
+# Measured on a 20-second excerpt, best of three:
+#
+#     passthrough (process spawn + WAV I/O)      271 ms
+#     one EQ node                               293 ms   node cost   21 ms
+#     four nodes incl. drive and plate reverb   997 ms   node cost  725 ms
+#
+# Stage-level caching means rendering the chain in segments, and every extra
+# segment pays that 271 ms again. It only pays off when the nodes it SKIPS cost
+# more than the process it ADDS — and on the current node set the one expensive
+# node is the reverb, which sits at the end of the chain. Changing a late node
+# means re-rendering the late node; changing an early one invalidates everything
+# after it. Neither case wins.
+#
+# That changes when the expensive nodes move early — a NAM amp model and a
+# cabinet IR are Phase 2, they are roughly 60% of a chain's cost, and they sit
+# at the front. Then the plan's 3-5x is real. Building it now would add a cache
+# invalidation surface to save nothing measurable.
+#
+# The whole-render cache below is a smaller idea that pays immediately: undo,
+# redo, re-auditioning a graph, and A/B-ing two chains all re-render something
+# already rendered, and those are the commonest actions in a session.
+RENDER_CACHE: dict[str, dict[str, Any]] = {}
+
+
+@app.post("/api/projects/{project_id}/reference")
+async def set_reference(project_id: str, file: UploadFile) -> dict[str, Any]:
+    """Take a reference recording, keep its balance, discard the recording.
+
+    The audio exists in this process for the length of one request and is never
+    written to disk. What survives is 256 numbers on a fixed log grid, which is
+    not audio, cannot be inverted into audio, and is not a fingerprint — the
+    grid is coarse and the curve is level-normalised during the fit, so two
+    different masters with the same tonal balance reduce to the same numbers.
+
+    The filename is not stored either. It is used once, in an error message, if
+    the file will not decode.
+    """
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file too large")
+    project = project_or_404(project_id)
+
+    samples, rate = _decode_upload(raw, file.filename or "reference.wav")
+
+    project.reference_curve = match_eq.reference_curve(samples, rate)
+    project.reference_lufs = float(loudness.integrated_lufs(samples, rate))
+
+    # Named `del` rather than left to fall out of scope, because the whole
+    # promise of this endpoint is the discard and it should be visible.
+    del samples, raw
+
+    return {
+        "stored": "spectral balance only",
+        "points": int(project.reference_curve.shape[0]),
+        "reference_lufs": round(project.reference_lufs, 2),
+        "kept": ["a 256-point log-frequency curve", "integrated loudness"],
+        "not_kept": ["the audio", "the filename", "any content hash"],
+    }
+
+
+class MatchRequest(BaseModel):
+    max_bands: int = Field(default=5, ge=1, le=8)
+    clamp_db: float = Field(default=6.0, ge=1.0, le=12.0)
+
+
+@app.post("/api/projects/{project_id}/graphs/{graph_id}/match")
+def match_reference(project_id: str, graph_id: str,
+                    body: MatchRequest) -> dict[str, Any]:
+    """Fit an EQ that moves this source toward the reference's balance.
+
+    THE MODEL IS NEVER ASKED FOR A MATCH CURVE. This is a deterministic fit
+    against a measurement, which is exactly the kind of thing a language model
+    is worst at and a least-squares fit is best at. The result is written back
+    as an ordinary `parametric_eq` node, so it stays readable and editable
+    rather than becoming an opaque 8000-tap FIR an engineer cannot argue with.
+
+    The level offset is reported and NOT folded into the bands. Hiding a
+    broadband gain change inside an EQ makes the EQ look like it did something
+    it did not.
+    """
+    project = project_or_404(project_id)
+    if project.reference_curve is None:
+        raise HTTPException(
+            409, "no reference has been set for this project; POST one to "
+                 "/api/projects/{id}/reference first")
+    entry = project.graphs.get(graph_id)
+    if entry is None:
+        raise HTTPException(404, "no such graph")
+
+    result = match_eq.match_to_curve(
+        project.excerpt, project.reference_curve, project.sample_rate,
+        max_bands=body.max_bands, clamp_db=body.clamp_db)
+
+    if not result.bands:
+        raise HTTPException(
+            422, "the fit produced no bands: this source and the reference "
+                 "already have the same balance, or one of them has too little "
+                 "energy to compare")
+
+    graph = entry["graph"].model_copy(deep=True)
+    # Replace rather than append, so matching twice does not stack two match
+    # EQs. The id is fixed for exactly that reason.
+    graph.nodes = [n for n in graph.nodes if n.id != "match_eq"]
+    graph.nodes.insert(0, GraphNode(
+        id="match_eq", type="parametric_eq",
+        params={"bands": [b.as_dict() for b in result.bands]},
+        rationale=(f"fitted against the reference's spectral balance; "
+                   f"error {result.initial_error_db:.2f} -> "
+                   f"{result.rounded_error_db:.2f} dB RMS"),
+    ))
+
+    validated = validate(graph, project.excerpt_report)
+    if not validated.ok:
+        raise HTTPException(422, "; ".join(str(f) for f in validated.fatal))
+
+    new_id = _store_graph(project, validated.graph, "matched to reference",
+                          parent=graph_id, origin="match")
+    return {
+        "graph_id": new_id, "parent": graph_id, "origin": "match",
+        "bands": [b.as_dict() for b in result.bands],
+        "error_db_before": round(result.initial_error_db, 2),
+        "error_db_after": round(result.rounded_error_db, 2),
+        "level_offset_db": round(result.level_offset_db, 2),
+        "clamped": result.clamped,
+        "repairs": validated.repairs,
+        "nodes": _describe(validated.graph),
+    }
 
 
 @app.get("/api/projects/{project_id}/graphs/{graph_id}/recipe")

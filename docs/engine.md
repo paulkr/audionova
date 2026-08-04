@@ -103,7 +103,7 @@ The caller is going to be a language model, so:
 
 ## Node reference
 
-18 nodes. Ranges are the clamps the engine applies; a value outside them is
+20 nodes. Ranges are the clamps the engine applies; a value outside them is
 clamped, not rejected.
 
 ### Utility
@@ -130,6 +130,80 @@ phase, and the default for all tonal moves. Takes a `bands` list:
 | `q_factor` | default 0.707 |
 
 An unknown `filter_type` is rejected by `validateRecipe`.
+
+**`zero_phase_eq`** — the same bands run forwards and then backwards
+(`filtfilt`). Phase distortion is not small, it is **zero**: the total impulse
+response is the autocorrelation of the one-pass response, and an
+autocorrelation is an even function. Measured across 20 Hz–20 kHz on a 1 kHz
+bell: worst phase **1.2e−11 degrees**, worst group delay **2.4e−10 samples**.
+No real-time plugin can offer this at any price, because a zero-phase filter's
+impulse response extends backwards in time.
+
+Two consequences that must be read before using it:
+
+- **The magnitude is the SQUARE of the band settings.** Two passes of `H` give
+  `|H|²`, so a +6 dB bell measures +12.0000 dB. Ask for half.
+- **Latency is not zero.** "Zero phase" is a statement about phase, not about
+  declared latency. Filtfilt is latency-free when it is handed the whole signal
+  as one array; this engine hands nodes blocks and asks for output before the
+  rest of the file exists, so a filter needing R samples of future input must
+  declare R. The node declares `chunk + reach` exactly, the chain compensates
+  it, and the phase measured after compensation is the zero above.
+
+`reach` is measured from the cascade's own decay — the point where the
+remaining tail falls below 1e−12 of its L1 norm — so a slow filter declares
+proportionally more. Measured: an 8 kHz Q 0.7 bell declares 186 frames, a
+400 Hz Q 2 bell 10 300, and both are exactly zero phase. Reach is capped at
+24 000 frames (0.25 s), which bounds latency at 48 000.
+
+**Past that cap the node is no longer exactly zero phase**, and the number is
+in `findings.md` rather than hidden: a 20 Hz Q 12 bell needs 5.3 s of reach and
+gets 0.25 s, leaving 6.6° of phase error below 100 Hz and 0.12° above it. The
+same filter as `parametric_eq` is 19.3°. Below about 100 Hz at high Q, reach
+for `parametric_eq` instead.
+
+**`linear_phase_eq`** — the same bands realised as a symmetric FIR. Constant
+group delay at every frequency, pre-ringing, and latency of exactly
+`(taps − 1) / 2`. Measured on a 2047-tap design: worst phase residual
+**7.3e−13 degrees**, worst group-delay deviation **9.4e−12 samples**, and the
+kernel is symmetric to the last bit rather than to within round-off.
+
+| Parameter | Range | Default |
+|---|---|---|
+| `taps` | 15…8191, forced odd | 2047 |
+| `bands` | as `parametric_eq` | — |
+
+- **`taps` is forced odd.** An even-length symmetric FIR has its centre of
+  symmetry between two samples and therefore a half-integer group delay, which
+  this engine has nowhere to put. 2048 becomes 2047 rather than being rejected.
+- **Frequency resolution is `fs / taps`** — about 47 Hz at 2047 taps. A move
+  narrower than that is not reproduced; it comes back as a broad shallow tilt.
+  This is inherent to linear phase, not to this implementation.
+- **Cost is linear in `taps`.** The convolution is direct rather than
+  partitioned, because the partitioned convolver's latency is one partition
+  *plus* the kernel's group delay and this node's contract is that its latency
+  is exactly `(taps − 1) / 2`. See `open-questions.md`.
+
+At 4095 taps the magnitude tracks `parametric_eq` to within **0.0034 dB** across
+80 Hz–12 kHz, and a band list of zero bands is a bit-exact pure delay at any tap
+count.
+
+The design is frequency-sampled and Kaiser-windowed at 70 dB. The window is a
+small net *loss* when `taps` is generous — 0.0034 dB against 0.0000 unwindowed
+at 4095 taps, because it tapers coefficients that had already converged — and
+worth 68× at 255 taps, where an unwindowed design leaks 0.238 dB of a sharp
+feature across the rest of the band against 0.0035 windowed. It is kept for the
+second case.
+
+Measured on 23 s of 44.1 kHz stereo, rendered at 96 kHz internal: an empty
+recipe is 0.84 s, `zero_phase_eq` adds **0.13 s**, and `linear_phase_eq` at
+2047 taps adds **7.7 s**. The forward-backward EQ is essentially free; the FIR
+is the expensive node in the engine.
+
+Which of the three to use: `parametric_eq` unless there is a reason not to.
+`linear_phase_eq` when two paths are summed afterwards and phase coherence
+between bands matters more than transient purity. `zero_phase_eq` for surgical
+mastering moves above ~100 Hz where any phase shift at all is unwanted.
 
 **`dynamic_eq`** — same band structure plus per-band dynamics. Subsumes the
 de-esser, which ships as a preset rather than a node.

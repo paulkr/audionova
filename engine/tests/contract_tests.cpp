@@ -36,6 +36,7 @@
 #include "anv/nodes/Drive.h"
 #include "anv/nodes/DynamicEQ.h"
 #include "anv/nodes/GateExpander.h"
+#include "anv/nodes/LinearPhaseEQ.h"
 #include "anv/nodes/MidSide.h"
 #include "anv/nodes/MonoToStereo.h"
 #include "anv/nodes/Pan.h"
@@ -46,6 +47,7 @@
 #include "anv/nodes/ParametricEQ.h"
 #include "anv/nodes/ReferenceDelay.h"
 #include "anv/nodes/TruePeakLimiter.h"
+#include "anv/nodes/ZeroPhaseEQ.h"
 
 using namespace anv;
 
@@ -143,6 +145,36 @@ std::vector<NodeSpec> registry() {
                    .set("gain_db", 1.5).set("q_factor", 0.7);
     p.addItem(b1).addItem(b2).addItem(b3);
     v.push_back({"parametric_eq", [] { return std::make_unique<ParametricEQ>(); }, p});
+  }
+  {
+    // Bands deliberately kept above ~3 kHz. The reverse pass's reach is
+    // measured from the cascade's own decay, and a low, high-Q band pushes it
+    // past the 1000-frame position the latency probe puts its impulse at —
+    // which would clip the response's pre-ring against the start of the buffer
+    // and fail an energy-centroid check for a reason that has nothing to do
+    // with latency. Low-frequency reach gets its own check in test 23.
+    ParamSet p;
+    ParamSet b1; b1.setStr("filter_type", "bell").set("center_freq_hz", 3200.0)
+                   .set("gain_db", 2.0).set("q_factor", 0.8);
+    ParamSet b2; b2.setStr("filter_type", "bell").set("center_freq_hz", 6500.0)
+                   .set("gain_db", -3.0).set("q_factor", 2.0);
+    ParamSet b3; b3.setStr("filter_type", "highshelf").set("center_freq_hz", 9000.0)
+                   .set("gain_db", 1.5).set("q_factor", 0.7);
+    p.addItem(b1).addItem(b2).addItem(b3);
+    v.push_back({"zero_phase_eq", [] { return std::make_unique<ZeroPhaseEQ>(); }, p});
+  }
+  {
+    // 511 taps, so the declared 255 samples of latency fits comfortably before
+    // the latency probe's impulse and the symmetric response is not truncated
+    // by either end of the buffer.
+    ParamSet p;
+    p.set("taps", 511.0);
+    ParamSet b1; b1.setStr("filter_type", "bell").set("center_freq_hz", 3200.0)
+                   .set("gain_db", 2.0).set("q_factor", 0.8);
+    ParamSet b2; b2.setStr("filter_type", "highshelf").set("center_freq_hz", 9000.0)
+                   .set("gain_db", 1.5).set("q_factor", 0.7);
+    p.addItem(b1).addItem(b2);
+    v.push_back({"linear_phase_eq", [] { return std::make_unique<LinearPhaseEQ>(); }, p});
   }
   {
     // A deliberately awkward, non-power-of-two latency. Without a
@@ -3479,6 +3511,689 @@ void testDither() {
   }
 }
 
+// 23/24. The two offline EQs — shared measurement machinery.
+//
+// Both nodes make a claim about PHASE, and phase is the one property the
+// contract tests cannot see: test 5 measures where the energy is, not what the
+// filter did to the relationship between frequencies. So everything below
+// works from the node's RAW response — driven through processBlock so the
+// chain has not already removed the declared latency — and then asks whether
+// the response is symmetric about exactly the position the node declared.
+//
+// That framing is deliberate. "Zero phase" and "linear phase" are both claims
+// about the response relative to the DECLARED latency, so a test that measured
+// the compensated output would be checking the chain's arithmetic as much as
+// the node's.
+
+struct RawResponse {
+  std::vector<double> h;
+  int64_t centre = 0; // where the response should be symmetric about
+  int latency = 0;
+};
+
+RawResponse rawResponse(std::unique_ptr<Node> node, const ParamSet& p,
+                        int64_t frames, int64_t impulseAt) {
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "probe";
+  chain.add(std::move(node), p, cfg);
+  chain.prepare(makeSpec(1, 1024, frames));
+
+  AudioBuffer in(1, frames);
+  AudioBuffer out(1, frames);
+  in.channel(0)[impulseAt] = 1.0;
+
+  std::vector<const Sample*> bin(1);
+  std::vector<Sample*> bout(1);
+  for (int64_t pos = 0; pos < frames; pos += 1024) {
+    const int nn = static_cast<int>(std::min<int64_t>(1024, frames - pos));
+    bin[0] = in.channel(0) + pos;
+    bout[0] = out.channel(0) + pos;
+    chain.processBlock(bin.data(), bout.data(), nn, pos);
+  }
+
+  RawResponse r;
+  r.latency = chain.totalLatencyFrames();
+  r.centre = impulseAt + r.latency;
+  r.h.assign(out.channel(0), out.channel(0) + frames);
+  return r;
+}
+
+// Largest asymmetry either side of the claimed centre, relative to the peak.
+double symmetryError(const RawResponse& r, int64_t reach) {
+  double worst = 0.0, peak = 0.0;
+  for (int64_t k = 0; k <= reach; ++k) {
+    const int64_t lo = r.centre - k, hi = r.centre + k;
+    if (lo < 0 || hi >= static_cast<int64_t>(r.h.size())) break;
+    peak = std::max(peak, std::abs(r.h[static_cast<size_t>(hi)]));
+    worst = std::max(worst, std::abs(r.h[static_cast<size_t>(hi)] -
+                                     r.h[static_cast<size_t>(lo)]));
+  }
+  return peak > 0.0 ? worst / peak : 1.0;
+}
+
+struct PhaseReport {
+  double worstPhaseDeg = 0.0;
+  double worstGroupDelay = 0.0; // samples, relative to the declared latency
+  int bins = 0;
+};
+
+// Rotate the response so the claimed centre sits at time zero, then transform.
+// If the claim is right the spectrum comes back REAL: phase zero at every
+// frequency, group delay zero at every frequency. Rotating first is what makes
+// the two nodes measurable by the same code — a linear-phase FIR and a
+// filtfilt cascade differ only in what their centre is.
+PhaseReport phaseAboutCentre(const RawResponse& r, size_t window, double loHz,
+                             double hiHz, double floorRel) {
+  std::vector<std::complex<double>> seg(window, std::complex<double>(0.0, 0.0));
+  const int64_t half = static_cast<int64_t>(window) / 2;
+  for (int64_t j = -half + 1; j < half; ++j) {
+    const int64_t idx = r.centre + j;
+    if (idx < 0 || idx >= static_cast<int64_t>(r.h.size())) continue;
+    const int64_t slot = (j + static_cast<int64_t>(window)) %
+                         static_cast<int64_t>(window);
+    seg[static_cast<size_t>(slot)] = r.h[static_cast<size_t>(idx)];
+  }
+  fftInPlace(seg);
+
+  double maxMag = 0.0;
+  for (size_t k = 0; k <= window / 2; ++k)
+    maxMag = std::max(maxMag, std::abs(seg[k]));
+
+  PhaseReport out;
+  std::vector<double> phase(window / 2 + 1, 0.0);
+  std::vector<bool> usable(window / 2 + 1, false);
+  for (size_t k = 0; k <= window / 2; ++k) {
+    const double hz = static_cast<double>(k) * kCanonicalSampleRate /
+                      static_cast<double>(window);
+    if (hz < loHz || hz > hiHz) continue;
+    // A bin the filter has emptied carries no phase information; its angle is
+    // round-off. Skipping it is not loosening the test — including it would
+    // measure the arctangent of noise.
+    if (std::abs(seg[k]) < floorRel * maxMag) continue;
+    phase[k] = std::atan2(seg[k].imag(), seg[k].real());
+    usable[k] = true;
+    ++out.bins;
+    out.worstPhaseDeg = std::max(out.worstPhaseDeg,
+                                 std::abs(phase[k]) * 180.0 / M_PI);
+  }
+
+  // Group delay from the slope of that phase. Zero phase everywhere and flat
+  // group delay are not the same statement, and a node could in principle
+  // satisfy the first at the bins sampled while failing the second between
+  // them, so both are measured.
+  const double dw = 2.0 * M_PI / static_cast<double>(window);
+  for (size_t k = 1; k <= window / 2; ++k) {
+    if (!usable[k] || !usable[k - 1]) continue;
+    out.worstGroupDelay =
+        std::max(out.worstGroupDelay, std::abs(-(phase[k] - phase[k - 1]) / dw));
+  }
+  return out;
+}
+
+// Steady-state gain of a TWO-SIDED filter.
+//
+// `measureNodeGainDb` from section 18 analyses the LAST window of the render,
+// which is correct for every causal node in the registry and wrong for both of
+// these. A zero-phase or linear-phase filter reaches backwards as well as
+// forwards, so the end of a render is not a steady state — it is the response
+// decaying into the silence past the end of the signal. Measured there a +6 dB
+// bell at 200 Hz reads +5.98 dB, and the 0.02 dB shortfall is a property of
+// where the window was put rather than of the filter.
+//
+// A two-sided filter has TWO settling regions. This window sits in the middle,
+// with settling room either side of it.
+double measureTwoSidedGainDb(const std::function<std::unique_ptr<Node>()>& make,
+                             const ParamSet& params, double snappedHz) {
+  constexpr int64_t kSettle = 65536; // comfortably past the 24000-frame cap
+  constexpr int64_t kWindow = 16384;
+  const int64_t total = kSettle + kWindow + kSettle;
+
+  AudioBuffer in(1, total);
+  for (int64_t i = 0; i < total; ++i)
+    in.channel(0)[i] = 0.25 * std::sin(2.0 * M_PI * snappedHz *
+                                       static_cast<double>(i) / kCanonicalSampleRate);
+
+  Chain chain;
+  Chain::SlotConfig cfg;
+  cfg.nodeId = "eq";
+  chain.add(make(), params, cfg);
+  chain.prepare(makeSpec(1, 1024, total));
+  AudioBuffer out;
+  chain.render(in, out, 1024);
+
+  double sIn = 0.0, sOut = 0.0;
+  for (int64_t i = kSettle; i < kSettle + kWindow; ++i) {
+    sIn += in.channel(0)[i] * in.channel(0)[i];
+    sOut += out.channel(0)[i] * out.channel(0)[i];
+  }
+  return 20.0 * std::log10(std::sqrt(sOut) / std::sqrt(sIn));
+}
+
+double snapHz(double hz, int64_t window) {
+  const double k = std::round(hz * static_cast<double>(window) / kCanonicalSampleRate);
+  return k * kCanonicalSampleRate / static_cast<double>(window);
+}
+
+ParamSet eqBands(std::initializer_list<ParamSet> bands) {
+  ParamSet p;
+  for (const ParamSet& b : bands) p.addItem(b);
+  return p;
+}
+
+ParamSet eqBand(const char* shape, double freq, double gainDb, double q) {
+  ParamSet b;
+  b.setStr("filter_type", shape).set("center_freq_hz", freq)
+      .set("gain_db", gainDb).set("q_factor", q);
+  return b;
+}
+
+// 23. Zero-phase (forward-backward) EQ correctness.
+void testZeroPhaseEq() {
+  // A single moderate bell, so every claim below has an analytic expectation
+  // rather than a number read off the implementation.
+  const ParamSet oneBell = eqBands({eqBand("bell", 1000.0, 6.0, 1.0)});
+
+  // --- (a) the phase response is zero -------------------------------------
+  //
+  // THE CLAIM THE NODE IS NAMED FOR. Not "small", not "flat" — zero, because
+  // filtfilt's impulse response is the autocorrelation of the one-pass
+  // response and an autocorrelation is an even function.
+  {
+    const RawResponse r = rawResponse(std::make_unique<ZeroPhaseEQ>(), oneBell,
+                                      65536, 8192);
+    const PhaseReport ph = phaseAboutCentre(r, 16384, 20.0, 20000.0, 1e-6);
+
+    std::printf("       zero-phase EQ: declared latency %d, %d bins measured, "
+                "worst phase %.3e deg, worst group delay %.3e samples\n",
+                r.latency, ph.bins, ph.worstPhaseDeg, ph.worstGroupDelay);
+
+    check(ph.bins > 2000, "zero-phase EQ: the phase probe saw " +
+                              std::to_string(ph.bins) + " usable bins");
+    check(ph.worstPhaseDeg < 1e-6,
+          "zero-phase EQ: phase is zero across 20 Hz-20 kHz (worst " +
+              std::to_string(ph.worstPhaseDeg) + " deg)");
+    check(ph.worstGroupDelay < 1e-6,
+          "zero-phase EQ: group delay is flat at 0 (worst " +
+              std::to_string(ph.worstGroupDelay) + " samples)");
+
+    // The same statement in the time domain, which fails differently: a
+    // reverse pass that ran forwards would still produce a plausible spectrum
+    // but an asymmetric impulse response.
+    const double asym = symmetryError(r, 4096);
+    std::printf("       zero-phase EQ: impulse response asymmetry about the "
+                "declared latency %.3e of peak\n", asym);
+    check(asym < 1e-12,
+          "zero-phase EQ: the impulse response is symmetric about the declared "
+          "latency (worst " + std::to_string(asym) + " of peak)");
+  }
+
+  // --- (b) a symmetric input comes back symmetric -------------------------
+  //
+  // The property an engineer would check by ear: nothing is smeared in one
+  // direction. A minimum-phase EQ fails this and is supposed to.
+  {
+    const int64_t frames = 65536, centreIn = 8192, halfWidth = 400;
+    Chain chain;
+    Chain::SlotConfig cfg;
+    cfg.nodeId = "zp";
+    chain.add(std::make_unique<ZeroPhaseEQ>(), oneBell, cfg);
+    chain.prepare(makeSpec(1, 1024, frames));
+
+    // A symmetric burst: a raised-cosine-windowed tone at the bell's centre.
+    AudioBuffer in(1, frames);
+    for (int64_t k = -halfWidth; k <= halfWidth; ++k) {
+      const double t = static_cast<double>(k) / static_cast<double>(halfWidth);
+      const double env = 0.5 * (1.0 + std::cos(M_PI * t));
+      in.channel(0)[centreIn + k] =
+          0.3 * env * std::cos(2.0 * M_PI * 1000.0 * static_cast<double>(k) /
+                               kCanonicalSampleRate);
+    }
+
+    AudioBuffer out;
+    chain.render(in, out, 1024);
+
+    double worst = 0.0, peak = 0.0;
+    for (int64_t k = 0; k <= 4096; ++k) {
+      const double a = out.channel(0)[centreIn + k];
+      const double b = out.channel(0)[centreIn - k];
+      peak = std::max(peak, std::abs(a));
+      worst = std::max(worst, std::abs(a - b));
+    }
+    check(worst / peak < 1e-12,
+          "zero-phase EQ: a symmetric burst stays symmetric (worst " +
+              std::to_string(worst / peak) + " of peak)");
+
+    // And the reference the claim is worth something against: the same bands
+    // through the minimum-phase node smear the burst badly.
+    Chain mp;
+    Chain::SlotConfig mpCfg;
+    mpCfg.nodeId = "pe";
+    mp.add(std::make_unique<ParametricEQ>(), oneBell, mpCfg);
+    mp.prepare(makeSpec(1, 1024, frames));
+    AudioBuffer mpOut;
+    mp.render(in, mpOut, 1024);
+
+    double mpWorst = 0.0, mpPeak = 0.0;
+    for (int64_t k = 0; k <= 4096; ++k) {
+      const double a = mpOut.channel(0)[centreIn + k];
+      const double b = mpOut.channel(0)[centreIn - k];
+      mpPeak = std::max(mpPeak, std::abs(a));
+      mpWorst = std::max(mpWorst, std::abs(a - b));
+    }
+    std::printf("       symmetric burst asymmetry: zero-phase %.2e, "
+                "minimum-phase %.2e (of peak)\n", worst / peak, mpWorst / mpPeak);
+    check(mpWorst / mpPeak > 0.01,
+          "and the minimum-phase EQ genuinely does smear it, so the comparison "
+          "is not vacuous (" + std::to_string(mpWorst / mpPeak) + ")");
+  }
+
+  // --- (c) the magnitude is the SQUARE of the one-pass EQ ------------------
+  //
+  // |H(e^jw)|^2, exactly: two passes of the same filter. In dB that is a clean
+  // doubling, which is the number an engineer needs to know before reaching
+  // for this node — a 3 dB band becomes a 6 dB band.
+  {
+    constexpr int64_t kWindow = 16384;
+    auto zp = [] { return std::unique_ptr<Node>(new ZeroPhaseEQ()); };
+    auto pe = [] { return std::unique_ptr<Node>(new ParametricEQ()); };
+
+    double worst = 0.0;
+    for (double hz : {200.0, 500.0, 1000.0, 2000.0, 5000.0}) {
+      const double f = snapHz(hz, kWindow);
+      const ParamSet bands = eqBands({eqBand("bell", f, 6.0, 1.0)});
+      const double onePass = measureTwoSidedGainDb(pe, bands, f);
+      const double twoPass = measureTwoSidedGainDb(zp, bands, f);
+      worst = std::max(worst, std::abs(twoPass - 2.0 * onePass));
+      check(std::abs(twoPass - 2.0 * onePass) < 0.02,
+            "zero-phase EQ: at " + std::to_string(static_cast<int>(f)) +
+                " Hz the response is the square (" + std::to_string(twoPass) +
+                " dB vs 2 x " + std::to_string(onePass) + " dB)");
+    }
+
+    // An absolute anchor as well, so a consistently wrong pair of
+    // measurements cannot satisfy the ratio. A +6 dB bell at its own centre
+    // must come back at exactly +12.
+    const double f = snapHz(1000.0, kWindow);
+    const double centre =
+        measureTwoSidedGainDb(zp, eqBands({eqBand("bell", f, 6.0, 1.0)}), f);
+    std::printf("       zero-phase EQ: +6 dB bell measures %+.4f dB at centre "
+                "(expect +12), worst square error %.4f dB\n", centre, worst);
+    check(std::abs(centre - 12.0) < 0.02,
+          "zero-phase EQ: a +6 dB bell is +12 dB at centre (got " +
+              std::to_string(centre) + ")");
+  }
+
+  // --- (d) reach is measured from the filter, not assumed ------------------
+  //
+  // The declared latency is chunk + reach, and reach is where the cascade's
+  // remaining tail falls below 1e-12 of its L1 norm. A slow filter must
+  // therefore declare MORE latency than a fast one; a node that declared a
+  // fixed number would pass every test above.
+  {
+    auto latencyOf = [](const ParamSet& p) {
+      Chain chain;
+      Chain::SlotConfig cfg;
+      cfg.nodeId = "zp";
+      chain.add(std::make_unique<ZeroPhaseEQ>(), p, cfg);
+      chain.prepare(makeSpec(1, 1024, 4096));
+      return chain.totalLatencyFrames();
+    };
+
+    const int fast = latencyOf(eqBands({eqBand("bell", 8000.0, 4.0, 0.7)}));
+    const int slow = latencyOf(eqBands({eqBand("bell", 400.0, 4.0, 2.0)}));
+    const int capped = latencyOf(eqBands({eqBand("bell", 20.0, 6.0, 12.0)}));
+    std::printf("       zero-phase EQ reach: 8 kHz Q0.7 -> %d frames, "
+                "400 Hz Q2 -> %d, 20 Hz Q12 -> %d (cap 48000)\n",
+                fast, slow, capped);
+
+    // Proportional to the filter's decay rate, which is 20x slower here.
+    check(slow > 10 * fast,
+          "zero-phase EQ: a slow filter declares a proportionally longer "
+          "window (" + std::to_string(fast) + " vs " + std::to_string(slow) + ")");
+    check(capped <= 48000,
+          "zero-phase EQ: the reach cap bounds the declared latency (" +
+              std::to_string(capped) + ")");
+
+    // AND WHAT THE CAP COSTS, measured rather than argued. A 20 Hz bell at
+    // Q 12 rings for about 5.3 SECONDS at the 1e-12 criterion; no offline node
+    // can hold half a million samples of lookahead, so past the cap the
+    // reverse pass starts from rest closer to the output than the filter's
+    // tail warrants and the response stops being exactly even.
+    //
+    // The question a test can answer is what that costs relative to the
+    // alternative rather than in the abstract, so the reference is the same
+    // filter through `parametric_eq` — which is what the user would otherwise
+    // have used.
+    const ParamSet slowBand = eqBands({eqBand("bell", 20.0, 6.0, 12.0)});
+    const RawResponse zpR = rawResponse(std::make_unique<ZeroPhaseEQ>(),
+                                        slowBand, 1 << 19, 131072);
+    const RawResponse peR = rawResponse(std::make_unique<ParametricEQ>(),
+                                        slowBand, 1 << 19, 131072);
+
+    const PhaseReport zpLow = phaseAboutCentre(zpR, 1 << 18, 20.0, 100.0, 1e-6);
+    const PhaseReport zpRest = phaseAboutCentre(zpR, 1 << 18, 100.0, 20000.0, 1e-6);
+    const PhaseReport peLow = phaseAboutCentre(peR, 1 << 18, 20.0, 100.0, 1e-6);
+
+    std::printf("       zero-phase EQ past the cap (20 Hz Q12): worst phase "
+                "%.2f deg below 100 Hz, %.3f deg above; the same filter "
+                "minimum-phase is %.1f deg\n",
+                zpLow.worstPhaseDeg, zpRest.worstPhaseDeg, peLow.worstPhaseDeg);
+
+    check(peLow.worstPhaseDeg > 15.0,
+          "the minimum-phase reference really does shift phase here, so the "
+          "comparison is not vacuous (" + std::to_string(peLow.worstPhaseDeg) +
+              " deg)");
+    // 6.6 deg against 19.3: BETTER, NOT ZERO, and the factor is 3 rather than
+    // the 1e10 this node manages on anything that fits inside the cap. The
+    // assertion is written at what was measured because a looser one would let
+    // a real regression through and a tighter one would be a wish. The number
+    // and its cause are in findings.md; the planner-side consequence is in
+    // open-questions.md.
+    check(zpLow.worstPhaseDeg < 0.5 * peLow.worstPhaseDeg,
+          "zero-phase EQ: past the reach cap it is degraded but still ahead of "
+          "minimum phase (" + std::to_string(zpLow.worstPhaseDeg) + " deg vs " +
+              std::to_string(peLow.worstPhaseDeg) + ")");
+    check(zpRest.worstPhaseDeg < 0.3,
+          "zero-phase EQ: and above 100 Hz the truncation is worth only " +
+              std::to_string(zpRest.worstPhaseDeg) + " deg");
+
+    // The other half of the statement, and the one that keeps the assertion
+    // above from reading as "this node is approximate": a filter whose ring
+    // FITS inside the cap is exact, not nearly exact.
+    const RawResponse inside =
+        rawResponse(std::make_unique<ZeroPhaseEQ>(),
+                    eqBands({eqBand("bell", 100.0, 6.0, 1.0)}), 1 << 18, 65536);
+    const PhaseReport insidePh = phaseAboutCentre(inside, 1 << 17, 20.0, 20000.0, 1e-6);
+    std::printf("       zero-phase EQ inside the cap (100 Hz Q1, reach %d): "
+                "worst phase %.3e deg\n",
+                inside.latency, insidePh.worstPhaseDeg);
+    check(inside.latency < 48000 && insidePh.worstPhaseDeg < 1e-6,
+          "zero-phase EQ: a 100 Hz filter fits inside the cap and is exactly "
+          "zero phase (" + std::to_string(insidePh.worstPhaseDeg) + " deg)");
+
+    // An EQ with no bands does nothing, so it must declare nothing. This is
+    // `StereoWidth`'s bug from findings.md, one node later.
+    check(latencyOf(ParamSet{}) == 0,
+          "zero-phase EQ: a bandless EQ declares no latency at all");
+  }
+}
+
+// 24. Linear-phase EQ correctness.
+void testLinearPhaseEq() {
+  auto withTaps = [](double taps, std::initializer_list<ParamSet> bands) {
+    ParamSet p = eqBands(bands);
+    p.set("taps", taps);
+    return p;
+  };
+
+  // --- (a) latency is exactly (taps - 1) / 2 ------------------------------
+  //
+  // Including for an even request, which is rounded down to an odd tap count
+  // rather than rejected — an even-length symmetric FIR has a half-integer
+  // group delay, and this engine has nowhere to put half a sample.
+  {
+    auto latencyOf = [&](double taps) {
+      Chain chain;
+      Chain::SlotConfig cfg;
+      cfg.nodeId = "lp";
+      chain.add(std::make_unique<LinearPhaseEQ>(),
+                withTaps(taps, {eqBand("bell", 3000.0, 3.0, 1.0)}), cfg);
+      chain.prepare(makeSpec(1, 1024, 4096));
+      return chain.totalLatencyFrames();
+    };
+
+    check(latencyOf(511.0) == 255, "linear-phase EQ: 511 taps -> 255 frames");
+    check(latencyOf(2047.0) == 1023, "linear-phase EQ: 2047 taps -> 1023 frames");
+    check(latencyOf(512.0) == 255,
+          "linear-phase EQ: an even 512 taps becomes 511, latency 255 (got " +
+              std::to_string(latencyOf(512.0)) + ")");
+
+    // The latency check above cannot see whether the tap count was actually
+    // made odd: (512-1)/2 and (511-1)/2 are both 255, so a node that kept an
+    // even kernel with a stray zero tap on the end would report the right
+    // latency and pass. The kernel LENGTH is the only place that shows.
+    {
+      LinearPhaseEQ even;
+      even.prepare(makeSpec(1, 1024, 4096));
+      even.setParams(withTaps(512.0, {eqBand("bell", 3000.0, 3.0, 1.0)}));
+      check(even.kernel().size() == 511,
+            "linear-phase EQ: and the kernel really is 511 taps, not 512 with a "
+            "zero on the end (got " + std::to_string(even.kernel().size()) + ")");
+    }
+    check(latencyOf(1e5) == 4095,
+          "linear-phase EQ: an absurd tap count clamps to 8191, latency 4095");
+    check(latencyOf(0.0) == 7,
+          "linear-phase EQ: zero taps clamps to the 15-tap floor, latency 7");
+  }
+
+  // --- (b) the kernel is symmetric to the last bit ------------------------
+  //
+  // Checked on the coefficients rather than on the output, because this is the
+  // property everything else rests on and it should be EXACT, not "within
+  // round-off". The design averages each mirrored pair explicitly to make it so.
+  {
+    LinearPhaseEQ node;
+    PrepareSpec spec = makeSpec(1, 1024, 4096);
+    node.prepare(spec);
+    node.setParams(withTaps(1023.0, {eqBand("bell", 400.0, -5.0, 1.5),
+                                     eqBand("highshelf", 8000.0, 4.0, 0.707)}));
+    const std::vector<Sample>& k = node.kernel();
+    check(k.size() == 1023, "linear-phase EQ: the kernel is 1023 taps long");
+
+    double worst = 0.0;
+    const size_t half = k.size() / 2;
+    for (size_t j = 0; j <= half; ++j)
+      worst = std::max(worst, std::abs(k[half + j] - k[half - j]));
+    check(worst == 0.0,
+          "linear-phase EQ: kernel[M+k] == kernel[M-k] exactly (worst diff " +
+              std::to_string(worst) + ")");
+  }
+
+  // --- (c) a Dirac lands exactly on the declared latency -------------------
+  //
+  // Cross-correlation against a Dirac is just the response itself, so the lag
+  // that maximises it is the position of the response's peak. For a symmetric
+  // kernel that is its centre, which must be the declared latency exactly —
+  // not within a sample.
+  {
+    const RawResponse r =
+        rawResponse(std::make_unique<LinearPhaseEQ>(),
+                    withTaps(2047.0, {eqBand("bell", 2000.0, 5.0, 1.0)}),
+                    32768, 4096);
+
+    int64_t bestLag = -1;
+    double best = 0.0;
+    for (int64_t lag = 0; lag < 8192; ++lag) {
+      // sum_n h[n] * dirac[n - impulseAt - lag], which is one term.
+      const double c = std::abs(r.h[static_cast<size_t>(4096 + lag)]);
+      if (c > best) { best = c; bestLag = lag; }
+    }
+    check(bestLag == r.latency,
+          "linear-phase EQ: a Dirac correlates best at lag " +
+              std::to_string(bestLag) + ", declared latency " +
+              std::to_string(r.latency));
+
+    const PhaseReport ph = phaseAboutCentre(r, 16384, 20.0, 20000.0, 1e-6);
+    std::printf("       linear-phase EQ: declared latency %d, %d bins, worst "
+                "phase %.3e deg, worst group delay error %.3e samples\n",
+                r.latency, ph.bins, ph.worstPhaseDeg, ph.worstGroupDelay);
+    check(ph.bins > 2000, "linear-phase EQ: the phase probe saw " +
+                              std::to_string(ph.bins) + " usable bins");
+    check(ph.worstPhaseDeg < 1e-8,
+          "linear-phase EQ: phase is exactly linear with slope = the declared "
+          "latency (residual " + std::to_string(ph.worstPhaseDeg) + " deg)");
+    check(ph.worstGroupDelay < 1e-9,
+          "linear-phase EQ: group delay is flat and equals the declared "
+          "latency (worst deviation " + std::to_string(ph.worstGroupDelay) +
+              " samples)");
+
+    check(symmetryError(r, 1023) == 0.0,
+          "linear-phase EQ: the rendered impulse response is bit-exactly "
+          "symmetric about the declared latency");
+  }
+
+  // --- (d) an EQ with no bands is an exact delay --------------------------
+  //
+  // Frequency-sampling a flat magnitude gives a Dirac, and windowing a Dirac
+  // leaves it alone. So a bandless linear-phase EQ must be a PURE DELAY, bit
+  // exact — which is a much sharper statement than "roughly transparent" and
+  // catches any stray normalisation in the design.
+  {
+    ParamSet flat;
+    flat.set("taps", 255.0);
+    const RawResponse r =
+        rawResponse(std::make_unique<LinearPhaseEQ>(), flat, 8192, 1000);
+    double worst = 0.0;
+    for (size_t i = 0; i < r.h.size(); ++i) {
+      const double want = (static_cast<int64_t>(i) == r.centre) ? 1.0 : 0.0;
+      worst = std::max(worst, std::abs(r.h[i] - want));
+    }
+    check(worst == 0.0,
+          "linear-phase EQ: no bands gives a bit-exact 127-sample delay (worst "
+          "error " + std::to_string(worst) + ")");
+  }
+
+  // --- (e) the magnitude is the one it was asked for -----------------------
+  //
+  // Against the analytic expectation, not against `parametric_eq`: both nodes
+  // are designed from the same cascade, so comparing them would pass for any
+  // filter whose maths is consistently wrong.
+  {
+    constexpr int64_t kWindow = 16384;
+    auto lp = [] { return std::unique_ptr<Node>(new LinearPhaseEQ()); };
+    const double f = snapHz(1000.0, kWindow);
+
+    const ParamSet fir = withTaps(4095.0, {eqBand("bell", f, 6.0, 1.0)});
+    const ParamSet iir = eqBands({eqBand("bell", f, 6.0, 1.0)});
+    const double centre = measureTwoSidedGainDb(lp, fir, f);
+    std::printf("       linear-phase EQ: +6 dB bell at 1 kHz measures %+.4f dB "
+                "at centre\n", centre);
+    check(std::abs(centre - 6.0) < 0.05,
+          "linear-phase EQ: a +6 dB bell is +6 dB at centre (got " +
+              std::to_string(centre) + ")");
+
+    // And the same magnitude as the minimum-phase node at every frequency —
+    // which is the actual claim, and a sharper one than "transparent away from
+    // centre". A Q 1 bell at 1 kHz is +0.042 dB at 80 Hz, not 0: that is the
+    // skirt, and a test asserting it were zero would be asserting a number
+    // that is arithmetically wrong.
+    auto pe = [] { return std::unique_ptr<Node>(new ParametricEQ()); };
+    double worst = 0.0;
+    for (double hz : {80.0, 300.0, 3000.0, 12000.0}) {
+      const double probe = snapHz(hz, kWindow);
+      const double firDb = measureTwoSidedGainDb(lp, fir, probe);
+      const double iirDb = measureTwoSidedGainDb(pe, iir, probe);
+      worst = std::max(worst, std::abs(firDb - iirDb));
+      check(std::abs(firDb - iirDb) < 0.02,
+            "linear-phase EQ: at " + std::to_string(static_cast<int>(probe)) +
+                " Hz it matches the minimum-phase magnitude (" +
+                std::to_string(firDb) + " vs " + std::to_string(iirDb) + " dB)");
+    }
+    std::printf("       linear-phase vs minimum-phase magnitude: worst "
+                "difference %.4f dB across 80 Hz-12 kHz\n", worst);
+
+    // NOT the square. This is the one-line difference from `zero_phase_eq`,
+    // and stating it as an assertion means the two nodes cannot be swapped
+    // without something failing.
+    auto zp = [] { return std::unique_ptr<Node>(new ZeroPhaseEQ()); };
+    const double squared =
+        measureTwoSidedGainDb(zp, eqBands({eqBand("bell", f, 6.0, 1.0)}), f);
+    check(std::abs(squared - 2.0 * centre) < 0.1,
+          "linear-phase EQ: the zero-phase node at the same settings is twice "
+          "the dB (" + std::to_string(squared) + " vs " +
+              std::to_string(centre) + ")");
+  }
+
+  // --- (f) the design window earns its place ------------------------------
+  //
+  // Frequency sampling produces an ideal kernel of infinite length. Truncating
+  // it to `taps` with no window is the textbook Gibbs mistake, and the four
+  // spot frequencies above do not see it — removing the Kaiser entirely passed
+  // every other assertion in this section. So this compares the WHOLE realised
+  // magnitude, bin by bin, against the minimum-phase cascade it is supposed to
+  // match, on a filter demanding enough to ring: a deep narrow cut plus a
+  // shelf.
+  //
+  // Done on the coefficients rather than by rendering. A direct convolution
+  // over twenty probe tones is thirty seconds of test time to learn less than
+  // one FFT of the kernel says exactly.
+  //
+  // 255 taps SPECIFICALLY, because the window only earns anything when the
+  // ideal kernel does not fit in the tap budget. Measured at 4095 taps the
+  // windowed design is 0.0034 dB from the target and the unwindowed one is
+  // 0.0000 — the window is a small net LOSS there, since it tapers
+  // coefficients that were already converged. At 255 taps the unwindowed
+  // design leaks 0.238 dB and the windowed one 0.0035. The window is kept for
+  // the second case and the first case is the price.
+  {
+    constexpr size_t kN = 1 << 16;
+    const ParamSet bands = eqBands({eqBand("bell", 300.0, -15.0, 4.0)});
+
+    LinearPhaseEQ node;
+    node.prepare(makeSpec(1, 1024, 4096));
+    ParamSet withCount = bands;
+    withCount.set("taps", 255.0);
+    node.setParams(withCount);
+
+    std::vector<std::complex<double>> fir(kN, std::complex<double>(0.0, 0.0));
+    for (size_t i = 0; i < node.kernel().size(); ++i) fir[i] = node.kernel()[i];
+    fftInPlace(fir);
+
+    // The reference is the minimum-phase node's own impulse response, measured
+    // the same way anything else here is measured.
+    const RawResponse ref = rawResponse(std::make_unique<ParametricEQ>(), bands,
+                                        static_cast<int64_t>(kN), 0);
+    std::vector<std::complex<double>> iir(kN, std::complex<double>(0.0, 0.0));
+    for (size_t i = 0; i < kN; ++i) iir[i] = ref.h[i];
+    fftInPlace(iir);
+
+    double worst = 0.0, worstHz = 0.0;
+    for (size_t k = 1; k <= kN / 2; ++k) {
+      const double hz = static_cast<double>(k) * kCanonicalSampleRate /
+                        static_cast<double>(kN);
+      // FAR FROM THE FEATURE, where the target is flat 0 dB. Measuring at the
+      // notch itself would measure the design's FREQUENCY RESOLUTION instead —
+      // a 75 Hz-wide cut through a 4095-tap design comes back 3.1 dB shallow,
+      // which is the documented fs/taps limit and not ripple at all. The
+      // window's job is to keep that feature from splattering across the rest
+      // of the spectrum, and that is what this looks at.
+      if (hz < 2000.0 || hz > 20000.0) continue;
+      const double d = 20.0 * std::log10(std::abs(fir[k]) / std::abs(iir[k]));
+      if (std::abs(d) > std::abs(worst)) { worst = d; worstHz = hz; }
+    }
+    std::printf("       linear-phase EQ: a -15 dB Q4 cut at 300 Hz leaks "
+                "%+.4f dB of ripple at %.0f Hz\n", worst, worstHz);
+    check(std::abs(worst) < 0.02,
+          "linear-phase EQ: at 255 taps the design window keeps a sharp feature "
+          "from rippling across the rest of the band (" + std::to_string(worst) +
+              " dB; unwindowed it is 0.238)");
+  }
+
+  // --- (g) pre-ringing exists, and is the honest cost ----------------------
+  //
+  // A linear-phase filter puts as much energy before a transient as after it.
+  // Asserting it is present is not a bug report: it is the property that makes
+  // `parametric_eq` the right default, and a node that quietly had none would
+  // not be linear phase.
+  {
+    const RawResponse r =
+        rawResponse(std::make_unique<LinearPhaseEQ>(),
+                    withTaps(2047.0, {eqBand("bell", 200.0, -12.0, 2.0)}),
+                    32768, 4096);
+    double pre = 0.0, post = 0.0;
+    for (int64_t k = 1; k <= 1023; ++k) {
+      pre += r.h[static_cast<size_t>(r.centre - k)] *
+             r.h[static_cast<size_t>(r.centre - k)];
+      post += r.h[static_cast<size_t>(r.centre + k)] *
+              r.h[static_cast<size_t>(r.centre + k)];
+    }
+    check(pre > 0.0 && std::abs(pre - post) / post < 1e-9,
+          "linear-phase EQ: pre-ringing energy equals post-ringing energy (" +
+              std::to_string(pre) + " vs " + std::to_string(post) + ")");
+  }
+}
+
 } // namespace
 
 // Per-section timings go to STDERR, deliberately. Stdout carries the pass/fail
@@ -3526,6 +4241,8 @@ int main() {
   std::printf("[20] chorus\n");               { TIMED("chorus"); testChorus(); }
   std::printf("[21] plate reverb\n");         { TIMED("plate"); testPlateReverb(); }
   std::printf("[22] dither\n");               { TIMED("dither"); testDither(); }
+  std::printf("[23] zero-phase EQ\n");        { TIMED("zero-phase EQ"); testZeroPhaseEq(); }
+  std::printf("[24] linear-phase EQ\n");      { TIMED("linear-phase EQ"); testLinearPhaseEq(); }
 
   std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

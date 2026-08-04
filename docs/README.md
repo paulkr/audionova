@@ -34,7 +34,7 @@ only in a commit message.
 
 Built and verified:
 
-- **Engine** — 18 DSP nodes, float64, 96 kHz internal, exact integer latency.
+- **Engine** — 20 DSP nodes, float64, 96 kHz internal, exact integer latency.
   1321 contract checks + 139 I/O checks.
 - **Render CLI** — `anv_render`, WAV/RF64 in and out, hand-written resampler.
 - **Measurement layer** — BS.1770 loudness validated against EBU conformance
