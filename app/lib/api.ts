@@ -270,6 +270,43 @@ export function matchReference(id: string, graphId: string, maxBands = 5) {
   });
 }
 
+export type ChatResult = {
+  understood: boolean;
+  reply: string;
+  graph_id?: string;
+  parent?: string;
+  applied?: string[];
+  rejected?: string[];
+  repairs?: string[];
+  nodes?: GraphNode[];
+  elapsed_s: number;
+};
+
+// A refinement, in your own words. Roughly two seconds — it reads one sentence
+// against a chain that already exists, where planning reasons about audio from
+// measurements and takes three minutes.
+export function chat(id: string, graphId: string, message: string) {
+  return request<ChatResult>(`/api/projects/${id}/graphs/${graphId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+}
+
+export type SessionStep = {
+  graph_id: string;
+  parent: string | null;
+  label: string;
+  origin: "planner" | "chat" | "user_edit" | "match" | "imported";
+  is_head: boolean;
+  nodes: string[];
+};
+
+export function session(id: string) {
+  return request<{ project_id: string; name: string; head: string | null;
+                   steps: SessionStep[] }>(`/api/projects/${id}/session`);
+}
+
 export function intents() {
   return request<{
     intents: { id: string; label: string; node_type: string }[];

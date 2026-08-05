@@ -60,7 +60,7 @@ from backend.engine.render import ENGINE_VERSION, render_array  # noqa: E402
 from backend.eval import corpus  # noqa: E402
 from backend.measure import loudness  # noqa: E402
 from backend.measure.report import measure  # noqa: E402
-from backend.plan import ladder, pipeline, rules  # noqa: E402
+from backend.plan import chat, ladder, pipeline, rules  # noqa: E402
 from backend.refine import match_eq  # noqa: E402
 from backend.plan.canary import load_env  # noqa: E402
 from backend.plan import validate as validate_module  # noqa: E402
@@ -164,6 +164,10 @@ class PlanRequest(BaseModel):
     request: str = Field(default="", max_length=2000)
     planner: str = Field(default="model", pattern="^(model|rules)$")
     reverb_mix: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=600)
 
 
 class RefineRequest(BaseModel):
@@ -859,6 +863,98 @@ def match_reference(project_id: str, graph_id: str,
         "repairs": validated.repairs,
         "nodes": _describe(validated.graph),
     }
+
+
+@app.post("/api/projects/{project_id}/graphs/{graph_id}/chat")
+def chat_edit(project_id: str, graph_id: str,
+              body: ChatRequest) -> dict[str, Any]:
+    """One sentence of free text becomes one more step in the session.
+
+    A PATCH, NOT A REPLAN. The graph the user was listening to is the graph they
+    keep, minus exactly what they asked to change. Re-planning would churn every
+    decision they accepted by not complaining about it, and to a user that reads
+    as a bug: they asked for one thing and six moved.
+
+    Fast on purpose. The planner's stage 1 takes three minutes because it
+    reasons about audio from measurements; this reads one sentence against a
+    chain that already exists. A refinement that took three minutes would not be
+    a refinement.
+    """
+    project = project_or_404(project_id)
+    entry = project.graphs.get(graph_id)
+    if entry is None:
+        raise HTTPException(404, "no such graph")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "no ANTHROPIC_API_KEY; the fixed-vocabulary "
+                                 "refine endpoint works without one")
+
+    started = time.time()
+    parsed = chat.parse(pipeline.AnthropicClient(), message=body.message,
+                        graph=entry["graph"])
+    if parsed.refused:
+        # 200, NOT AN ERROR. "There is no reverb in this chain" is a useful
+        # answer to a reasonable question, and dressing it as a failure would
+        # put a red banner on a conversation.
+        return {"understood": False, "reply": parsed.refused,
+                "elapsed_s": round(time.time() - started, 1)}
+
+    graph = entry["graph"].model_copy(deep=True)
+    result = ladder.apply_patches(graph, parsed.patches)
+    if not result.applied:
+        return {"understood": False,
+                "reply": "; ".join(result.rejected) or "nothing changed",
+                "elapsed_s": round(time.time() - started, 1)}
+
+    validated = validate(result.graph, project.excerpt_report)
+    if not validated.ok:
+        return {"understood": False,
+                "reply": "that would not pass the checks: "
+                         + "; ".join(str(f) for f in validated.fatal),
+                "elapsed_s": round(time.time() - started, 1)}
+
+    new_id = _store_graph(project, validated.graph, body.message.strip(),
+                          parent=graph_id, origin="chat")
+    return {
+        "understood": True,
+        "graph_id": new_id, "parent": graph_id, "origin": "chat",
+        "reply": parsed.reply,
+        "applied": result.applied,
+        "rejected": result.rejected,
+        "repairs": validated.repairs,
+        "nodes": _describe(validated.graph),
+        "elapsed_s": round(time.time() - started, 1),
+    }
+
+
+@app.get("/api/projects/{project_id}/session")
+def session(project_id: str) -> dict[str, Any]:
+    """Every step taken on this file, oldest first.
+
+    THE TREE WAS ALWAYS THERE AND NOTHING SHOWED IT. Graphs have carried a
+    parent since the first version, so undo is a pointer move and branching is
+    free — but the interface only ever displayed the head, so a session looked
+    like a single mutable object rather than a history someone could walk back
+    into.
+
+    Ordered by insertion rather than by walking parents, because a user who
+    steps back and takes a different direction has a genuine tree, and
+    flattening it would either hide a branch or lie about the order things
+    happened in.
+    """
+    project = project_or_404(project_id)
+    steps = []
+    for identifier, entry in project.graphs.items():
+        steps.append({
+            "graph_id": identifier,
+            "parent": entry.get("parent"),
+            "label": entry.get("label", ""),
+            "origin": entry.get("origin", "planner"),
+            "is_head": identifier == project.head,
+            "nodes": [n.type for n in list(entry["graph"].nodes)
+                      + list(entry["graph"].master)],
+        })
+    return {"project_id": project.id, "name": project.name,
+            "head": project.head, "steps": steps}
 
 
 @app.get("/api/projects/{project_id}/graphs/{graph_id}/recipe")

@@ -56,6 +56,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // paragraph that argued for it.
   const [reasoning, setReasoning] = useState("");
 
+  // THE SESSION IS THE TREE THAT WAS ALWAYS THERE. Graphs have carried a parent
+  // since the first version, so undo is a pointer move and branching is free —
+  // and the interface only ever showed the head, which made a session look like
+  // one mutable object instead of a history you can walk back into.
+  const [steps, setSteps] = useState<api.SessionStep[]>([]);
+  const [turns, setTurns] = useState<
+    { you: string; reply: string; changed: string[]; ok: boolean }[]
+  >([]);
+  const [message, setMessage] = useState("");
+
   const [referenceSet, setReferenceSet] = useState<number | null>(null);
   const [match, setMatch] = useState<
     Awaited<ReturnType<typeof api.matchReference>> | null
@@ -223,6 +233,59 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       if (result.warnings.length) setError(result.warnings.join(" "));
       setBusy("rendering");
       setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Every path that mints a graph refreshes the history, rather than each one
+  // remembering to append to it. A step list maintained by hand drifts from the
+  // tree the moment somebody adds a twelfth way to make a graph.
+  const refreshSession = useCallback(() => {
+    api.session(id).then((s) => setSteps(s.steps)).catch(() => {});
+  }, [id]);
+
+  useEffect(() => { refreshSession(); }, [refreshSession, graphId]);
+
+  async function sendMessage() {
+    const text = message.trim();
+    if (!text || !graphId) return;
+    setMessage("");
+    setBusy("reading that");
+    setError(null);
+    try {
+      const result = await api.chat(id, graphId, text);
+      setTurns((prior) => [...prior, {
+        you: text, reply: result.reply, ok: result.understood,
+        changed: result.applied ?? [],
+      }]);
+      // A refusal is a REPLY, not an error. "There is no reverb in this chain"
+      // is a useful answer to a reasonable question, and a red banner would
+      // make a conversation feel like a fault.
+      if (!result.understood || !result.graph_id) return;
+      setGraphId(result.graph_id);
+      setHistory((h) => [...h, result.graph_id!]);
+      setPlan((p) => (p && result.nodes ? { ...p, nodes: result.nodes } : p));
+      setBusy("rendering");
+      setRendered(await api.render(id, result.graph_id));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Going back to an earlier step does not delete what came after it. The tree
+  // keeps both, which is what makes trying a different direction free.
+  async function goTo(stepId: string) {
+    setBusy("going back");
+    setError(null);
+    try {
+      setGraphId(stepId);
+      setHistory((h) => [...h, stepId]);
+      setRendered(await api.render(id, stepId));
     } catch (e) {
       setError(String((e as Error).message));
     } finally {
@@ -450,6 +513,91 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                      onEnded={() => setPlaying(false)} preload="auto" />
               <audio ref={processedRef} src={api.audioUrl(id, rendered.render_key)}
                      onEnded={() => setPlaying(false)} preload="auto" />
+            </Section>
+          )}
+
+          {plan && (
+            <Section title="Say what to change">
+              <p className="mb-4 max-w-[70ch] text-[13px] leading-[1.55] text-white/40">
+                In your own words — &ldquo;decrease the delay by 15%&rdquo;,
+                &ldquo;a bit more bass&rdquo;. Each one is a patch against the
+                chain you are listening to, not a new plan, so nothing moves
+                except what you asked for. About two seconds.
+              </p>
+
+              {turns.length > 0 && (
+                <ul className="mb-4 space-y-3">
+                  {turns.map((turn, i) => (
+                    <li key={i} className="text-[13px]">
+                      <p className="text-white/70">{turn.you}</p>
+                      <p className={turn.ok ? "text-white/45" : "text-white/35"}>
+                        {turn.reply}
+                      </p>
+                      {turn.changed.map((change) => (
+                        <p key={change}
+                           className="tabular-nums text-[12px] text-white/35">
+                          {change}
+                        </p>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !busy && sendMessage()}
+                  placeholder="decrease the delay by 15%"
+                  disabled={!!busy}
+                  className="min-w-[18rem] flex-1 rounded-[10px] border border-white/12
+                             bg-white/[0.03] px-4 py-3 text-[15px] outline-none
+                             placeholder:text-white/25 focus:border-white/25
+                             disabled:opacity-40"
+                />
+                <button onClick={sendMessage} disabled={!!busy || !message.trim()}
+                        className="pill-filled px-5 py-2 text-[14px] disabled:opacity-40">
+                  Send
+                </button>
+              </div>
+            </Section>
+          )}
+
+          {steps.length > 1 && (
+            <Section title="This session">
+              <p className="mb-4 max-w-[70ch] text-[13px] leading-[1.55] text-white/40">
+                Every step on this file. Going back does not delete what came
+                after it — the history is a tree, so trying a different
+                direction from an earlier point costs nothing.
+              </p>
+              <ol className="space-y-1">
+                {steps.map((step) => (
+                  <li key={step.graph_id}>
+                    <button
+                      onClick={() => goTo(step.graph_id)}
+                      disabled={!!busy || step.graph_id === graphId}
+                      className={`w-full rounded-[8px] px-3 py-2 text-left text-[13px]
+                                  transition-colors hover:bg-white/8
+                                  disabled:hover:bg-transparent ${
+                        step.graph_id === graphId
+                          ? "bg-white/8 text-white/80"
+                          : "text-white/50"}`}
+                    >
+                      <span className="mr-2 text-[11px] uppercase tracking-wider
+                                       text-white/25">
+                        {step.origin}
+                      </span>
+                      {step.label || "(no description)"}
+                      {step.graph_id === graphId && (
+                        <span className="ml-2 text-[11px] text-white/35">
+                          you are here
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ol>
             </Section>
           )}
 

@@ -203,6 +203,11 @@ class Patch:
     node_id: str = ""
     param: str = ""
     quantifier: Quantifier | None = None
+    # An amount the user named, as an alternative to a ladder word. Exactly one
+    # of quantifier / percent / delta is meaningful; the model picks which the
+    # sentence contained and never computes the result.
+    percent: float | None = None
+    delta: float | None = None
     direction: Literal["increase", "decrease"] = "increase"
     value: Any = None
     band_index: int | None = None
@@ -254,6 +259,61 @@ def adjust(param: str, value: float, quantifier: Quantifier | None,
         count = -count
 
     return step.apply(value, count)
+
+
+class AmountError(ValueError):
+    """An amount that cannot be applied to this parameter, with the reason."""
+
+
+def adjust_by_amount(param: str, value: float, *,
+                     percent: float | None = None,
+                     delta: float | None = None,
+                     direction: str = "increase") -> float:
+    """Move one parameter by an amount the USER named, not a ladder step.
+
+    "Decrease the delay by 15%" is a different request from "shorten the delay
+    a bit", and collapsing them loses what the user actually said. The ladder
+    answers the second; this answers the first.
+
+    THE MODEL STILL DOES NO ARITHMETIC. It extracts the number 15 and the word
+    "percent" from the sentence; every multiplication happens here. That is the
+    same invariant the ladder rests on, and the reason a percentage is not
+    simply handed to the model to resolve.
+
+    A PERCENTAGE OF A DECIBEL IS NOT A THING, and this refuses rather than
+    guessing. dB is already logarithmic — "15% more" of a 4 dB boost could mean
+    4.6 dB (a ratio of the number) or a 15% louder signal (1.2 dB more), and
+    those are different requests. Worse, at 0 dB every ratio is 0, so the
+    obvious reading silently does nothing on the commonest starting value.
+    Which form applies is decided by the parameter's own step: multiplicative
+    parameters take percentages, additive ones take amounts in their unit.
+    """
+    step = STEPS.get(param)
+    if step is None:
+        raise KeyError(
+            f"no perceptual step declared for {param!r} — add one to STEPS "
+            "rather than letting the caller invent a size")
+
+    sign = -1.0 if direction == "decrease" else 1.0
+
+    if percent is not None:
+        if step.factor == 1.0:
+            raise AmountError(
+                f"{param} is measured on an additive scale, so a percentage of "
+                f"it is ambiguous — say how many units instead, or use "
+                f"'slightly', 'noticeably' or 'a lot'")
+        return value * (1.0 + sign * percent / 100.0)
+
+    if delta is not None:
+        if step.factor != 1.0:
+            raise AmountError(
+                f"{param} is measured on a multiplicative scale, so a fixed "
+                f"amount does not mean the same thing at every setting — say a "
+                f"percentage instead, or use 'slightly', 'noticeably' or "
+                f"'a lot'")
+        return value + sign * delta
+
+    raise AmountError("no amount was given")
 
 
 def _find(graph: EffectGraph, node_id: str) -> tuple[list[GraphNode], int] | None:
@@ -350,11 +410,31 @@ def _apply_one(graph: EffectGraph, patch: Patch, result: PatchResult) -> None:
 
     elif patch.op == "adjust_param":
         target, current = _read(node, patch)
-        moved = adjust(patch.param, current, patch.quantifier, patch.direction)
+        # An amount the user NAMED takes precedence over a ladder word. Both
+        # routes end in arithmetic that lives in this file; the difference is
+        # only whether the size came from the sentence or from STEPS.
+        if patch.percent is not None or patch.delta is not None:
+            try:
+                moved = adjust_by_amount(
+                    patch.param, current, percent=patch.percent,
+                    delta=patch.delta, direction=patch.direction)
+            except AmountError as error:
+                # REFUSED WITH THE REASON, not clamped into something that
+                # would apply. "15% more" of a dB value has no correct answer,
+                # and picking one would teach the user a vocabulary that does
+                # not mean what they think.
+                result.rejected.append(f"{node.id}.{patch.param}: {error}")
+                return
+            size = (f"by {patch.percent:g}%" if patch.percent is not None
+                    else f"by {patch.delta:g}")
+        else:
+            moved = adjust(patch.param, current, patch.quantifier,
+                           patch.direction)
+            size = patch.quantifier or "slightly"
         _write(node, patch, target, moved)
         result.applied.append(
             f"{node.id}.{patch.param} {patch.direction}d "
-            f"{patch.quantifier or 'slightly'}: {current:g} -> {moved:g}"
+            f"{size}: {current:g} -> {moved:g}"
         )
 
     elif patch.op == "add_band":
