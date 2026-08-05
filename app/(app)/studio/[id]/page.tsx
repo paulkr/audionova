@@ -51,6 +51,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return () => clearInterval(timer);
   }, [busy]);
 
+  // Kept after the plan finishes, not cleared. It is the justification for the
+  // chain, and an engineer deciding whether to trust a move wants to re-read the
+  // paragraph that argued for it.
+  const [reasoning, setReasoning] = useState("");
+
   const [referenceSet, setReferenceSet] = useState<number | null>(null);
   const [match, setMatch] = useState<
     Awaited<ReturnType<typeof api.matchReference>> | null
@@ -93,21 +98,64 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [tab]);
 
+  // THE WAIT IS THE DESIGN. A model plan takes about three minutes: the model
+  // engages at 2 s, the first prose arrives at 124 s, it finishes near 207 s.
+  // Halving it with a lower reasoning effort is possible and nobody has shown
+  // that costs nothing, so the slow path is what ships and the interface is
+  // built around it rather than apologising for it.
+  //
+  // What makes three minutes bearable is that the analysis is the differentiator
+  // — it is the argument for every move in the chain — so it is streamed and
+  // shown as it is written. The user spends the wait reading the reasoning they
+  // would otherwise have been given at the end, which is the same information
+  // arriving in an order that respects them.
   async function runPlan() {
-    setBusy(planner === "model" ? "planning — this takes a minute or two" : "planning");
     setError(null);
-    try {
-      const result = await api.plan(id, { request, planner });
-      setPlan(result);
-      setGraphId(result.graph_id);
-      setHistory([result.graph_id]);
-      setBusy("rendering");
-      setRendered(await api.render(id, result.graph_id));
-    } catch (e) {
-      setError(String((e as Error).message));
-    } finally {
-      setBusy(null);
+    setReasoning("");
+    setPlan(null);
+
+    if (planner === "rules") {
+      setBusy("planning");
+      try {
+        const result = await api.plan(id, { request, planner });
+        setPlan(result);
+        setGraphId(result.graph_id);
+        setHistory([result.graph_id]);
+        setBusy("rendering");
+        setRendered(await api.render(id, result.graph_id));
+      } catch (e) {
+        setError(String((e as Error).message));
+      } finally {
+        setBusy(null);
+      }
+      return;
     }
+
+    setBusy("reading the measurements");
+    api.planStream(id, request, {
+      onStarted: () => setBusy("thinking — the analysis appears below as it is written"),
+      onReasoning: (chunk) => {
+        setBusy("writing the analysis");
+        setReasoning((prior) => prior + chunk);
+      },
+      onDone: async (result) => {
+        setPlan(result);
+        setGraphId(result.graph_id);
+        setHistory([result.graph_id]);
+        setBusy("rendering");
+        try {
+          setRendered(await api.render(id, result.graph_id));
+        } catch (e) {
+          setError(String((e as Error).message));
+        } finally {
+          setBusy(null);
+        }
+      },
+      onError: (message) => {
+        setError(message);
+        setBusy(null);
+      },
+    });
   }
 
   async function runRefine(intent: string, quantifier: string) {
@@ -323,6 +371,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {error && <p className="text-[13px] text-[#ff8b8b]">{error}</p>}
         </div>
       </Section>
+
+      {(reasoning || busy?.startsWith("thinking")) && (
+        <Section title={plan ? "Why it did that" : "Working"}>
+          <p className="mb-3 max-w-[70ch] text-[13px] leading-[1.55] text-white/40">
+            {plan
+              ? "The analysis the chain below was built from. Every move in it "
+                + "should be traceable to a number in here; if one is not, that "
+                + "is worth distrusting."
+              : "This is the model reading your measurements and deciding what "
+                + "to do. It takes about three minutes and the first two are "
+                + "silent — it thinks before it writes."}
+          </p>
+          <Reasoning text={reasoning} live={!plan} />
+        </Section>
+      )}
 
       {plan && (
         <>
@@ -671,6 +734,52 @@ function Editable({ value, unit, onCommit, disabled }: {
       className="w-20 rounded border border-white/25 bg-white/10 px-1
                  tabular-nums outline-none"
     />
+  );
+}
+
+// The analysis, arriving as it is written.
+//
+// AUTO-SCROLLS ONLY WHILE LIVE, and only if the reader has not scrolled away.
+// Yanking the viewport back to the bottom while someone is re-reading a
+// paragraph is the behaviour that makes streaming interfaces unpleasant, and
+// the whole point here is that the text is worth reading.
+function Reasoning({ text, live }: { text: string; live: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
+  const stuck = useRef(true);
+
+  useEffect(() => {
+    const element = box.current;
+    if (!element || !live || !stuck.current) return;
+    element.scrollTop = element.scrollHeight;
+  }, [text, live]);
+
+  return (
+    <div
+      ref={box}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        // A 24 px slack, because "at the bottom" is never exact once the
+        // content is still growing under you.
+        stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+      className="max-h-[22rem] overflow-y-auto rounded-[10px] border
+                 border-white/8 bg-white/[0.02] px-4 py-3"
+    >
+      <pre className="whitespace-pre-wrap font-sans text-[13px] leading-[1.6]
+                      text-white/60">
+        {text}
+        {live && (
+          <span className="ml-0.5 inline-block h-[1em] w-[0.5ch] translate-y-[0.15em]
+                           animate-pulse bg-white/40 align-baseline" />
+        )}
+      </pre>
+      {live && !text && (
+        <p className="text-[13px] text-white/30">
+          nothing yet — the model thinks for about two minutes before it writes
+          its first sentence
+        </p>
+      )}
+    </div>
   );
 }
 

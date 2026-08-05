@@ -146,6 +146,51 @@ export function plan(
   });
 }
 
+// THE MODEL PLANNER TAKES THREE MINUTES AND THAT IS THE DESIGN, NOT A BUG TO
+// HIDE. Measured: the model engages at t+2 s, the first prose arrives at
+// t+124 s, and it finishes around t+207 s. Low effort would halve that and
+// nobody has established it costs nothing, so the slow path stays the default
+// and the interface is built for it.
+//
+// EventSource rather than fetch, because it reconnects and parses the framing
+// for free, and because the alternative — polling a job id — is the thing SSE
+// exists to avoid. It can only issue a GET, which is why the request text goes
+// in the query string; see the endpoint's comment for why that is acceptable
+// here and would not be in production.
+export type PlanStream = {
+  onStarted: () => void;
+  onReasoning: (chunk: string) => void;
+  onDone: (result: PlanResult) => void;
+  onError: (message: string) => void;
+};
+
+export function planStream(id: string, request: string,
+                           handlers: PlanStream): () => void {
+  const url = `${API_BASE}/api/projects/${id}/plan/stream`
+            + `?planner=model&request=${encodeURIComponent(request)}`;
+  const source = new EventSource(url);
+
+  source.addEventListener("started", () => handlers.onStarted());
+  source.addEventListener("reasoning", (event) =>
+    handlers.onReasoning(JSON.parse((event as MessageEvent).data)));
+  source.addEventListener("done", (event) => {
+    handlers.onDone(JSON.parse((event as MessageEvent).data));
+    source.close();
+  });
+  source.addEventListener("error", (event) => {
+    // Two different failures share this event. One carries a message from the
+    // server; the other is the connection dropping, where `data` is absent —
+    // and reporting "undefined" for a dead connection would send someone
+    // looking for a bug in the planner.
+    const data = (event as MessageEvent).data;
+    handlers.onError(data ? JSON.parse(data)
+                          : "the connection to the planner dropped");
+    source.close();
+  });
+
+  return () => source.close();
+}
+
 export function render(id: string, graphId: string, full = false) {
   return request<RenderResult>(
     `/api/projects/${id}/graphs/${graphId}/render?full=${full}`,
