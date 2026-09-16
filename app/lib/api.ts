@@ -120,9 +120,35 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function health() {
-  return request<{ ok: boolean; engine: boolean; model: boolean }>(
+  return request<{ ok: boolean; engine: boolean; model: boolean; voice: boolean }>(
     "/api/health",
   );
+}
+
+export type VoiceResult = {
+  key: string;
+  graph_id: string;
+  cached: boolean;
+  characters?: number;
+  elapsed_s?: number;
+  voice_id?: string;
+  model_id?: string;
+  request_id?: string;
+  bytes?: number;
+};
+
+// The explanation read aloud. Cached per graph on the server, so calling this
+// twice for the same chain costs one provider call, not two.
+export function voice(id: string, graphId: string) {
+  return request<VoiceResult>(
+    `/api/projects/${id}/graphs/${graphId}/voice`,
+    { method: "POST", headers: { "content-type": "application/json" },
+      body: "{}" },
+  );
+}
+
+export function voiceUrl(id: string, key: string) {
+  return `${API_BASE}/api/projects/${id}/voice/${key}`;
 }
 
 export function upload(file: File) {

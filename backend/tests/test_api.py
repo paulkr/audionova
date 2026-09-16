@@ -214,7 +214,7 @@ def test_health_and_intents() -> None:
     body = health.json()
     R.check(health.status_code == 200 and body.get("ok") is True,
             f"health reports ok, got {body}")
-    R.check(set(body) == {"ok", "engine", "model", "projects"},
+    R.check(set(body) == {"ok", "engine", "model", "voice", "projects"},
             f"and exactly the documented keys, got {sorted(body)}")
     # `model` is whether a key is present, never whether one works. A health
     # check that made a model call would cost money on every page load.
@@ -859,6 +859,84 @@ def test_missing_renders_404() -> None:
                 f"a key whose file has gone is 404 on /{endpoint}, got {got}")
 
 
+def test_the_voice_never_reaches_the_network() -> None:
+    print("[14] the spoken explanation")
+
+    from backend.voice import elevenlabs as voice
+
+    # Without a key the route says so, like the planner, and nothing is called.
+    had_key = os.environ.pop("ELEVENLABS_API_KEY", None)
+    try:
+        got = status(lambda: CLIENT.post(
+            f"/api/projects/{F.quiet_id}/graphs/{F.plan_id}/voice"))
+        R.check(got == 503, f"no key is 503, got {got}")
+        health = CLIENT.get("/api/health").json()
+        R.check(health.get("voice") is False, "health reports the voice is off")
+    finally:
+        if had_key is not None:
+            os.environ["ELEVENLABS_API_KEY"] = had_key
+
+    # WITH A KEY, THE PROVIDER IS STILL NEVER CALLED FROM A TEST. `speak` is
+    # replaced with a scripted one that records what it was asked to say, so
+    # this checks the contract around the call — what text goes out, what
+    # comes back, and that a second click does not go out at all — without a
+    # credential or a network.
+    spoken_texts: list[str] = []
+
+    def scripted(text: str, *, voice_id=None, model_id=None, timeout_s=60.0):
+        spoken_texts.append(text)
+        return voice.Spoken(audio=b"ID3fake-mp3", characters=len(text),
+                            elapsed_s=0.01, voice_id=voice_id or "scripted",
+                            model_id=model_id or "scripted", request_id="")
+
+    real_speak = server.voice.speak
+    os.environ["ELEVENLABS_API_KEY"] = "test-only-not-a-real-key"
+    server.voice.speak = scripted
+    try:
+        R.check(CLIENT.get("/api/health").json().get("voice") is True,
+                "health reports the voice is on")
+        first = CLIENT.post(f"/api/projects/{F.quiet_id}/graphs/{F.plan_id}/voice")
+        R.check(first.status_code == 200, f"speaking is 200, got {first.status_code}")
+        body = first.json()
+        explanation = server.PROJECTS[F.quiet_id].graphs[F.plan_id]["graph"].explanation
+        R.check(spoken_texts == [explanation.strip()],
+                "exactly the graph's explanation was sent, and nothing else")
+        R.check(body.get("cached") is False and body.get("characters") == len(explanation.strip()),
+                "the first call reports the characters it sent")
+
+        audio = CLIENT.get(f"/api/projects/{F.quiet_id}/voice/{body['key']}")
+        R.check(audio.status_code == 200
+                and audio.headers.get("content-type", "").startswith("audio/mpeg")
+                and audio.content == b"ID3fake-mp3",
+                "the voice route serves the bytes as MP3")
+
+        second = CLIENT.post(f"/api/projects/{F.quiet_id}/graphs/{F.plan_id}/voice").json()
+        R.check(second.get("cached") is True and len(spoken_texts) == 1,
+                "a second click is served from the cache and is not billed")
+
+        got = status(lambda: CLIENT.post(
+            f"/api/projects/{F.quiet_id}/graphs/nosuchgraph/voice"))
+        R.check(got == 404, f"an unknown graph is 404, got {got}")
+        got = status(lambda: CLIENT.get(f"/api/projects/{F.quiet_id}/voice/nosuchkey"))
+        R.check(got == 404, f"an unknown voice key is 404, got {got}")
+        # A render key is not a voice key, even though both live in `renders`.
+        render_key = next((k for k in server.PROJECTS[F.quiet_id].renders
+                           if not k.startswith("voice_")), None)
+        if render_key:
+            got = status(lambda: CLIENT.get(f"/api/projects/{F.quiet_id}/voice/{render_key}"))
+            R.check(got == 404, f"a WAV render key is refused on /voice, got {got}")
+        got = status(lambda: CLIENT.post(
+            f"/api/projects/{F.quiet_id}/graphs/{F.plan_id}/voice",
+            json={"voice_id": "../../etc"}))
+        R.check(got == 422, f"a voice id that is not a token is 422, got {got}")
+    finally:
+        server.voice.speak = real_speak
+        if had_key is None:
+            os.environ.pop("ELEVENLABS_API_KEY", None)
+        else:
+            os.environ["ELEVENLABS_API_KEY"] = had_key
+
+
 if __name__ == "__main__":
     print("Audionova local API\n")
     build_fixtures()
@@ -875,5 +953,6 @@ if __name__ == "__main__":
     test_the_delivered_file_is_not_loudness_matched()
     test_download_naming()
     test_missing_renders_404()
+    test_the_voice_never_reaches_the_network()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

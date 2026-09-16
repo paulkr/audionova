@@ -69,6 +69,7 @@ from backend.schemas.graph import (  # noqa: E402
     PARAM_MODELS, DynamicEqBand, EffectGraph, EqBand, GraphNode,
 )
 from backend.verify import gate  # noqa: E402
+from backend.voice import elevenlabs as voice  # noqa: E402
 
 load_env()
 
@@ -127,6 +128,11 @@ class Project:
     reference_curve: np.ndarray | None = field(repr=False, default=None)
     reference_lufs: float | None = None
 
+    # Spoken explanations, keyed like renders: `voice_<graph_id>_<voice_id>`.
+    # The file path lives in `renders` so the same missing-file handling
+    # applies; this holds what the provider reported about producing it.
+    voices: dict[str, dict[str, Any]] = field(default_factory=dict)
+
 
 PROJECTS: dict[str, Project] = {}
 WORKDIR = tempfile.mkdtemp(prefix="audionova_")
@@ -182,6 +188,7 @@ def health() -> dict[str, Any]:
         "engine": os.path.exists(
             os.path.join(ROOT, "engine", "build", "anv_render")),
         "model": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "voice": bool(voice.api_key()),
         "projects": len(PROJECTS),
     }
 
@@ -758,6 +765,72 @@ def _recipe_hash(recipe: dict[str, Any], source_key: str) -> str:
 # redo, re-auditioning a graph, and A/B-ing two chains all re-render something
 # already rendered, and those are the commonest actions in a session.
 RENDER_CACHE: dict[str, dict[str, Any]] = {}
+
+
+class VoiceRequest(BaseModel):
+    # A provider voice id is a short alphanumeric token. Anything else is
+    # refused here rather than forwarded into a URL path.
+    voice_id: str = Field(default="", max_length=64, pattern=r"^[A-Za-z0-9]*$")
+
+
+@app.post("/api/projects/{project_id}/graphs/{graph_id}/voice")
+def speak_explanation(project_id: str, graph_id: str,
+                      body: VoiceRequest | None = None) -> dict[str, Any]:
+    """The graph's explanation as speech.
+
+    Cached per (graph, voice): the explanation is immutable once the graph is
+    stored, so a second click must not bill a second time. The audio is a file
+    in the working directory under a `renders` key, which is what lets
+    `/voice/{key}` share the missing-file handling every render already has.
+
+    503 without a key, like the planner. The explanation is on screen either
+    way; this is the one feature whose absence costs nothing but a voice.
+    """
+    project = project_or_404(project_id)
+    entry = project.graphs.get(graph_id)
+    if entry is None:
+        raise HTTPException(404, "no such graph")
+    if not voice.api_key():
+        raise HTTPException(503, "no ELEVENLABS_API_KEY; the explanation is on screen")
+
+    voice_id = (body.voice_id if body else "") or ""
+    key = f"voice_{graph_id}_{voice_id or 'default'}"
+    path = project.renders.get(key)
+    if path and os.path.exists(path):
+        return {"key": key, "graph_id": graph_id, "cached": True,
+                **project.voices.get(key, {})}
+
+    try:
+        spoken = voice.speak(entry["graph"].explanation, voice_id=voice_id or None)
+    except voice.VoiceError as error:
+        raise HTTPException(502, str(error))
+
+    path = os.path.join(WORKDIR, f"{project.id}_{key}.mp3")
+    with open(path, "wb") as handle:
+        handle.write(spoken.audio)
+    project.renders[key] = path
+    project.voices[key] = {
+        "characters": spoken.characters,
+        "elapsed_s": spoken.elapsed_s,
+        "voice_id": spoken.voice_id,
+        "model_id": spoken.model_id,
+        "request_id": spoken.request_id,
+        "bytes": len(spoken.audio),
+    }
+    return {"key": key, "graph_id": graph_id, "cached": False, **project.voices[key]}
+
+
+@app.get("/api/projects/{project_id}/voice/{key}")
+def get_voice(project_id: str, key: str) -> FileResponse:
+    """The spoken explanation, for an <audio> element. MP3, not WAV: this is a
+    voice-over, not audio that enters the chain, so `/audio`'s WAV contract
+    does not apply and the two are kept as separate routes rather than one
+    route guessing a media type from a key."""
+    project = project_or_404(project_id)
+    path = project.renders.get(key)
+    if not key.startswith("voice_") or path is None or not os.path.exists(path):
+        raise HTTPException(404, "no such voice")
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.post("/api/projects/{project_id}/reference")

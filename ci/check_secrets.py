@@ -32,6 +32,9 @@ PATTERNS = (
     ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}")),
     ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
+    # `sk_` then hex, which the OpenAI pattern above (`sk-`, mixed case) does
+    # not cover. Added with the voice module, the first code here that holds one.
+    ("ElevenLabs API key", re.compile(r"\bsk_[0-9a-f]{32,}\b")),
 )
 
 # Files that legitimately contain the PATTERNS themselves — this one, and the
