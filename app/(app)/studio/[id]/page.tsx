@@ -56,6 +56,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // paragraph that argued for it.
   const [reasoning, setReasoning] = useState("");
 
+  // The explanation, spoken. The button only appears when the API reports a
+  // voice key, because a button that always fails with "no key" is a worse
+  // experience than no button. The result is kept with its graph id so a
+  // refinement that produces a new chain does not keep playing the old one.
+  const [voiceReady, setVoiceReady] = useState(false);
+  const [voice, setVoice] = useState<api.VoiceResult | null>(null);
+  useEffect(() => {
+    api.health().then((h) => setVoiceReady(!!h.voice)).catch(() => {});
+  }, []);
+
   // THE SESSION IS THE TREE THAT WAS ALWAYS THERE. Graphs have carried a parent
   // since the first version, so undo is a pointer move and branching is free —
   // and the interface only ever showed the head, which made a session look like
@@ -329,6 +339,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // makes iterating feel instant. The download is the one action that has to
   // touch the whole file, so it renders it on demand rather than keeping a
   // full render in step with every refinement nobody was going to download.
+  async function hearIt() {
+    if (!graphId) return;
+    setBusy("speaking");
+    setError(null);
+    try {
+      setVoice(await api.voice(id, graphId));
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function downloadFull() {
     if (!graphId) return;
     setBusy("rendering the full file");
@@ -453,9 +476,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       {plan && (
         <>
           <Section title="What it did">
-            <p className="mb-5 max-w-[70ch] text-[14px] leading-[1.6] text-white/60">
+            <p className="mb-3 max-w-[70ch] text-[14px] leading-[1.6] text-white/60">
               {plan.explanation}
             </p>
+            {voiceReady && graphId && (
+              <div className="mb-5 flex flex-wrap items-center gap-3">
+                <button onClick={hearIt} disabled={!!busy}
+                        className="pill-ghost px-4 py-1.5 text-[13px] disabled:opacity-40">
+                  {busy === "speaking" ? `speaking · ${elapsed}s` : "Hear it"}
+                </button>
+                {voice && voice.graph_id === graphId && (
+                  <>
+                    <audio controls autoPlay src={api.voiceUrl(id, voice.key)}
+                           className="h-8" />
+                    <span className="text-[12px] text-white/35">
+                      {voice.characters} characters
+                      {voice.elapsed_s !== undefined && ` · ${voice.elapsed_s}s to speech`}
+                      {voice.cached && " · cached"}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
             <div className="space-y-3">
               {plan.nodes.map((node) => (
                 <NodeCard key={node.id} node={node} disabled={!!busy}

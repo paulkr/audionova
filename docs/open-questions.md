@@ -181,6 +181,23 @@ by someone who mixes for a living. "Motown bass" names a record, not a region.
 
 ## Unverified because nothing has run yet
 
+### The spoken explanation has not been heard against real text
+
+`backend/voice/elevenlabs.py` reads a graph's `explanation` aloud through
+ElevenLabs text-to-speech (`POST .../graphs/{id}/voice`, then
+`GET .../voice/{key}`; the studio shows a "Hear it" button when the API has a
+key). The route contract is tested with a scripted provider and never touches
+the network from a test. What has NOT been checked is the thing that matters:
+how the voice reads the units the explanation is full of — "−14 LUFS",
+"−1 dBTP", "3.2 kHz", "4:1". A voice that says "minus fourteen loofs" is a
+worse experience than the paragraph on screen, and the fix (a small
+spoken-form pass that expands units before sending) should be written against
+what was actually heard rather than guessed.
+
+Resolves when: one real plan's explanation has been spoken with the default
+model and voice and the misreadings, if any, are listed here with the exact
+phrases. Costs nothing to be wrong beyond a few hundred characters of quota.
+
 ### The planner still has not run end to end
 
 The two API properties the design rests on are now verified (see Resolved), but
