@@ -181,23 +181,6 @@ by someone who mixes for a living. "Motown bass" names a record, not a region.
 
 ## Unverified because nothing has run yet
 
-### The spoken explanation has not been heard against real text
-
-`backend/voice/elevenlabs.py` reads a graph's `explanation` aloud through
-ElevenLabs text-to-speech (`POST .../graphs/{id}/voice`, then
-`GET .../voice/{key}`; the studio shows a "Hear it" button when the API has a
-key). The route contract is tested with a scripted provider and never touches
-the network from a test. What has NOT been checked is the thing that matters:
-how the voice reads the units the explanation is full of — "−14 LUFS",
-"−1 dBTP", "3.2 kHz", "4:1". A voice that says "minus fourteen loofs" is a
-worse experience than the paragraph on screen, and the fix (a small
-spoken-form pass that expands units before sending) should be written against
-what was actually heard rather than guessed.
-
-Resolves when: one real plan's explanation has been spoken with the default
-model and voice and the misreadings, if any, are listed here with the exact
-phrases. Costs nothing to be wrong beyond a few hundred characters of quota.
-
 ### The planner still has not run end to end
 
 The two API properties the design rests on are now verified (see Resolved), but
@@ -1274,6 +1257,7 @@ Kept so the reasoning is not re-litigated.
 
 | Was | Resolution |
 |---|---|
+| The spoken explanation had not been heard against real text | Heard, 16 September 2026, one real plan (rules planner, afrohouse-loop1.wav), default voice, `eleven_multilingual_v2`: 636 characters, 8.0 s to first byte, 52 s of speech. Units survive: "dBTP" and "dBFS" are read as letters, "32 Hz", "-3.2 dB", "2.5:1", "-12.8 dBFS" and "+0.17 dBTP" all come out as an engineer would say them. No spoken-form pass is needed for the multilingual model; if a cheaper model is ever swapped in, re-listen before trusting it. The MP3 and its metadata are kept outside the repo with the operator's listening notes. |
 | The true-peak limiter overshoots its ceiling by 0.02 dB | Fixed, and the diagnosis in the original entry was only half right. The detector's error has **two** terms, not one. Term A is the peak-search grid: it evaluates the reconstruction at `factor` points per sample and returns the largest, so it can only read LOW, by at most `cos(π/(2·factor))` — a theorem about band-limited signals, 0.688 dB at the 4× the node was running. Term B is the transition band, which is unsigned and unbounded. The header's claim that "oversampling factor does not affect accuracy at all" was measured on stationary signals, where phase diversity over hundreds of cycles hides term A entirely; on an isolated transient it is worth up to 0.22 dB. Factor floor raised 4 → 16, and the limiter now subtracts `gridBoundDb()` from its ceiling unconditionally rather than leaving `safety_margin_db` at 0 and hoping. Delivered true peak against a −1.0 ceiling, measured by exact DFT-domain reconstruction: −0.996 → **−1.041 dBTP** on band-limited programme, i.e. from permissive to conservative. Cost 4× the detector, 1.02 s → 4.07 s per 30 s of stereo; the measurement suite went 29.1 s → 31.5 s. Eight mutations, eight caught after two of them exposed real gaps — an untested default path and a reference meter that shared the grid it was checking. Term B remains and has its own entry above. |
 | The codec detector is unstable near its own threshold | Fixed. The confidence read the slope alone, which is the strength of the evidence and not the certainty of the verdict. It is now the weaker of two margins — slope past the gate that actually binds, and depth inside the 60 dB guard — so it falls to zero as either boundary is approached. The demo vocal chain's output went from 0.88 to 0.15; the seven real lame/AAC encodes of the acoustic guitar all still report 1.00. Ten mutations, ten caught. |
 | Stereo width unmeasurable — every stem was mono or dual-mono | Two genuinely stereo files were already in the user's library. `stereo.correlation` tracks width at r = −0.99. |
