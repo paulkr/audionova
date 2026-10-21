@@ -40,8 +40,11 @@ Five of the seven stages are deterministic and testable. Only PLAN and EMIT are
 model calls. That ratio is deliberate: every stage that can be arithmetic is
 arithmetic, because arithmetic can be tested and a model cannot.
 
-**Built today:** MEASURE and RENDER, plus the harnesses that check them against
-each other. CLASSIFY, PLAN, EMIT and REFINE do not exist.
+**Built today:** every stage except CLASSIFY. MEASURE, RENDER and VERIFY are
+deterministic and tested against each other; PLAN and EMIT make live model calls
+(`backend/plan/pipeline.py`), with a rule-based planner beside them as the floor
+the model has to beat; REFINE is match-EQ and dynamics matching. A local API and
+a browser studio drive the whole loop. CLASSIFY does not exist.
 
 ## Why two model calls and not one
 
@@ -67,9 +70,9 @@ one won perceptually by a wide margin.
        C++  (engine/)                    Python  (backend/)
   ┌──────────────────────┐          ┌──────────────────────────┐
   │ 24 DSP nodes         │          │ measurement report       │
-  │ Chain + PDC          │◀── JSON ─│ planner (not built)      │
-  │ resampler            │  recipe  │ validators (not built)   │
-  │ WAV / RF64           │──▶ WAV ──│ evaluation harnesses     │
+  │ Chain + PDC          │◀── JSON ─│ planner + validators     │
+  │ resampler            │  recipe  │ refine, verify gate      │
+  │ WAV / RF64           │──▶ WAV ──│ local API, harnesses     │
   └──────────────────────┘          └──────────────────────────┘
 ```
 
@@ -166,5 +169,5 @@ anything that fails. See `engine.md` for what the engine rejects and
 1. `engine/include/anv/core/Node.h` — the contract every effect implements
 2. `engine/include/anv/graph/Chain.h` — serial chain, latency compensation, dry/wet
 3. `engine/include/anv/io/Recipe.h` — the JSON contract and its validators
-4. `backend/measure/report.py` — what the planner will be handed
+4. `backend/measure/report.py` — what the planner is handed
 5. `backend/eval/sensitivity.py` — whether that report can see anything

@@ -197,6 +197,37 @@ def test_catches_corruption() -> None:
     R.check(not result.passed and any(f.code == "non_finite" for f in result.failures),
             f"NaN samples fail the gate, got {result.summary()}")
 
+    # THROUGH THE REAL READBACK, not an array handed to the gate. The WAV
+    # reader learned to refuse NaN in uploads, and for a while refused it in
+    # the engine's own float render too — so a corrupted render became an
+    # unhandled WavError and this refusal could never be reached. The engine
+    # is replaced by a stand-in that writes a corrupted float file where the
+    # real one would write its output.
+    import subprocess as _subprocess
+    from backend.audio import wavio as _wavio
+    from backend.engine import render as _render
+
+    real_run = _render.subprocess.run
+
+    def corrupting_engine(command, **_kwargs):
+        out_path = command[command.index("--out") + 1]
+        _wavio.write_wav(out_path, broken, SR, 64, True)
+        return _subprocess.CompletedProcess(command, 0, "", "")
+
+    _render.subprocess.run = corrupting_engine
+    try:
+        readback = _render.render_array(pink(2.0), SR, Recipe())
+        via_engine = gate.verify(readback, SR)
+        R.check(not via_engine.passed
+                and any(f.code == "non_finite" for f in via_engine.failures),
+                f"a corrupted engine render reaches the gate and is refused, "
+                f"got {via_engine.summary()}")
+    except Exception as error:  # noqa: BLE001 — any raise is the failure
+        R.check(False, f"a corrupted engine render raised {type(error).__name__} "
+                       f"instead of reaching the gate: {error}")
+    finally:
+        _render.subprocess.run = real_run
+
     silent = gate.verify(np.zeros((2, int(SR * 2))), SR)
     R.check(not silent.passed and any(f.code == "silent" for f in silent.failures),
             f"a silent render fails, got {silent.summary()}")

@@ -400,7 +400,16 @@ inline AudioFile decodeWav(const std::vector<uint8_t>& bytes) {
     const uint8_t* frame = src + i * frameBytes;
     for (int c = 0; c < channels; ++c) {
       const uint8_t* s = frame + static_cast<int64_t>(c) * bps;
-      out.audio.channel(c)[i] = decodeSample(s, format);
+      const Sample v = decodeSample(s, format);
+      // A NaN or infinity is not a sample. The input resampler spreads one
+      // across its taps and the writer turns those into silence, so a single
+      // bad value became a 239-sample dropout in a render that exited 0.
+      // Integer formats cannot produce one; float formats can.
+      if (!std::isfinite(v))
+        throw WavError("sample " + std::to_string(i) + " of channel " +
+                       std::to_string(c) + " is not finite (NaN or "
+                       "infinity); refusing rather than rendering a dropout");
+      out.audio.channel(c)[i] = v;
     }
   }
   return out;

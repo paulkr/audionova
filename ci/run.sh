@@ -85,6 +85,19 @@ for suite in bridge refine dynamics verify sensitivity recovery api listen; do
   run "backend: $suite"   make -C backend --no-print-directory "$suite"
 done
 
+# --- frontend ----------------------------------------------------------------
+# The studio had a lint error that nothing reported, because no stage looked at
+# it. Lint and typecheck only: `next build` adds a minute and checks nothing
+# these two do not, for an app that is only ever run with `npm run dev`.
+if [ -d node_modules ]; then
+  run "frontend: lint"      npm run --silent lint
+  run "frontend: typecheck" npm run --silent typecheck
+else
+  # A failure, not a skip. A stage that quietly does not run is a stage that
+  # reports green for code it never looked at.
+  run "frontend: node_modules present (run npm ci)" false
+fi
+
 # --- report ------------------------------------------------------------------
 printf '\n────────────────────────────────────────\n'
 if [ ${#FAILED[@]} -eq 0 ]; then

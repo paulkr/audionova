@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.plan import glossary, ladder, pipeline  # noqa: E402
+from backend.plan import chat, glossary, ladder, pipeline  # noqa: E402
 from backend.plan import prompt as prompts  # noqa: E402
 from backend.plan.ladder import Patch  # noqa: E402
 from backend.plan.validate import validate  # noqa: E402
@@ -1093,6 +1093,52 @@ def test_failures_always_state_a_reason() -> None:
 
 
 
+def test_chat_refuses_what_it_cannot_read() -> None:
+    print("[18] chat: a malformed edit is refused, never defaulted")
+
+    graph = EffectGraph.model_validate(json.loads(graph_json()))
+
+    def parse_one(edit: dict) -> chat.ChatResult:
+        reply = json.dumps({"edits": [edit], "reply": "done"})
+        return chat.parse(pipeline.ScriptedClient(emissions=[reply]),
+                          message="more compression", graph=graph)
+
+    good = {"node_id": "comp", "param": "ratio_to_1", "direction": "increase",
+            "size_kind": "word", "word": "slightly", "reason": "asked"}
+
+    # The well-formed edit first, or every refusal below proves nothing.
+    result = parse_one(good)
+    R.check(result.ok and len(result.patches) == 1,
+            f"a well-formed edit parses, refused={result.refused!r}")
+    R.check(result.patches[0].direction == "increase"
+            and result.patches[0].quantifier == "slightly",
+            "with the direction and size it named")
+    R.check(parse_one({**good, "size_kind": "percent", "percent": 15}).ok,
+            "a percentage with its number parses")
+    R.check(parse_one({**good, "size_kind": "amount", "amount": 2.0}).ok,
+            "an amount with its number parses")
+
+    # EACH OF THESE USED TO BE APPLIED. An unknown direction became "increase",
+    # so "dial it back" read as "lower" could land as the opposite change; a
+    # missing word became "slightly"; a missing number became 0, a no-op that
+    # was then reported as done.
+    for broken, what in (
+        ({**good, "direction": "lower"}, "an unknown direction"),
+        ({k: v for k, v in good.items() if k != "direction"}, "a missing direction"),
+        ({**good, "size_kind": "lots"}, "an unknown size kind"),
+        ({**good, "word": "hugely"}, "an unknown size word"),
+        ({k: v for k, v in good.items() if k != "word"}, "a missing size word"),
+        ({**good, "size_kind": "percent"}, "a percentage with no number"),
+        ({**good, "size_kind": "amount", "amount": "two"}, "an amount that is not a number"),
+        ("comp ratio up", "an edit that is not an object"),
+    ):
+        result = parse_one(broken)
+        R.check(not result.ok and not result.patches,
+                f"{what} is refused rather than applied")
+        R.check(result.refused.startswith("could not read the reply"),
+                f"and says so, got {result.refused!r}")
+
+
 if __name__ == "__main__":
     print("Audionova planner scaffolding\n")
     test_quantifier_ladder()
@@ -1113,5 +1159,6 @@ if __name__ == "__main__":
     test_stage_one_must_finish()
     test_envelope_unwrapping()
     test_failures_always_state_a_reason()
+    test_chat_refuses_what_it_cannot_read()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

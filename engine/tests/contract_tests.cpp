@@ -1921,20 +1921,20 @@ void testTruePeakLimiter() {
     // The worst reading is then cos(pi/(4*factor)): -0.042 dB at 8x, -0.010 at
     // 16x, -0.003 at 32x. A 0.006 dB tolerance admits only the last.
     {
-      const int64_t n = 2048;
-      const int64_t fade = 512;
+      const int64_t frames = 2048;
+      const int64_t ramp = 512;
       double worst = 0.0;
       for (int step = 0; step < 192; ++step) {
         const double phase = 0.5 * M_PI * static_cast<double>(step) / 192.0;
-        AudioBuffer b(1, n);
-        for (int64_t i = 0; i < n; ++i) {
+        AudioBuffer b(1, frames);
+        for (int64_t i = 0; i < frames; ++i) {
           double env = 1.0;
-          if (i < fade)
+          if (i < ramp)
             env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(i) /
-                                        static_cast<double>(fade)));
-          else if (i >= n - fade)
-            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(n - 1 - i) /
-                                        static_cast<double>(fade)));
+                                        static_cast<double>(ramp)));
+          else if (i >= frames - ramp)
+            env = 0.5 * (1.0 - std::cos(M_PI * static_cast<double>(frames - 1 - i) /
+                                        static_cast<double>(ramp)));
           b.channel(0)[i] = env * std::sin(M_PI * static_cast<double>(i) / 2.0 + phase);
         }
         worst = std::min(worst, tightTruePeakDb(b));
@@ -2307,15 +2307,15 @@ void testTruePeakLimiter() {
     // which means this check is redundant today and will not be the first time
     // one of them moves.
     {
-      const int64_t n = 96000;
-      AudioBuffer in(1, n);
-      for (int64_t i = 0; i < n; ++i)
+      const int64_t frames = 96000;
+      AudioBuffer in(1, frames);
+      for (int64_t i = 0; i < frames; ++i)
         in.channel(0)[i] = std::sin(M_PI * static_cast<double>(i) / 2.0 +
                                     M_PI / 64.0);
       ParamSet defaults; // nothing set: ceiling defaults to -1 dBTP
       const AudioBuffer out = runLimiter(defaults, in);
       double gain = 0.0;
-      for (int64_t i = 24000; i < n - 24000; ++i)
+      for (int64_t i = 24000; i < frames - 24000; ++i)
         if (std::abs(in.channel(0)[i]) > 0.5)
           gain = std::max(gain, std::abs(out.channel(0)[i] / in.channel(0)[i]));
       std::printf("       limiter on node defaults: delivered %+.4f dBTP\n",

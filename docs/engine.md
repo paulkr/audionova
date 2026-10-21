@@ -206,7 +206,13 @@ between bands matters more than transient purity. `zero_phase_eq` for surgical
 mastering moves above ~100 Hz where any phase shift at all is unwanted.
 
 **`dynamic_eq`** — same band structure plus per-band dynamics. Subsumes the
-de-esser, which ships as a preset rather than a node.
+de-esser, which ships as a preset rather than a node. Each band takes
+`filter_type` (`bell` | `lowshelf` | `highshelf` — the node distinguishes only
+shelf from not-shelf, so the others are rejected), `mode` (`static` | `down` |
+`up`), `center_freq_hz`, `q_factor`, `static_gain_db`, `threshold_dbfs`,
+`ratio_to_1`, `knee_db`, `range_db` (a magnitude, ≥ 0: `mode` sets the
+direction), `attack_ms` and `release_ms`. The Python schema spells the modes
+`downward` / `upward` and translates them in `to_recipe`.
 
 ### Dynamics
 
@@ -758,5 +764,5 @@ would show up as a click when the render is butted against another.
   reset equivalence, bypass null. Any deviation is a real bug.
 - **−140 dBFS** for cross-platform. libm ULP differences, SIMD summation order
   and FMA contraction make bit-exactness across x86/ARM a losing fight that
-  produces flaky CI. Divergence is reduced at the source by vendoring
-  transcendentals.
+  produces flaky CI. Vendoring the transcendentals would reduce divergence at
+  the source; that has not been done, and the engine calls the platform libm.

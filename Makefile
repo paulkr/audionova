@@ -8,7 +8,7 @@
 ci:
 	@ci/run.sh
 
-# Skips the sanitizer build, which dominates the wall clock at 40s of a 3m run.
+# Skips the sanitizer build, about 3 minutes of an 11-minute run.
 quick:
 	@ci/run.sh quick
 

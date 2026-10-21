@@ -77,6 +77,9 @@ export type RenderResult = {
   elapsed_s?: number;
   match_offset_db?: number;
   gate?: { passed: boolean; checked: string[] };
+  // A null render of the same window, so before and after differ only by
+  // what the chain did — not by excerpt-versus-whole-file, nor by conversion.
+  before?: Report;
   after?: Report;
   // The gate is not advisory: a failing render does not ship, and the reason
   // arrives in words rather than as a correlation coefficient.
@@ -110,7 +113,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `${response.status}`;
     try {
       const body = await response.json();
-      detail = body.detail ?? detail;
+      // FastAPI's own 422 carries a list of {loc, msg} rather than a sentence,
+      // and `new Error(list)` displays as "[object Object]".
+      if (Array.isArray(body.detail)) {
+        detail = body.detail
+          .map((d: { loc?: unknown[]; msg?: string }) =>
+            `${(d.loc ?? []).slice(1).join(".")}: ${d.msg ?? "invalid"}`)
+          .join("; ");
+      } else if (body.detail != null) {
+        detail = typeof body.detail === "string"
+          ? body.detail : JSON.stringify(body.detail);
+      }
     } catch {
       /* the body was not JSON; the status is all there is */
     }
@@ -157,8 +170,19 @@ export function upload(file: File) {
   return request<Project>("/api/projects", { method: "POST", body });
 }
 
+export type StoredGraph = {
+  id: string;
+  parent: string | null;
+  label: string;
+  explanation: string;
+  nodes: GraphNode[];
+};
+
 export function getProject(id: string) {
-  return request<Project & { head: string | null }>(`/api/projects/${id}`);
+  return request<Project & {
+    head: string | null;
+    graphs: Record<string, StoredGraph>;
+  }>(`/api/projects/${id}`);
 }
 
 export function plan(
@@ -323,7 +347,7 @@ export type SessionStep = {
   graph_id: string;
   parent: string | null;
   label: string;
-  origin: "planner" | "chat" | "user_edit" | "match" | "imported";
+  origin: "planner" | "refine" | "chat" | "user_edit" | "match" | "imported";
   is_head: boolean;
   nodes: string[];
 };

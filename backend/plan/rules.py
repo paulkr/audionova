@@ -36,7 +36,11 @@ from typing import Any
 
 import numpy as np
 
-from backend.schemas.graph import EffectGraph, GraphNode
+from backend.plan.validate import _bounds
+from backend.schemas.graph import PARAM_MODELS, EffectGraph, GraphNode
+
+# Read from the schema rather than restated, for the reason `_bounds` gives.
+THRESHOLD_FLOOR_DBFS = _bounds(PARAM_MODELS["compressor"])["threshold_dbfs"][0]
 
 # Below this, a source has essentially no content and a high-pass is cleanup
 # rather than surgery.
@@ -208,6 +212,14 @@ def choose_compressor(report: dict[str, Any]) -> tuple[dict[str, float], str] | 
     if plr < ALREADY_COMPRESSED_PLR_DB:
         return None
 
+    # A source this quiet puts the percentile below the lowest threshold the
+    # compressor accepts. Copying it in was an unhandled ValidationError — a
+    # 500 from the planner that exists to always produce something. Moving the
+    # threshold up to the floor would compress a different part of the
+    # material than the rule describes, so the move is declined instead.
+    if threshold < THRESHOLD_FLOOR_DBFS:
+        return None
+
     if plr >= VERY_DYNAMIC_PLR_DB:
         ratio, attack, release = 2.2, 30.0, 180.0
         why = (f"peak-to-loudness is {plr:.1f} dB, so the material is very "
@@ -358,11 +370,19 @@ def plan(
                                rationale=why))
         explanation.moves.append(f"Compression at {params['ratio_to_1']}:1 because {why}.")
     else:
-        plr = (report.get("dynamics") or {}).get("peak_to_loudness_ratio_db")
+        dynamics = report.get("dynamics") or {}
+        plr = dynamics.get("peak_to_loudness_ratio_db")
+        p75 = (dynamics.get("short_term_rms_percentiles") or {}).get("p75_dbfs")
         if plr is not None and plr < ALREADY_COMPRESSED_PLR_DB:
             explanation.declined.append(
                 f"the dynamics — at {plr:.1f} dB peak-to-loudness this has already "
                 "been compressed, and more would flatten it")
+        elif p75 is not None and p75 < THRESHOLD_FLOOR_DBFS:
+            explanation.declined.append(
+                f"the dynamics — the source is so quiet that its 75th-percentile "
+                f"short-term RMS ({p75:.1f} dBFS) is below the lowest threshold "
+                f"the compressor takes ({THRESHOLD_FLOOR_DBFS:.0f} dBFS); raise "
+                "its level first")
         else:
             explanation.declined.append("the dynamics")
 

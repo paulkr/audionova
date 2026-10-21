@@ -468,6 +468,33 @@ def test_stereo() -> None:
 
     R.check(stereo.stereo_type(mono[None, :])[0] == "mono", "a single channel is mono")
 
+    # A polarity-inverted pair is all side and no mid. It used to report -60,
+    # the mono end of the scale — exactly backwards.
+    inverted = stereo.per_band_stereo(np.vstack([mono, -mono]), SR)
+    R.check(inverted and all(b["side_to_mid_db"] >= 59.0 for b in inverted),
+            f"an inverted pair reads as all side, got "
+            f"{sorted({b['side_to_mid_db'] for b in inverted})}")
+    R.check(all(b["side_to_mid_db"] <= -59.0
+                for b in stereo.per_band_stereo(np.vstack([mono, mono]), SR)),
+            "and dual mono still reads as no side")
+
+    # TOO SHORT TO FILTER. The band-split uses zero-phase filtering, which needs
+    # more than 27 frames and raised ValueError below that — so a report on a
+    # handful of samples crashed instead of saying what it could not measure.
+    for frames in (1, 27, 28):
+        tiny = np.full((2, frames), 0.5)
+        try:
+            built = report_mod.measure(tiny, SR).to_dict()
+        except Exception as error:  # noqa: BLE001 — any raise is the failure
+            R.check(False, f"a {frames}-frame report raised {type(error).__name__}")
+            continue
+        crests = [b["crest_db"] for b in built["dynamics"]["per_erb_crest_db"]]
+        R.check(all(c is None or isinstance(c, float) for c in crests),
+                f"a {frames}-frame report builds, with unmeasured bands as null")
+    short = dynamics.per_erb_crest_db(np.full((1, 20), 0.5), SR)[1]
+    R.check(bool(np.all(np.isnan(short))),
+            "bands too short to filter are NaN, never a crest of 0 dB")
+
 
 def test_gating() -> None:
     print("[4] gating")
@@ -859,6 +886,32 @@ def test_wavio_matches_engine() -> None:
     R.near(float(decoded.samples[0, 0]), 0.0, 1e-9, "8-bit: 128 is the zero code")
     R.check(decoded.samples[0, 1] > 0.9, "8-bit: 255 is positive full scale")
     R.check(decoded.samples[0, 2] < -0.9, "8-bit: 0 is negative full scale")
+
+    # TRUNCATED MID-SAMPLE, at every depth. Only the 24-bit path trimmed a
+    # partial sample, so the same cut file decoded at 24 bits and raised a bare
+    # ValueError at the others — which the API surfaced as a 500.
+    for bit_depth, is_float in ((16, False), (24, False), (32, False), (32, True), (64, True)):
+        label = f"{bit_depth}-bit {'float' if is_float else 'PCM'}"
+        cut = wavio.encode_wav(original, SR, bit_depth, is_float)[:-1]
+        try:
+            decoded = wavio.decode_wav(cut)
+        except Exception as error:  # noqa: BLE001 — any raise is the failure
+            R.check(False, f"{label} cut mid-sample raised {type(error).__name__}")
+            continue
+        R.check(decoded.frames == n - 1,
+                f"{label} cut mid-sample keeps every whole frame, got {decoded.frames}")
+
+    # NaN and infinity in a float file, refused exactly as the engine's reader
+    # refuses them. Decoding to NaN would put NaN in every measurement.
+    for bit_depth in (32, 64):
+        for value in (np.nan, np.inf, -np.inf):
+            poisoned = original.copy()
+            poisoned[1, 5] = value
+            try:
+                wavio.decode_wav(wavio.encode_wav(poisoned, SR, bit_depth, True))
+                R.check(False, f"{bit_depth}-bit float with {value} should be refused")
+            except wavio.WavError:
+                R.check(True, f"{bit_depth}-bit float with {value} is refused")
 
     for bad, what in (
         (b"", "an empty file"),

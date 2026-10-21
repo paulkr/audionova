@@ -61,7 +61,7 @@ class AudioFile:
         return f"{self.bit_depth}-bit {'float' if self.is_float else 'PCM'}"
 
 
-def decode_wav(data: bytes) -> AudioFile:
+def decode_wav(data: bytes, *, allow_non_finite: bool = False) -> AudioFile:
     """Decode WAV or RF64 bytes.
 
     Every length in the file is clamped against the bytes actually present
@@ -140,6 +140,14 @@ def decode_wav(data: bytes) -> AudioFile:
         is_float = False
     elif format_tag == _FORMAT_FLOAT:
         samples = _decode_float(payload, channels, bits)
+        # The engine's reader refuses these too, and the two must agree on
+        # what a file contains. A NaN reaches the measurement report as NaN
+        # and the render as a dropout.
+        bad = np.argwhere(~np.isfinite(samples)) if not allow_non_finite else []
+        if len(bad):
+            channel, frame = (int(v) for v in bad[0])
+            raise WavError(f"sample {frame} of channel {channel} is not finite "
+                           "(NaN or infinity)")
         is_float = True
     else:
         raise WavError(
@@ -156,6 +164,16 @@ def decode_wav(data: bytes) -> AudioFile:
     )
 
 
+def _whole(payload: bytes, size: int) -> bytes:
+    """Drop a trailing partial sample, which `np.frombuffer` refuses outright.
+
+    Only the 24-bit path trimmed, so a file truncated mid-sample decoded at 24
+    bits and raised ValueError — not WavError — at every other depth, which the
+    API reported as a 500 rather than reading what was there.
+    """
+    return payload[: len(payload) - len(payload) % size]
+
+
 def _decode_pcm(payload: bytes, channels: int, bits: int) -> np.ndarray:
     # Scaling is by 2^(n-1), matching the engine exactly. Two's complement runs
     # from -2^(n-1) to +2^(n-1)-1, so this maps the most negative code to
@@ -163,7 +181,7 @@ def _decode_pcm(payload: bytes, channels: int, bits: int) -> np.ndarray:
     # instead would let full-scale negative read as -1.00003, which then clips
     # on the way back out.
     if bits == 16:
-        flat = np.frombuffer(payload, dtype="<i2").astype(np.float64) / 32768.0
+        flat = np.frombuffer(_whole(payload, 2), dtype="<i2").astype(np.float64) / 32768.0
     elif bits == 24:
         raw = np.frombuffer(payload, dtype=np.uint8)
         usable = (len(raw) // 3) * 3
@@ -173,7 +191,7 @@ def _decode_pcm(payload: bytes, channels: int, bits: int) -> np.ndarray:
         packed = np.where(packed >= 0x800000, packed - 0x1000000, packed)
         flat = packed.astype(np.float64) / 8388608.0
     elif bits == 32:
-        flat = np.frombuffer(payload, dtype="<i4").astype(np.float64) / 2147483648.0
+        flat = np.frombuffer(_whole(payload, 4), dtype="<i4").astype(np.float64) / 2147483648.0
     elif bits == 8:
         # 8-bit WAV is UNSIGNED, alone among the integer depths. Reading it as
         # signed produces audio that is inverted and offset by half scale, and
@@ -186,9 +204,9 @@ def _decode_pcm(payload: bytes, channels: int, bits: int) -> np.ndarray:
 
 def _decode_float(payload: bytes, channels: int, bits: int) -> np.ndarray:
     if bits == 32:
-        flat = np.frombuffer(payload, dtype="<f4").astype(np.float64)
+        flat = np.frombuffer(_whole(payload, 4), dtype="<f4").astype(np.float64)
     elif bits == 64:
-        flat = np.frombuffer(payload, dtype="<f8").astype(np.float64)
+        flat = np.frombuffer(_whole(payload, 8), dtype="<f8").astype(np.float64)
     else:
         raise WavError(f"unsupported float depth: {bits} bits")
     return _deinterleave(flat, channels)
@@ -204,9 +222,9 @@ def _deinterleave(flat: np.ndarray, channels: int) -> np.ndarray:
     return np.ascontiguousarray(flat[: frames * channels].reshape(frames, channels).T)
 
 
-def read_wav(path: str) -> AudioFile:
+def read_wav(path: str, *, allow_non_finite: bool = False) -> AudioFile:
     with open(path, "rb") as handle:
-        return decode_wav(handle.read())
+        return decode_wav(handle.read(), allow_non_finite=allow_non_finite)
 
 
 def encode_wav(

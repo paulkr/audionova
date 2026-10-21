@@ -1021,26 +1021,6 @@ larger than the design assumed, discovered from an invoice rather than a test.
 The `SOURCE_NODES` list is the obvious lever — it is six headers chosen by hand,
 and neither of the two nodes added here is in it.
 
-### Four make targets cannot run from the directory their Makefile is in
-
-`sweep`, `recover`, `recover-synthetic` and `manifest` invoke
-`$(PY) -m backend.eval.…`, and `make` runs with `backend/` as the working
-directory, so the `backend` package is not importable and every one of them
-exits with `ModuleNotFoundError: No module named 'backend'`. `README.md`
-documents them as `cd backend && make sweep …`, which is precisely the
-invocation that fails.
-
-Not caught by anything, and structurally cannot be: none of the four is part of
-`make test`, because all four need the gitignored stems or rewrite a committed
-manifest. Found while adding a fifth target of the same shape, which was written
-to invoke the file directly instead (`$(PY) knowledge/author.py`) — the same
-form the test targets use, and the reason they work.
-
-Resolves either by invoking the files directly or by setting
-`PYTHONPATH=..` for those targets. Cost of being wrong: small and annoying —
-`make recover-synthetic` is the one that is supposed to work on a machine with
-no audio, so it is the target most likely to be tried first by someone new.
-
 ### The engine is invoked per render as a subprocess
 
 pybind11 is planned. The subprocess costs a few milliseconds against a render
@@ -1149,23 +1129,6 @@ is visible as a test change rather than as a silent drift.
 
 ## Product and legal
 
-### The hero's desktop layout was never verified
-
-Chrome would not resize past 500 px via automation and `window.resizeTo` is
-blocked, so the landing page has only ever been seen at mobile width in-session.
-
-### Licensing action items outstanding
-
-- Written commercial grant from Jatin Chowdhury, who explicitly offers non-GPL
-  terms. Would unlock CHOW Tape.
-- Written permission from Pardo's lab for SocialFX.
-- Capture our own amp models and cabinet IRs rather than scraping.
-- FTO search before public launch: Fractal Audio's amp-matching patents, and
-  US 9,304,988 "automatic audio production using semantic data".
-- Counsel review of the reference-mode ingest question. §114(b) protects
-  soundalike *output* well; analysing a copyrighted master is unsettled.
-- Counsel review of the artist-alias routing table before it ships.
-
 ### Reasoning effort halves planner latency, and only ears can price it
 
 Stage 1 runs against a 45 s p50 and 120 s p95 target. Measured on one stem and
@@ -1251,12 +1214,149 @@ exact reference so the number cannot go back to looking fine.
 
 ---
 
+## Found in the pre-release review
+
+Raised in the review of 20 October 2026 and deliberately not fixed in it,
+because each is a decision rather than a defect. The defects it found are in
+`findings.md`.
+
+### Plan-stream errors before the stream starts read as a dropped connection
+
+`EventSource` cannot see an HTTP status. A 404, 400 or 503 raised before the
+first event — no `ANTHROPIC_API_KEY`, for instance — reaches the browser as a
+bare `error` with no data, and the studio says "the connection to the planner
+dropped". Mitigated, not fixed: the studio now defaults to the deterministic
+planner when `/api/health` reports no key. Resolves by sending pre-flight
+refusals as an SSE `error` event with a 200, or by a pre-flight `fetch`. Cost:
+someone debugging a missing key looks at the network instead.
+
+### Closing the plan stream does not stop the model call
+
+The studio closes its `EventSource` on unmount now, but the server's worker
+thread keeps the stage-1 call running to completion — about three minutes of
+billed reasoning nobody will read. Resolves by checking for disconnect in the
+generator and cancelling the SDK stream. Cost: a bill for abandoned plans.
+
+### The spoken explanation is the original plan's, at every later step
+
+Refine, chat and edit copy `explanation` forward unchanged, and the voice cache
+is keyed by graph id. So each new step re-bills the same paragraph, and the
+paragraph describes a chain that has since changed. Resolves by keying the cache
+on the text's hash, and deciding what a refined graph's explanation should say.
+
+### Concurrent renders of one graph write the same files
+
+Sync handlers run in a threadpool, and two renders of one graph — a double-click
+on download — write the same paths, so a `FileResponse` can serve a partial file.
+Resolves by rendering to a temporary name and renaming. The production render
+queue removes it anyway.
+
+### Integer parameters become floats through the edit endpoint
+
+`edit` stores `float(value)` and does not re-validate through Pydantic, so an
+integer parameter reaches the engine as `2.0`. Harmless while the engine reads
+every number as double; wrong the day one parameter is parsed as an integer.
+
+### Validation repairs that may be wrong about what is audible
+
+- **Bands above the bandwidth limit are dropped whatever their shape.** A
+  −6 dB bell at 15 kHz with Q 0.7 is still −4.2 dB at 10 kHz, and a low shelf
+  there moves the whole spectrum. Resolves by dropping only bands whose response
+  inside the bandwidth is under some audibility floor.
+- **`match_eq` holds the reference's last bin flat above its Nyquist**
+  (`np.interp(..., right=power[-1])`), so a 44.1 kHz reference contributes a
+  constant to the fit between 11 and 16 kHz on the internal grid. That is a
+  substituted constant. Resolves by fitting only where the reference has data.
+- **Analytic EQ response is evaluated at the source rate**, and the engine filters
+  at 96 kHz. A 10 kHz bell at Q 2 differs by 0.87 dB between the two; the
+  cross-check only covers bands up to 6 kHz, where the gap is 0.19 dB.
+
+### The planner's retry loop has two untested edges
+
+A `ValueError` from stage 2 ("did not call the emit tool") or an API error is not
+inside the retry, so it skips the fallback to the previous graph and leaves
+`counters.fell_back` unset. And `repair_prompt` is given the previous repair
+prompt as its base, so attempt 3 is still shown attempt 1's findings as current.
+
+### `match_dynamics` substitutes constants for missing measurements
+
+A silent source gets a −18 dBFS threshold, and a silent reference a spread of 0.
+Not reachable from the API, which imports only `match_eq`, but it breaks the rule
+the day it is wired in.
+
+### The engine reads parameters leniently by type and by name
+
+`numberOr`, `stringOr` and `boolOr` fall back to the default on a value of the
+wrong type, so `"mix": "0.3"` renders at 1.0 and `"bypass": "true"` at false, and
+unknown keys — `gian_db`, `"bypassed"` — are ignored. The Python schema forbids
+extra fields and coerces types, so nothing the product emits reaches this, but
+the engine describes itself as the boundary. Resolves by making each accessor
+strict and each node declare its keys. Cost: a hand-edited recipe renders
+something other than what it says.
+
+### The measurement report still substitutes constants for unmeasurable values
+
+AGENTS.md forbids it; these predate the rule or slipped past it.
+`dc_offset_dbfs` reads −140 on silence, `loudness_range_lu` reads 0.0 under 3 s,
+spectral tilt and its residual read 0.0 on silence ("pink, a perfect fit"),
+`hf_rolloff` 0.0, crest factor 0.0 ("fully squashed"), the envelope-modulation
+summary 0.0, and `mono_loss_db` is pinned at 60. Each wants `null`, but each also
+has consumers — the rules planner, the gate, the glossary conditions — that do
+arithmetic on it, so changing them is a pass over every reader rather than a
+one-line fix. Cost: a planner reasoning about a number nobody measured.
+
+### The clipping detector reports a square wave as clipped
+
+A flat run at the channel's own peak counts as clipping, so DC and synth squares
+read 100% clipped and trigger the "do not add drive" warning. Resolves by
+requiring the run to sit near full scale, or by an inter-sample test. Cost: a
+legitimate move declined on synthesised material.
+
+### The WAV reader accepts several header lies
+
+A `data` chunk declared larger than the file is clamped without saying the file
+is truncated; the WAVE_FORMAT_EXTENSIBLE sub-format GUID is never checked; a
+second `fmt ` chunk after `data` reinterprets the samples; `blockAlign` is
+ignored, so 24-in-32 containers decode as packed garbage; absurd channel counts
+are accepted. The ingest sandbox is meant to shield all of this, and it is not
+built. Stereo measures also read only channels 0 and 1, so a three-channel file
+reports `conventional_stereo`.
+
+### The upload cap does not bound disk or the network
+
+Starlette parses the whole multipart body and spools the file to disk before the
+handler runs, and its `max_part_size` covers non-file fields only. So
+`_read_bounded` caps memory, not the transfer — and a multipart POST is a CORS
+simple request, so any page open in the user's browser can make the local server
+receive one. Resolves with a request-size limit in front of the app (an ASGI
+middleware that counts bytes, or the production reverse proxy). Cost: a local
+disk filled by a hostile page while the server runs.
+
+### The planner's prompt does not say zero-phase bands count double
+
+The boost budget now counts them at twice their dB, as they are heard, but the
+budget's prose in `backend/plan/prompt.py` does not say so; only the schema
+field's description does. Left alone because the prompt is the cached prefix
+and its size is under test. Cost: the validator scales a zero-phase plan the
+model believed was within budget, and says so in a repair.
+
+### The engine build has two portability assumptions
+
+`CXX ?= clang++` never takes effect, because GNU make predefines `CXX`, so the
+engine builds with `c++` — clang on macOS and GCC on Ubuntu, which is what the
+golden render was last compared against. And `M_PI` is not standard C++, so an
+MSVC build needs `_USE_MATH_DEFINES`. Deciding the compiler is a decision about
+the cross-architecture claim, not a Makefile tidy-up.
+
 ## Resolved
 
 Kept so the reasoning is not re-litigated.
 
 | Was | Resolution |
 |---|---|
+| Licensing action items outstanding | Moved out of the public repository on 20 October 2026, ahead of open-sourcing under Apache-2.0. They are legal follow-ups rather than engineering questions, and are tracked privately. `docs/licensing.md` still records every dependency that was rejected and why. |
+| The hero's desktop layout was never verified | Verified 20 October 2026 at 1440×900 (2× device scale) in headless Chrome driven by Playwright, which sets the viewport directly rather than resizing a window. Nav, headline, drop well and both corner elements lay out as designed, with no console errors. The screenshot is `docs/images/landing.jpg`. |
+| Four make targets cannot run from the directory their Makefile is in | Fixed in `47a744c`: `sweep`, `recover`, `recover-synthetic` and `manifest` now `cd ..` and run with the root interpreter, so the `backend` package resolves. One consequence the fix left behind and that is now also corrected: the documented `STEMS="../audio/stems/*.wav"` was expanded by the shell **after** that `cd`, so it pointed outside the repository. The docs now say `STEMS="audio/stems/*.wav"`. |
 | The spoken explanation had not been heard against real text | Heard, 16 September 2026, one real plan (rules planner, afrohouse-loop1.wav), default voice, `eleven_multilingual_v2`: 636 characters, 8.0 s to first byte, 52 s of speech. Units survive: "dBTP" and "dBFS" are read as letters, "32 Hz", "-3.2 dB", "2.5:1", "-12.8 dBFS" and "+0.17 dBTP" all come out as an engineer would say them. No spoken-form pass is needed for the multilingual model; if a cheaper model is ever swapped in, re-listen before trusting it. The MP3 and its metadata are kept outside the repo with the operator's listening notes. |
 | The true-peak limiter overshoots its ceiling by 0.02 dB | Fixed, and the diagnosis in the original entry was only half right. The detector's error has **two** terms, not one. Term A is the peak-search grid: it evaluates the reconstruction at `factor` points per sample and returns the largest, so it can only read LOW, by at most `cos(π/(2·factor))` — a theorem about band-limited signals, 0.688 dB at the 4× the node was running. Term B is the transition band, which is unsigned and unbounded. The header's claim that "oversampling factor does not affect accuracy at all" was measured on stationary signals, where phase diversity over hundreds of cycles hides term A entirely; on an isolated transient it is worth up to 0.22 dB. Factor floor raised 4 → 16, and the limiter now subtracts `gridBoundDb()` from its ceiling unconditionally rather than leaving `safety_margin_db` at 0 and hoping. Delivered true peak against a −1.0 ceiling, measured by exact DFT-domain reconstruction: −0.996 → **−1.041 dBTP** on band-limited programme, i.e. from permissive to conservative. Cost 4× the detector, 1.02 s → 4.07 s per 30 s of stereo; the measurement suite went 29.1 s → 31.5 s. Eight mutations, eight caught after two of them exposed real gaps — an untested default path and a reference meter that shared the grid it was checking. Term B remains and has its own entry above. |
 | The codec detector is unstable near its own threshold | Fixed. The confidence read the slope alone, which is the strength of the evidence and not the certainty of the verdict. It is now the weaker of two margins — slope past the gate that actually binds, and depth inside the 60 dB guard — so it falls to zero as either boundary is approached. The demo vocal chain's output went from 0.88 to 0.15; the seven real lame/AAC encodes of the acoustic guitar all still report 1.00. Ten mutations, ten caught. |

@@ -6,11 +6,11 @@
 #   demo/run.sh audio/stems/vocals.wav
 #   demo/run.sh mytrack.wav demo/vocal-chain.json
 #
-# THE CHAIN IS HAND-WRITTEN, NOT PLANNED. There is no model call in this
-# repository yet, so nothing here chose these settings from the audio — a person
-# did, once, and they are applied to whatever you point at. That makes this a
-# test of the ENGINE, not of the product. The part that reads your sentence and
-# decides the chain is the piece that does not exist.
+# THE CHAIN IS HAND-WRITTEN, NOT PLANNED. This script makes no model call, so
+# nothing here chose these settings from the audio — a person did, once, and
+# they are applied to whatever you point at. That makes this a test of the
+# ENGINE, not of the product. The part that reads your sentence and decides the
+# chain is the planner, which the studio drives (see the README).
 
 set -euo pipefail
 

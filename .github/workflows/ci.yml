@@ -59,8 +59,19 @@ jobs:
       - name: Create the virtual environment
         run: |
           python -m venv .venv
-          .venv/bin/pip install --quiet --upgrade pip
-          .venv/bin/pip install --quiet -r backend/requirements.txt
+          # Pinned to what the licence lock approved, pip included. Unpinned,
+          # a fresh resolve pulls dependencies the lock has never seen and the
+          # licence gate fails, correctly, on the first run.
+          .venv/bin/pip install --quiet -c backend/constraints.txt pip
+          .venv/bin/pip install --quiet -r backend/requirements.txt -c backend/constraints.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the frontend's dependencies
+        run: npm ci
 
       - name: Run the pipeline
         run: ci/run.sh

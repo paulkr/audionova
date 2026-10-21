@@ -50,8 +50,13 @@ def stem(name: str) -> str:
     return os.path.join(STEMS, f"{name}.wav")
 
 
-def have_stems() -> bool:
-    return os.path.exists(stem("vocals"))
+def have_stems(*names: str) -> bool:
+    """Every stem a section reads, not just `vocals`.
+
+    Checking one file let a machine with some of the gitignored stems past the
+    guard, to crash on the first one it did not have.
+    """
+    return all(os.path.exists(stem(name)) for name in names)
 
 
 def eq_bands(graph) -> list[dict]:
@@ -90,12 +95,13 @@ def synthetic(*, rolloff_db_per_octave: float = 0.0,
 def test_always_valid() -> None:
     print("[1] every plan validates")
 
-    if not have_stems():
+    names = ("vocals", "acoustic-guitar-track", "bass", "drums",
+             "stereo-guitar", "acoustic-guitar-riff")
+    if not have_stems(*names):
         print("  stems missing; skipping")
         return
 
-    for name in ("vocals", "acoustic-guitar-track", "bass", "drums",
-                 "stereo-guitar", "acoustic-guitar-riff"):
+    for name in names:
         report = measure_file(stem(name)).to_dict()
         graph, _ = rules.plan(report)
         result = validate(graph, report)
@@ -114,7 +120,7 @@ def test_always_valid() -> None:
 def test_declines_on_bass() -> None:
     print("[2] a bass keeps its low end")
 
-    if not have_stems():
+    if not have_stems("bass"):
         print("  stems missing; skipping")
         return
 
@@ -142,10 +148,19 @@ def test_declines_on_bass() -> None:
 def test_declines_when_measurements_say_no() -> None:
     print("[3] refusals")
 
-    if not have_stems():
-        print("  stems missing; skipping")
-        return
+    # ONLY THE FIRST HALF NEEDS REAL AUDIO. The whole section used to return
+    # early without stems, which skipped the air-shelf gates below as well —
+    # and those build their own reports, so they were never run on any machine
+    # without the gitignored stems, including CI.
+    if have_stems("stereo-guitar", "acoustic-guitar-track"):
+        _refusals_on_real_stems()
+    else:
+        print("  stems missing; skipping the real-audio refusals")
 
+    _air_shelf_gates()
+
+
+def _refusals_on_real_stems() -> None:
     # Already compressed: more compression removes what is left rather than
     # controlling anything.
     report = measure_file(stem("stereo-guitar")).to_dict()
@@ -169,6 +184,8 @@ def test_declines_when_measurements_say_no() -> None:
                     for b in eq_bands(graph)),
             "so no air is added")
 
+
+def _air_shelf_gates() -> None:
     # --- the air shelf's three gates ---------------------------------------
     #
     # THE REPORT FIELDS ARE SET DIRECTLY rather than synthesised, and that is a
@@ -284,7 +301,7 @@ def test_reverb_is_opt_in() -> None:
 def test_explanations_are_honest() -> None:
     print("[7] the explanation records refusals")
 
-    if not have_stems():
+    if not have_stems("acoustic-guitar-track"):
         print("  stems missing; skipping")
         return
 
@@ -305,7 +322,8 @@ def test_explanations_are_honest() -> None:
 def test_renders_and_passes_the_gate() -> None:
     print("[8] planned chains render and survive the safety gate")
 
-    if not have_stems() or not os.path.exists(DEFAULT_BINARY):
+    if (not have_stems("vocals", "acoustic-guitar-track", "bass")
+            or not os.path.exists(DEFAULT_BINARY)):
         print("  stems or engine missing; skipping")
         return
 
@@ -332,6 +350,35 @@ def test_renders_and_passes_the_gate() -> None:
                 f"{name}: passes the post-render gate — {verdict.summary()}")
 
 
+def test_a_quiet_source_still_plans() -> None:
+    print("[9] a source too quiet to compress still gets a plan")
+
+    # The 75th percentile of short-term RMS becomes the threshold, and on a
+    # quiet enough source it falls below the compressor's floor of -60 dBFS.
+    # That was an unhandled ValidationError from the planner whose whole job is
+    # to always produce something. Set directly, as the air gates are, because
+    # what is under test is the decision.
+    report = measure(synthetic(rolloff_db_per_octave=-6.0), SR).to_dict()
+    report["dynamics"]["peak_to_loudness_ratio_db"] = 14.0
+    report["dynamics"]["short_term_rms_percentiles"]["p75_dbfs"] = -63.0
+    try:
+        graph, explanation = rules.plan(report)
+    except Exception as error:  # noqa: BLE001 — the crash is the failure
+        R.check(False, f"the planner raised {type(error).__name__}: {error}")
+        return
+    R.check(not any(n.type == "compressor" for n in graph.nodes),
+            "no compressor is added below the threshold floor")
+    R.check(any("quiet" in d and "-60" in d for d in explanation.declined),
+            f"and the refusal says why, with the floor — {explanation.declined}")
+
+    # Just inside the floor, the rule still fires: the decline is the floor,
+    # not a general reluctance on quiet material.
+    report["dynamics"]["short_term_rms_percentiles"]["p75_dbfs"] = -59.0
+    graph, _ = rules.plan(report)
+    R.check(any(n.type == "compressor" for n in graph.nodes),
+            "a source just above the floor is still compressed")
+
+
 if __name__ == "__main__":
     print("Audionova rule-based planner\n")
     test_always_valid()
@@ -342,5 +389,6 @@ if __name__ == "__main__":
     test_reverb_is_opt_in()
     test_explanations_are_honest()
     test_renders_and_passes_the_gate()
+    test_a_quiet_source_still_plans()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

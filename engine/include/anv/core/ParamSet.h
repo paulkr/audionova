@@ -40,6 +40,10 @@ public:
   bool has(const std::string& key) const {
     return nums_.count(key) != 0 || strs_.count(key) != 0;
   }
+  // Which map a key landed in. `str()` only looks at strings, so an enum
+  // parameter written as a number would otherwise read as its default.
+  bool hasNum(const std::string& key) const { return nums_.count(key) != 0; }
+  bool hasStr(const std::string& key) const { return strs_.count(key) != 0; }
 
   // Numeric keys, so a test can sweep every parameter a node actually reads
   // without having to know its schema.

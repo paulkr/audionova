@@ -68,13 +68,13 @@ schema:
 planner:
 	@$(PY) tests/test_planner.py
 
-# Match-EQ. Recovers a known filter applied by the real engine, and checks the
-# analytic response the optimiser fits against agrees with what the engine renders.
 # The deterministic planner. Mostly tests refusals: any set of rules can find
 # something to do to every file, and the hard part is leaving a bass alone.
 rules:
 	@$(PY) tests/test_rules.py
 
+# Match-EQ. Recovers a known filter applied by the real engine, and checks the
+# analytic response the optimiser fits against agrees with what the engine renders.
 refine:
 	@$(PY) tests/test_refine.py
 
@@ -105,11 +105,10 @@ knowledge:
 # NOT part of `test`: `audition` and `diff` need a source file and the engine
 # binary, and `check` over an empty catalogue asserts nothing. The properties
 # are tested in tests/test_knowledge.py, which synthesises its own audio.
-# Invoked as a FILE rather than with `-m`, like the test targets and unlike
-# `sweep`/`recover`/`manifest`. Make runs with this directory as the working
-# directory, so `python -m backend.knowledge.author` cannot resolve the
-# `backend` package — the three `-m` targets above have the same problem and
-# only work when run from the repository root. See open-questions.md.
+# Invoked as a FILE rather than with `-m`, like the test targets. Make runs
+# with this directory as the working directory, so `python -m
+# backend.knowledge.author` cannot resolve the `backend` package; the `-m`
+# targets above work only because they `cd ..` first.
 AUTHOR_ARGS ?= --help
 
 author:

@@ -92,6 +92,16 @@ def crest_factor_db(samples: np.ndarray, mask: np.ndarray | None = None) -> floa
     return float(_to_db(peak) - _to_db(rms))
 
 
+def filtfilt_padlen(sos: np.ndarray) -> int:
+    """The length `sosfiltfilt` needs to exceed, by scipy's own default rule.
+
+    Shorter input raises ValueError, so a report on 27 frames or fewer crashed
+    rather than reporting the bands it could not measure as missing.
+    """
+    zeros = min(int((sos[:, 2] == 0).sum()), int((sos[:, 5] == 0).sum()))
+    return 3 * (2 * len(sos) + 1 - zeros)
+
+
 def per_erb_crest_db(
     samples: np.ndarray,
     sample_rate: float,
@@ -118,12 +128,18 @@ def per_erb_crest_db(
     for i in range(band_count):
         low = max(edges[i], 10.0)
         top = min(edges[i + 1], sample_rate / 2.0 * 0.99)
+        # NaN, which the report writes as null, wherever a band cannot be
+        # measured. These were 0.0 — a crest of zero, "fully squashed", which
+        # is a measurement nobody made.
         if top <= low:
-            crests[i] = 0.0
+            crests[i] = np.nan
             continue
         sos = signal.butter(
             4, [low, top], btype="bandpass", fs=sample_rate, output="sos"
         )
+        if mono.size <= filtfilt_padlen(sos):
+            crests[i] = np.nan
+            continue
         band = signal.sosfiltfilt(sos, mono)
         # Zero-phase filtering, so the band's transients stay where they were.
         # A minimum-phase filter would smear the attack, and the attack is
@@ -131,11 +147,11 @@ def per_erb_crest_db(
         if mask is not None and mask.size == band.size:
             band = band[mask]
         if band.size == 0:
-            crests[i] = 0.0
+            crests[i] = np.nan
             continue
         peak = float(np.max(np.abs(band)))
         rms = float(np.sqrt(np.mean(band * band)))
-        crests[i] = float(_to_db(peak) - _to_db(rms)) if peak > 0 and rms > 0 else 0.0
+        crests[i] = float(_to_db(peak) - _to_db(rms)) if peak > 0 and rms > 0 else np.nan
 
     return centres, crests
 

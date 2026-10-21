@@ -42,6 +42,16 @@ def stem_path(name: str) -> str:
     return os.path.join(STEMS, f"{name}.wav")
 
 
+def have_real_material(*stems: str) -> bool:
+    """Every stem a section reads, not just the first one.
+
+    Checking only `vocals` let a machine with some of the gitignored stems pass
+    the guard and then crash on the one it did not have.
+    """
+    return os.path.exists(DEFAULT_BINARY) and all(
+        os.path.exists(stem_path(stem)) for stem in stems)
+
+
 class Results:
     def __init__(self) -> None:
         self.checks = 0
@@ -142,7 +152,7 @@ def test_control_variable_is_monotonic() -> None:
 def test_lra_is_not_monotonic_on_real() -> None:
     print("[1b] loudness range is not a usable control variable on real audio")
 
-    if not os.path.exists(DEFAULT_BINARY) or not os.path.exists(stem_path("vocals")):
+    if not have_real_material("vocals", "stereo-guitar"):
         print("  engine binary or stems missing; skipping")
         return
 
@@ -521,7 +531,7 @@ def test_timing_from_source_rate() -> None:
 def test_on_real_stems() -> None:
     print("[8] on real stems")
 
-    if not os.path.exists(DEFAULT_BINARY) or not os.path.exists(stem_path("vocals")):
+    if not have_real_material("vocals", "bass"):
         print("  engine binary or stems missing; skipping")
         return
 

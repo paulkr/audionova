@@ -21,7 +21,10 @@
 // A node that wants to widen mono to stereo declares that by being a
 // mono_to_stereo node, so the decision is visible in the recipe rather than
 // emergent from whichever node happened to run first.
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -64,7 +67,14 @@ bool parseArgs(int argc, char** argv, Options& o) {
     if (a == "--in")          o.inPath = next("--in");
     else if (a == "--out")    o.outPath = next("--out");
     else if (a == "--recipe") o.recipePath = next("--recipe");
-    else if (a == "--block")  o.blockFrames = std::atoi(next("--block").c_str());
+    else if (a == "--block") {
+      // strtol with an end pointer, not atoi: "12abc" was silently 12.
+      const std::string v = next("--block");
+      char* end = nullptr;
+      const long n = std::strtol(v.c_str(), &end, 10);
+      o.blockFrames = (!v.empty() && *end == '\0' && n > 0 && n <= (1 << 20))
+                          ? static_cast<int>(n) : 0;
+    }
     else if (a == "--quiet")  o.verbose = false;
     else if (a == "-h" || a == "--help") { usage(); return false; }
     else {
@@ -143,6 +153,13 @@ int main(int argc, char** argv) {
     anv::validateRecipe(recipe);
 
     anv::AudioFile input = anv::readWav(opt.inPath);
+    // The same range the recipe's own rates are held to. An absurd rate in a
+    // WAV header is undefined behaviour in the resampler's ratio arithmetic,
+    // and 1 Hz "rendered successfully" to a 1 Hz file.
+    if (!(input.sampleRate >= 8000.0 && input.sampleRate <= 768000.0))
+      throw anv::RecipeError("input sample rate " +
+                             std::to_string(input.sampleRate) +
+                             " Hz is outside 8000 to 768000 Hz");
     const double outRate = recipe.outputSampleRate != 0.0 ? recipe.outputSampleRate
                                                           : input.sampleRate;
 

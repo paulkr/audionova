@@ -105,7 +105,7 @@ exactly scaled copy.
 `backend/eval/sensitivity.py`, `backend/tests/test_sensitivity.py`.
 
 ```sh
-cd backend && make sweep STEMS="../audio/stems/*.wav"
+cd backend && make sweep STEMS="audio/stems/*.wav"
 ```
 
 If a report field does not move when an effect is applied, no prompt and no
@@ -161,7 +161,7 @@ on its own band:
 `backend/eval/generate.py`, `backend/eval/chains.py`, `backend/eval/recover.py`.
 
 ```sh
-cd backend && make recover STEMS="../audio/stems/*.wav"
+cd backend && make recover STEMS="audio/stems/*.wav"
 cd backend && make recover-synthetic     # no stems needed
 ```
 

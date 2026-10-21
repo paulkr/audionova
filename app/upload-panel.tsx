@@ -91,7 +91,9 @@ export default function UploadPanel() {
         <input
           ref={inputRef}
           type="file"
-          accept="audio/*"
+          // WAV only, because that is all the API decodes. `audio/*` offered
+          // MP3s in the picker that the server then refused.
+          accept=".wav,audio/wav,audio/x-wav"
           className="sr-only"
           onChange={(e) => pick(e.target.files)}
         />

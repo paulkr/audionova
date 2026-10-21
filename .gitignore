@@ -22,3 +22,6 @@ audio/stems/
 # Demo renders. Derived from the user's own audio, so same reasoning as the
 # stems: not ours to commit.
 demo/out/
+
+# macOS Finder metadata
+.DS_Store

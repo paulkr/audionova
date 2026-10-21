@@ -19,6 +19,7 @@ import numpy as np
 from scipy import signal
 
 from backend.measure import spectrum
+from backend.measure.dynamics import filtfilt_padlen
 
 
 def _correlation(left: np.ndarray, right: np.ndarray) -> float:
@@ -110,6 +111,8 @@ def per_band_stereo(
         if top <= low:
             continue
         sos = signal.butter(4, [low, top], btype="bandpass", fs=sample_rate, output="sos")
+        if samples.shape[-1] <= filtfilt_padlen(sos):
+            continue
         # Zero-phase, so the band-splitting itself cannot introduce the phase
         # difference the measurement is looking for.
         band = signal.sosfiltfilt(sos, samples[:2], axis=-1)
@@ -126,14 +129,26 @@ def per_band_stereo(
         out.append({
             "centre_hz": float(centres[i]),
             "correlation": _correlation(band[0], band[1]),
-            "side_to_mid_db": float(
-                10.0 * np.log10(side_power / mid_power)
-                if mid_power > 1e-30 and side_power > 1e-30
-                else -60.0
-            ),
+            "side_to_mid_db": _side_to_mid_db(side_power, mid_power),
             "mono_loss_db": mono_compatibility_loss_db(band),
         })
     return out
+
+
+def _side_to_mid_db(side_power: float, mid_power: float) -> float | None:
+    """Side relative to mid, with +/-60 dB standing in at the degenerate ends.
+
+    A band with no mid is all side — a polarity-inverted pair — and used to
+    report -60, the "mono" end, exactly backwards. A band with neither has no
+    stereo field to describe, so it is missing rather than either end.
+    """
+    if side_power <= 1e-30 and mid_power <= 1e-30:
+        return None
+    if side_power <= 1e-30:
+        return -60.0
+    if mid_power <= 1e-30:
+        return 60.0
+    return float(10.0 * np.log10(side_power / mid_power))
 
 
 def stereo_type(samples: np.ndarray, mask: np.ndarray | None = None) -> tuple[str, float]:

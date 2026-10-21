@@ -26,7 +26,7 @@
 # recorded in ci/licences.lock.json: six MIT, three BSD, distro under Apache,
 # and certifi under MPL-2.0. MPL-2.0 is file-level copyleft and is on the
 # allowlist only while unmodified, which a CA bundle is.
-# fastapi + uvicorn   MIT
+# fastapi (MIT) + uvicorn (BSD-3-Clause), and starlette under fastapi (BSD-3-Clause)
 #
 # The local API. NOT declared here originally, which was a real hole rather than
 # an oversight: the API test suite imported fastapi.testclient, passed on every

@@ -39,6 +39,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from pydantic import ValidationError
+
 from backend.schemas.graph import EffectGraph, GraphNode
 
 # How many steps each magnitude word is worth. "slightly" and "a bit" are
@@ -348,16 +350,38 @@ def apply_patches(graph: EffectGraph, patches: list[Patch]) -> PatchResult:
     result = PatchResult(graph=working)
 
     for patch in patches:
+        before = working.model_copy(deep=True)
+        applied = len(result.applied)
         try:
             _apply_one(working, patch, result)
+            # Each patch is held to the schema as it lands, so one that leaves
+            # its bound is rejected on its own, with the bound in words. This
+            # used to run once at the end and was described as leaving bounds
+            # to the semantic validator's clamp — but the schema refuses an
+            # out-of-range value before that validator ever sees it, so "much
+            # louder" on a gain at 22 dB was an unhandled 500. Clamping instead
+            # would store a number nobody asked for and say nothing.
+            working = EffectGraph.model_validate(working.model_dump())
+        except ValidationError as error:
+            working = before
+            del result.applied[applied:]
+            result.rejected.append(
+                f"{patch.op} on {patch.node_id or '?'}: {_bound_message(error)}")
         except (KeyError, ValueError, IndexError) as error:
+            working = before
+            del result.applied[applied:]
             result.rejected.append(f"{patch.op} on {patch.node_id or '?'}: {error}")
 
-    # Re-validate through Pydantic so a patched graph is held to the same
-    # structural rules as a freshly emitted one. Bounds are clamped by the
-    # semantic validator afterwards; this catches shape errors.
     result.graph = EffectGraph.model_validate(working.model_dump())
     return result
+
+
+def _bound_message(error: ValidationError) -> str:
+    """The first schema refusal as a sentence: which field, what value, why."""
+    first = error.errors()[0]
+    field = ".".join(str(part) for part in first.get("loc", ())[-1:])
+    return (f"{field} would be {first.get('input')!r}, and {first['msg'].lower()}"
+            if field else first["msg"])
 
 
 def _apply_one(graph: EffectGraph, patch: Patch, result: PatchResult) -> None:

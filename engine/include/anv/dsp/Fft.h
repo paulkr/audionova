@@ -1,9 +1,11 @@
-// Minimal iterative radix-2 FFT, for the measurement suite only.
+// Minimal iterative radix-2 FFT.
 //
-// Deliberately not used in any audio path — the render engine's convolution
-// will use a real FFT library. This exists so the aliasing and THD
-// measurements have no external dependency and produce exactly reproducible
-// numbers in CI.
+// Used in the audio path — the partitioned convolver and the linear-phase EQ
+// both run on it — as well as by the measurement suite. It was first written
+// for the measurements only, on the assumption that rendering would use an FFT
+// library; it did not, and this comment said otherwise for some time. Hand-
+// written so the engine has no external dependency and produces exactly
+// reproducible numbers in CI.
 #pragma once
 
 #include <cmath>

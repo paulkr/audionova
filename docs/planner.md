@@ -2,10 +2,11 @@
 
 `backend/schemas/graph.py` and `backend/plan/validate.py`.
 
-**Status: everything except the model calls themselves.** The contract, the
-validators, the prompt assembly, the two-stage driver and its repair loop all
-exist and are tested offline against a scripted client. Nothing in this
-repository has ever made a live model call.
+**Status: built, and live.** The contract, the validators, the prompt assembly,
+the two-stage driver and its repair loop are all tested offline against a
+scripted client, and `AnthropicClient` has made real calls since 3 August 2026 —
+see `docs/progress/` for what the first ones found. The offline suites still make
+no model call, so CI needs no key.
 
 ## The effect graph
 
@@ -554,14 +555,10 @@ run. A gate that only works when fully informed is not a safety net.
 
 ## What is still not built
 
-- **The live model calls.** `AnthropicClient` follows the documented API shape and
-  has never run. The first two things to check with a key are the ones that cannot
-  be verified offline: that `cache_read_input_tokens` exceeds 15000 on a repeated
-  request, and that structured output actually honours the schema's enums.
 - **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
-- **CLASSIFY** — instrument family, clean-versus-driven, DI-versus-miked.
-- The **preset knowledge base** and the artist-alias routing table. The glossary
-  routes `vintage` and `lofi` to it; it does not exist.
+- **Presets** and the artist-alias routing table. The glossary routes `vintage`
+  and `lofi` to them. The schema and authoring tool exist (`backend/knowledge/`);
+  the catalogue is empty on purpose, because nobody has yet sourced a claim.
 - The **twenty missing glossary terms**, which are the genre- and
   instrument-specific vocabulary. Those should be authored alongside the presets
   by someone who mixes for a living rather than guessed at.

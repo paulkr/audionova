@@ -46,6 +46,19 @@ from backend.schemas.graph import (
 # result. 12 dB is generous — most good mixes stay under 8.
 TOTAL_BOOST_BUDGET_DB = 12.0
 
+# EQ node types and how many dB each stored band dB becomes. Zero-phase EQ
+# filters forward and backward, so what is heard is the square of the band's
+# response — twice its dB, as its schema says. Both checks below counted only
+# parametric and dynamic EQ: the budget took zero-phase bands at face value, so
+# 12 dB of budget admitted 24 dB of boost, and gain staging ignored the two
+# phase-linear types entirely.
+EQ_GAIN_MULTIPLIER: dict[str, float] = {
+    "parametric_eq": 1.0,
+    "dynamic_eq": 1.0,
+    "linear_phase_eq": 1.0,
+    "zero_phase_eq": 2.0,
+}
+
 # A biquad whose poles sit closer than this to the unit circle rings audibly and
 # is numerically fragile at float32 in any downstream host.
 MAX_POLE_RADIUS = 0.9995
@@ -222,22 +235,25 @@ def _check_boost_budget(graph: EffectGraph, result: ValidationResult) -> None:
     planner chose survives and only its depth changes. Clipping one band would
     silently change the tonal balance it had reasoned about.
     """
-    boosts: list[tuple[dict[str, Any], str, float]] = []
+    # (band, key, stored dB, heard dB). Scaling the stored value scales the
+    # heard one by the same factor, so the shape survives either way.
+    boosts: list[tuple[dict[str, Any], str, float, float]] = []
     for node in graph.nodes:
+        multiplier = EQ_GAIN_MULTIPLIER.get(node.type, 1.0)
         for index, band in enumerate(node.params.get("bands", []) or []):
             if not isinstance(band, dict):
                 continue
             for key in ("gain_db", "static_gain_db"):
                 gain = float(band.get(key, 0.0) or 0.0)
                 if gain > 0.0:
-                    boosts.append((band, key, gain))
+                    boosts.append((band, key, gain, gain * multiplier))
 
-    total = sum(gain for _, _, gain in boosts)
+    total = sum(heard for _, _, _, heard in boosts)
     if total <= TOTAL_BOOST_BUDGET_DB or not boosts:
         return
 
     scale = TOTAL_BOOST_BUDGET_DB / total
-    for band, key, gain in boosts:
+    for band, key, gain, _ in boosts:
         band[key] = round(gain * scale, 2)
     result.repairs.append(
         f"total EQ boost was {total:.1f} dB against a {TOTAL_BOOST_BUDGET_DB:g} dB "
@@ -281,7 +297,7 @@ def _check_gain_staging(
             projected += float(node.params.get("makeup_gain_db", 0.0))
         elif node.type == "drive":
             projected += float(node.params.get("output_trim_db", 0.0))
-        elif node.type in ("parametric_eq", "dynamic_eq"):
+        elif node.type in EQ_GAIN_MULTIPLIER:
             # ONLY THE LARGEST BOOST IN A NODE, not the sum: bands at different
             # frequencies do not add at any single frequency, and summing them
             # projects a level that never occurs. Summed ACROSS nodes, though,
@@ -297,7 +313,7 @@ def _check_gain_staging(
                 gain = max(float(band.get("gain_db", 0.0) or 0.0),
                            float(band.get("static_gain_db", 0.0) or 0.0))
                 largest = max(largest, gain)
-            projected += largest
+            projected += largest * EQ_GAIN_MULTIPLIER[node.type]
 
     headroom = 0.0 - projected
     if headroom < -12.0:

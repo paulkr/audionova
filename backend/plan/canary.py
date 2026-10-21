@@ -197,8 +197,8 @@ def main() -> int:
 
     # THE DEFAULTS MUST MATCH THE PIPELINE'S DEFAULTS. A canary run against a
     # different model than the product uses tests a configuration nobody ships.
-    plan_model = os.environ.get("ANTHROPIC_PLAN_MODEL", "claude-opus-5")
-    emit_model = os.environ.get("ANTHROPIC_EMIT_MODEL", "claude-sonnet-5")
+    from backend.plan.pipeline import configured_models
+    plan_model, emit_model = configured_models()
     print(f"{BOLD}live API canary{OFF}  plan: {plan_model}  emit: {emit_model}")
 
     client = anthropic.Anthropic()

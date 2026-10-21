@@ -29,6 +29,7 @@ from backend.audio import wavio  # noqa: E402
 from backend.engine.render import DEFAULT_BINARY, Recipe, RenderError, render, render_array  # noqa: E402
 from backend.measure import loudness, spectrum, stereo  # noqa: E402
 from backend.measure import report as report_mod  # noqa: E402
+from backend.schemas.graph import EffectGraph  # noqa: E402
 
 SR = 48000.0
 RNG = np.random.default_rng(20260728)
@@ -502,6 +503,39 @@ def test_report_survives_a_render() -> None:
             f"and raises no critical warnings, got {[w['code'] for w in after['warnings']]}")
 
 
+def test_a_planned_dynamic_eq_is_dynamic() -> None:
+    print("[9] a dynamic EQ from the schema actually moves")
+
+    # THE BUG THIS EXISTS FOR. The schema spelled the modes "downward" and
+    # "upward"; the engine compared against "down" and "up" and fell back to
+    # static on anything else. Every dynamic EQ the planner wrote rendered
+    # bit-identically to a static band, and nothing between the schema and the
+    # samples looked at both spellings. So this goes through the same path the
+    # product does — EffectGraph.to_recipe — and listens to the result.
+    sr = 48000.0
+    source = pink(int(sr * 2.0), amplitude=0.5)
+
+    def render_mode(mode: str) -> np.ndarray:
+        graph = EffectGraph.model_validate({"nodes": [{
+            "id": "dyn", "type": "dynamic_eq", "params": {"bands": [{
+                "filter_type": "bell", "mode": mode, "center_freq_hz": 2000.0,
+                "q_factor": 1.0, "static_gain_db": 0.0, "threshold_dbfs": -40.0,
+                "ratio_to_1": 4.0, "range_db": 9.0}]}}]})
+        return render_array(source, sr, graph.to_recipe(output_format="float64"))
+
+    static = render_mode("static")
+    for mode in ("downward", "upward"):
+        moved = render_mode(mode)
+        diff = float(np.max(np.abs(moved - static)))
+        R.check(diff > 1e-3, f"a {mode} band differs from a static one, max diff {diff:.2e}")
+    # And in the direction its name says, on material well over threshold.
+    down = loudness.integrated_lufs(render_mode("downward"), sr)
+    up = loudness.integrated_lufs(render_mode("upward"), sr)
+    flat = loudness.integrated_lufs(static, sr)
+    R.check(down < flat < up,
+            f"downward cuts and upward lifts: {down:.2f} < {flat:.2f} < {up:.2f} LUFS")
+
+
 if __name__ == "__main__":
     if not os.path.exists(DEFAULT_BINARY):
         print(f"engine binary missing at {DEFAULT_BINARY}; run `make render` in engine/")
@@ -516,5 +550,6 @@ if __name__ == "__main__":
     test_master_ordering_is_load_bearing()
     test_utility_nodes()
     test_report_survives_a_render()
+    test_a_planned_dynamic_eq_is_dynamic()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

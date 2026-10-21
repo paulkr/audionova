@@ -203,6 +203,18 @@ void testWavRejection() {
     rejects(header, "a file with no fmt chunk");
   }
 
+  // A NaN or infinity in a float file. The resampler used to spread one into a
+  // 239-sample dropout, written as silence, in a render that exited 0.
+  for (SampleFormat format : {SampleFormat::Float32, SampleFormat::Float64}) {
+    for (double bad : {std::nan(""), HUGE_VAL, -HUGE_VAL}) {
+      AudioBuffer b(2, 16);
+      b.channel(1)[5] = bad;
+      rejects(encodeWav(b, 48000.0, format),
+              std::string(format == SampleFormat::Float32 ? "float32" : "float64") +
+                  " with a non-finite sample (" + std::to_string(bad) + ")");
+    }
+  }
+
   // A chunk header claiming far more bytes than the file contains. This is the
   // classic path to an over-sized allocation or an out-of-bounds read, and the
   // parser must clamp to what is actually present rather than trusting it.
@@ -481,6 +493,12 @@ void testRecipe() {
           "gain after the true-peak limiter");
 
   rejects(R"({"internal_sample_rate":10})", "an absurd internal sample rate");
+  // The seed is a double in JSON and a uint64_t in the engine; the conversion
+  // is undefined behaviour for a negative and lossy past 2^53.
+  accepts(R"({"seed":20260731})", "an ordinary seed");
+  rejects(R"({"seed":-1})", "a negative seed");
+  rejects(R"({"seed":1.5})", "a fractional seed");
+  rejects(R"({"seed":1e30})", "a seed past 2^53");
   rejects(R"({"output":{"format":"mp3"}})", "an output format we cannot write");
   rejects(R"([])", "a top-level array");
 
@@ -505,6 +523,38 @@ void testRecipe() {
   rejects(R"({"nodes":[{"type":"dynamic_eq","params":{"bands":[{"a":1}],
                                                       "other":[{"b":2}]}}]})",
           "two list parameters on one node");
+
+  // STRING ENUMS. Every node reads these with a fallback, so an unknown value
+  // used to render as the default. Swept from the table itself, so a value
+  // added there is exercised here without anyone remembering to.
+  for (const KnownStrings& k : knownStringParams()) {
+    const std::string type = k.type;
+    const bool band = type == "dynamic_eq.band";
+    auto recipeWith = [&](const std::string& value) {
+      const std::string kv = "\"" + std::string(k.param) + "\":" + value;
+      return band
+          ? R"({"nodes":[{"type":"dynamic_eq","params":{"bands":[{)" + kv + "}]}}]}"
+          : (type == "dither" ? R"({"master":[{"type":"dither","params":{)"
+                              : R"({"nodes":[{"type":")" + type + R"(","params":{)")
+                + kv + "}}]}";
+    };
+    const std::string label = type + "." + k.param;
+    for (const std::string& v : k.values)
+      accepts(recipeWith("\"" + v + "\""), label + " = \"" + v + "\"");
+    rejects(recipeWith("\"not_a_value\""), "an unknown " + label);
+    rejects(recipeWith("1"), "a numeric " + label + ", which would read as the default");
+  }
+
+  // THE BUG THAT MOTIVATED THE TABLE. The Python schema said "downward"; this
+  // node compared against "down"; every planned dynamic EQ rendered static.
+  rejects(R"({"nodes":[{"type":"dynamic_eq","params":{"bands":[{"mode":"downward"}]}}]})",
+          "dynamic_eq mode \"downward\", the schema's spelling, not the node's");
+  rejects(R"({"nodes":[{"type":"dynamic_eq","params":{"bands":[{"mode":"down","range_db":-6}]}}]})",
+          "a negative dynamic_eq range, which the node would clamp to static");
+  accepts(R"({"nodes":[{"type":"dynamic_eq","params":{"bands":[{"mode":"down","range_db":6}]}}]})",
+          "a downward dynamic band with a positive range");
+  rejects(R"({"nodes":[{"type":"parametric_eq","params":{"bands":[{"filter_type":3}]}}]})",
+          "a numeric filter_type, which would silently become a bell");
 
   // Every type the factory advertises must actually construct. A name in the
   // dispatch table that returns null would pass validation and crash at build.

@@ -37,18 +37,22 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { intents: { id: string; label: string }[]; quantifiers: string[] } | null
   >(null);
 
-  // A model plan measured 128 s on a real file — past the plan's own p95 target
-  // of 120 s. A label that does not move for two minutes reads as a hang, so the
-  // seconds tick. This is the honest stand-in for the SSE progress stream, which
-  // is Phase 1 platform work and is not built: it proves the request is alive
-  // without claiming to know how far along it is.
+  // A model plan takes minutes. A label that does not move for two minutes
+  // reads as a hang, so the seconds tick alongside the streamed analysis: it
+  // proves the request is alive without claiming to know how far along it is.
+  //
+  // The reset happens in the cleanup rather than the effect body, because a
+  // synchronous setState in the body re-renders for nothing on every change.
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (!busy) return setElapsed(0);
+    if (!busy) return;
     const started = Date.now();
     const timer = setInterval(
       () => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      setElapsed(0);
+    };
   }, [busy]);
 
   // Kept after the plan finishes, not cleared. It is the justification for the
@@ -62,8 +66,17 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // refinement that produces a new chain does not keep playing the old one.
   const [voiceReady, setVoiceReady] = useState(false);
   const [voice, setVoice] = useState<api.VoiceResult | null>(null);
+  //
+  // The same check decides the default planner. Without a model key the model
+  // planner can only return 503, and a first click that fails is a poor way to
+  // find out the deterministic one exists.
+  const [modelReady, setModelReady] = useState(true);
   useEffect(() => {
-    api.health().then((h) => setVoiceReady(!!h.voice)).catch(() => {});
+    api.health().then((h) => {
+      setVoiceReady(!!h.voice);
+      setModelReady(!!h.model);
+      if (!h.model) setPlanner("rules");
+    }).catch(() => {});
   }, []);
 
   // THE SESSION IS THE TREE THAT WAS ALWAYS THERE. Graphs have carried a parent
@@ -86,10 +99,55 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const sourceRef = useRef<HTMLAudioElement>(null);
   const processedRef = useRef<HTMLAudioElement>(null);
 
+  // A reload comes back to the head of the session rather than to an empty
+  // page. The tree lives on the server, and showing only the metrics hid every
+  // step of it until the user re-planned — which threw the history away.
+  //
+  // The restored render lands only if its graph is still the one on screen.
+  // Any action — plan, refine, an edit, undo — can finish first, and a late
+  // restore would put the old head's audio under the new graph's nodes.
+  // Comparing against the current graph covers every one of them, where a
+  // flag would need each action to remember to clear it.
+  const graphIdRef = useRef<string | null>(null);
+  useEffect(() => { graphIdRef.current = graphId; }, [graphId]);
   useEffect(() => {
-    api.getProject(id).then(setProject).catch((e) => setError(String(e.message)));
+    let live = true;
+    api.getProject(id).then((loaded) => {
+      if (!live) return;
+      setProject(loaded);
+      const head = loaded.head ? loaded.graphs[loaded.head] : undefined;
+      if (!head) return;
+      setPlan({ graph_id: head.id, elapsed_s: 0, explanation: head.explanation,
+                nodes: head.nodes, attempts: 0, repairs: [] });
+      setGraphId(head.id);
+      setHistory([head.id]);
+      api.render(id, head.id)
+        .then((r) => {
+          if (live && graphIdRef.current === head.id) setRendered(r);
+        })
+        .catch((e) => live && setError(String(e.message)));
+    }).catch((e) => live && setError(String(e.message)));
     api.intents().then(setVocabulary).catch(() => {});
+    return () => { live = false; };
   }, [id]);
+
+  // The plan stream outlives the page otherwise: navigating away left the
+  // EventSource open and its `done` handler rendering for a page that was gone.
+  const closeStream = useRef<(() => void) | null>(null);
+  useEffect(() => () => closeStream.current?.(), []);
+
+  // Moving to another graph must move the inspector with it. goTo and undo
+  // used to change what played and leave the nodes of the previous graph on
+  // screen, so an edit was computed from numbers the playing graph did not
+  // have.
+  async function showGraph(target: string) {
+    const [loaded, render] = await Promise.all([
+      api.getProject(id), api.render(id, target)]);
+    const entry = loaded.graphs[target];
+    if (entry) setPlan((p) => (p ? { ...p, nodes: entry.nodes } : p));
+    setGraphId(target);
+    setRendered(render);
+  }
 
   // Keep both elements at the same position so switching is a comparison of
   // sound rather than of where you happen to be in the take.
@@ -152,7 +210,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
 
     setBusy("reading the measurements");
-    api.planStream(id, request, {
+    closeStream.current?.();
+    closeStream.current = api.planStream(id, request, {
       onStarted: () => setBusy("thinking — the analysis appears below as it is written"),
       onReasoning: (chunk) => {
         setBusy("writing the analysis");
@@ -293,9 +352,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setBusy("going back");
     setError(null);
     try {
-      setGraphId(stepId);
+      await showGraph(stepId);
       setHistory((h) => [...h, stepId]);
-      setRendered(await api.render(id, stepId));
     } catch (e) {
       setError(String((e as Error).message));
     } finally {
@@ -361,8 +419,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       if (!result.ok || !result.deliver_key) {
         // The gate applies to the full render on its own terms. An excerpt
         // that passed is not evidence about the parts of the file it excluded.
+        // `||`, not `??`: an empty failure list joins to "", which is not
+        // nullish, and the user would see an error with no words in it.
         setError(result.failures?.map((f) => f.message).join("; ")
-                 ?? "the full render did not pass the safety gate");
+                 || "the full render did not pass the safety gate");
         return;
       }
       // A navigation, not fetch-then-blob. The file is tens of megabytes and
@@ -375,12 +435,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
-  function undo() {
-    if (history.length < 2) return;
+  async function undo() {
+    if (history.length < 2 || busy) return;
     const next = history.slice(0, -1);
-    setHistory(next);
-    setGraphId(next[next.length - 1]);
-    void api.render(id, next[next.length - 1]).then(setRendered);
+    setBusy("undoing");
+    setError(null);
+    try {
+      await showGraph(next[next.length - 1]);
+      setHistory(next);
+    } catch (e) {
+      setError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
   }
 
   if (error && !project) {
@@ -390,7 +457,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return <Shell><p className="text-white/40">loading…</p></Shell>;
   }
 
-  const report = project.report;
+  // Once something is rendered, the numbers describe the window that was
+  // rendered, and the "before" is a null render of that same window. The
+  // upload's own report covers the whole file, and comparing a 20-second
+  // render against it folded the difference between the two into every delta.
+  // Warnings still come from the whole file, which is what they are about.
+  const report = rendered?.before ?? project.report;
   const after = rendered?.after;
 
   return (
@@ -419,9 +491,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <Metric label="HF rolloff" value={report.spectrum.hf_rolloff_db_per_octave}
                   unit="dB/oct" after={after?.spectrum.hf_rolloff_db_per_octave} />
         </div>
-        {report.warnings.length > 0 && (
+        {rendered?.before && (
+          <p className="mt-3 text-[12px] text-white/30">
+            The 20-second excerpt you are hearing, before and after the chain,
+            both through the same conversion.
+          </p>
+        )}
+        {project.report.warnings.length > 0 && (
           <ul className="mt-4 space-y-1">
-            {report.warnings.map((w) => (
+            {project.report.warnings.map((w) => (
               <li key={w.code} className="text-[13px] text-white/50">
                 <span className="mr-2 text-white/30">{w.severity}</span>
                 {w.message}
@@ -440,6 +518,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             onChange={(e) => setRequest(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !busy && runPlan()}
             placeholder="warmer and less boxy"
+            // The API's own limit. Past it the stream refuses before it starts,
+            // and EventSource can only report that as a dropped connection.
+            maxLength={2000}
             className="w-full rounded-[10px] border border-white/12 bg-white/[0.03] px-4 py-3
                        text-[15px] outline-none placeholder:text-white/25 focus:border-white/25"
           />
@@ -449,9 +530,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </button>
             <label className="flex items-center gap-2 text-[13px] text-white/45">
               <input type="checkbox" checked={planner === "rules"}
+                     disabled={!modelReady}
                      onChange={(e) => setPlanner(e.target.checked ? "rules" : "model")} />
               deterministic only
-              <span className="text-white/25">(no model call)</span>
+              <span className="text-white/25">
+                {modelReady ? "(no model call)" : "(no ANTHROPIC_API_KEY set)"}
+              </span>
             </label>
           </div>
           {error && <p className="text-[13px] text-[#ff8b8b]">{error}</p>}
@@ -545,15 +629,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                   ))}
                 </div>
                 {history.length > 1 && (
-                  <button onClick={undo} className="text-[13px] text-white/45 underline
+                  <button onClick={undo} disabled={!!busy} className="text-[13px] text-white/45 underline
                                                     underline-offset-4 hover:text-white/70">
                     undo
                   </button>
                 )}
               </div>
+              {/* The button follows the elements rather than its own guess.
+                  A new render swaps both sources, which stops playback with
+                  no `ended` — only `emptied` — so tracking clicks alone left
+                  it saying Pause over silence. */}
               <audio ref={sourceRef} src={api.audioUrl(id, rendered.source_key!)}
+                     onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+                     onEmptied={() => setPlaying(false)}
                      onEnded={() => setPlaying(false)} preload="auto" />
               <audio ref={processedRef} src={api.audioUrl(id, rendered.render_key)}
+                     onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+                     onEmptied={() => setPlaying(false)}
                      onEnded={() => setPlaying(false)} preload="auto" />
             </Section>
           )}

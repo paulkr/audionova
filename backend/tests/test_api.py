@@ -345,9 +345,9 @@ def test_bounds_are_read_per_model() -> None:
             f"25 dB on a gain node is refused, naming 24, got {wide.text[:160]}")
 
     # A SECOND, INDEPENDENT COLLISION. `range_db` is 0 to 80 on a gate — how far
-    # it closes — and -18 to 18 on a dynamic EQ band, where it is signed because
-    # a negative value compresses the band and a positive one expands it. 60 is
-    # ordinary on one and meaningless on the other.
+    # it closes — and 0 to 18 on a dynamic EQ band, where it is how far the band
+    # may move and `mode` sets which way. 60 is ordinary on one and meaningless
+    # on the other.
     R.check(edit(F.quiet_id, gid, node_id="gate", param="range_db",
                  value=60.0).status_code == 200,
             "60 dB of range on a gate is accepted")
@@ -937,6 +937,109 @@ def test_the_voice_never_reaches_the_network() -> None:
             os.environ["ELEVENLABS_API_KEY"] = had_key
 
 
+def test_refine_is_held_to_the_same_rules() -> None:
+    print("[15] a refinement is held to the rules every other path is")
+
+    def refine(project_id: str, graph_id: str, intent: str, quantifier: str):
+        return CLIENT.post(f"/api/projects/{project_id}/graphs/{graph_id}/refine",
+                           json={"intent": intent, "quantifier": quantifier})
+
+    def head(project_id: str) -> str | None:
+        return server.PROJECTS[project_id].head
+
+    # An accepted refinement says where it came from. It used to be stored
+    # without an origin, so the session showed it as a fresh plan.
+    gid = store(F.quiet_id, {"nodes": [
+        {"id": "makeup", "type": "gain", "params": {"gain_db": 0.0}}]})
+    ok = refine(F.quiet_id, gid, "louder", "slightly")
+    R.check(ok.status_code == 200, f"a small refinement is accepted: {ok.text[:200]}")
+    R.check(ok.json().get("origin") == "refine",
+            f"and is marked as a refinement, got {ok.json().get('origin')!r}")
+    steps = CLIENT.get(f"/api/projects/{F.quiet_id}/session").json()["steps"]
+    mine = [s for s in steps if s["graph_id"] == ok.json()["graph_id"]]
+    R.check(len(mine) == 1 and mine[0]["origin"] == "refine",
+            f"in the session too, got {mine}")
+
+    # AN UNKNOWN QUANTIFIER IS A CALLER BUG. The ladder maps unrecognised free
+    # text to one step on purpose; this endpoint's vocabulary is closed, and a
+    # word outside it used to apply one step labelled with the unknown word.
+    before = head(F.quiet_id)
+    unknown = refine(F.quiet_id, gid, "louder", "hugely")
+    R.check(unknown.status_code == 400,
+            f"an unknown quantifier is refused, got {unknown.status_code}")
+    R.check("hugely" in unknown.json().get("detail", ""),
+            f"and the refusal names it, got {unknown.json().get('detail')!r}")
+    R.check(head(F.quiet_id) == before, "and nothing was stored")
+
+    # PAST THE SCHEMA BOUND. A gain at 23 dB plus one 1.5 dB step is 24.5,
+    # over the gain node's +24. This was an unhandled 500: the patched graph
+    # was re-validated through Pydantic, which raised before the semantic
+    # validator ever saw it.
+    near = store(F.quiet_id, {"nodes": [
+        {"id": "makeup", "type": "gain", "params": {"gain_db": 23.0}}]})
+    before = head(F.quiet_id)
+    over = refine(F.quiet_id, near, "louder", "slightly")
+    R.check(over.status_code == 422,
+            f"a refinement past the bound is refused, got {over.status_code}")
+    R.check("less than or equal to 24" in over.json().get("detail", ""),
+            f"and the refusal quotes the bound, got {over.json().get('detail')!r}")
+    R.check(head(F.quiet_id) == before, "and nothing was stored")
+    stored = server.PROJECTS[F.quiet_id].graphs[near]["graph"]
+    R.check(stored.nodes[0].params["gain_db"] == 23.0,
+            "and the graph it was refining is untouched")
+
+    # FATAL AFTER VALIDATION. In range for its own node, too hot for the
+    # chain: the same shape test [8] uses for an edit. A refinement used to
+    # call validate() and store the result whether or not it passed.
+    hot = store(F.loud_id, {"nodes": [HOT["nodes"][0],
+        {"id": "makeup", "type": "gain", "params": {"gain_db": 12.0}}]})
+    before = head(F.loud_id)
+    fatal = refine(F.loud_id, hot, "louder", "slightly")
+    R.check(fatal.status_code == 422,
+            f"a refinement the graph cannot absorb is refused, got {fatal.status_code}")
+    R.check("limiter" in fatal.json().get("detail", ""),
+            f"and the refusal is in words, got {fatal.json().get('detail')!r}")
+    R.check(head(F.loud_id) == before, "and the fatal graph was not stored")
+
+
+def test_before_is_a_null_render_of_the_same_window() -> None:
+    print("[16] what a render is compared against")
+
+    # The studio drew its deltas against the upload's report, which covers the
+    # whole file, while the render covered a 20-second excerpt. The quiet
+    # fixture is 24 s, so its excerpt is a strict subset and the two differ.
+    response = CLIENT.post(f"/api/projects/{F.quiet_id}/graphs/{F.plan_id}/render")
+    body = response.json()
+    R.check(response.status_code == 200 and body.get("ok"),
+            f"the planned graph renders: {response.text[:200]}")
+    before = body.get("before")
+    R.check(isinstance(before, dict) and "loudness" in before,
+            "a render reports the baseline it is compared against")
+    if not isinstance(before, dict):
+        return
+    R.check(abs(before["source"]["duration_s"] - server.EXCERPT_SECONDS) < 0.5,
+            f"measured on the excerpt, got {before['source']['duration_s']} s")
+    whole = server.PROJECTS[F.quiet_id].report
+    R.check(before["source"]["duration_s"] < whole["source"]["duration_s"],
+            "and not on the whole file the upload's report describes")
+
+    # THE PROPERTY THAT MATTERS: an empty chain differs from its baseline by
+    # nothing. If the baseline were the raw excerpt rather than a null render,
+    # the conversion's own K-weighted loudness change would show up here.
+    # One gain node at 0 dB, because the planner and the validator both want a
+    # chain with something in it; at unity it is a null render by definition.
+    empty = store(F.quiet_id, {"nodes": [
+        {"id": "unity", "type": "gain", "params": {"gain_db": 0.0}}]})
+    nulled = CLIENT.post(f"/api/projects/{F.quiet_id}/graphs/{empty}/render").json()
+    if nulled.get("ok"):
+        b, a = nulled["before"]["loudness"], nulled["after"]["loudness"]
+        R.check(abs(b["integrated_lufs"] - a["integrated_lufs"]) < 0.01,
+                f"a unity chain moves loudness by nothing against its baseline, "
+                f"{b['integrated_lufs']} -> {a['integrated_lufs']}")
+    else:
+        R.check(False, f"the unity chain renders: {nulled}")
+
+
 if __name__ == "__main__":
     print("Audionova local API\n")
     build_fixtures()
@@ -954,5 +1057,7 @@ if __name__ == "__main__":
     test_download_naming()
     test_missing_renders_404()
     test_the_voice_never_reaches_the_network()
+    test_refine_is_held_to_the_same_rules()
+    test_before_is_a_null_render_of_the_same_window()
     print(f"\n{R.checks} checks, {R.failures} failure(s)")
     sys.exit(1 if R.failures else 0)

@@ -99,8 +99,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("request", nargs="?",
                         default="Make this sound better, without changing its character.")
     parser.add_argument("--seconds", type=float, default=20.0)
-    parser.add_argument("--plan-model", default="claude-opus-5")
-    parser.add_argument("--emit-model", default="claude-sonnet-5")
+    # Unset means the same models the API runs, including any environment
+    # override — see pipeline.configured_models.
+    parser.add_argument("--plan-model", default=None)
+    parser.add_argument("--emit-model", default=None)
     args = parser.parse_args(argv)
 
     load_env()
@@ -134,9 +136,9 @@ def main(argv: list[str]) -> int:
     print(f"  {DIM}declined: {'; '.join(explanation.declined) or 'nothing'}{OFF}")
 
     # --- the model ----------------------------------------------------------
-    print(f"\n{BOLD}model planner{OFF}  {args.plan_model} -> {args.emit_model}")
     client = pipeline.AnthropicClient(plan_model=args.plan_model,
                                       emit_model=args.emit_model)
+    print(f"\n{BOLD}model planner{OFF}  {client.plan_model} -> {client.emit_model}")
     counters = pipeline.Counters()
     started = time.time()
     outcome = pipeline.plan(client, report=report, request=args.request,

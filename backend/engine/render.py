@@ -147,7 +147,11 @@ def render(
             # and the rule. Wrapping it in something vaguer would lose that.
             raise RenderError(result.stderr.strip() or f"exit {result.returncode}")
 
-        return wavio.read_wav(out_path)
+        # NaN passes through, deliberately. Uploads are refused at decode;
+        # a render is the engine's own output, and corruption in it is the
+        # safety gate's to report in words ("the processed audio came out
+        # corrupted"). Refusing here turned that into an unhandled WavError.
+        return wavio.read_wav(out_path, allow_non_finite=True)
 
 
 def render_array(

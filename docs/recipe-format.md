@@ -87,7 +87,11 @@ would both land in the single ordered item list and the node reading it has no
 way to tell which it received, so a second is an error rather than a silent
 overwrite.
 
-## What `validateRecipe` rejects
+## What the engine rejects
+
+Most of this is `validateRecipe`. The seed and the recipe's sample rates are
+checked while the recipe is parsed, and the input file's rate and samples by
+`anv_render` when it reads the input.
 
 Everything here is a mistake that produces plausible-sounding but wrong output.
 That is the only class worth a hard error — an obviously broken render needs no
@@ -97,13 +101,17 @@ validator.
 |---|---|
 | Unknown `type` | A planner emitting a node that does not exist yet must fail loudly, not ship a render missing the effect the user asked for that otherwise sounds fine. |
 | Unknown `filter_type` | Used to fall back to a bell, silently. `high_shelf` instead of `highshelf` produced a plausible wrong answer. |
+| Any unknown string enum, or one sent as a number | Every string parameter every node reads is listed in `knownStringParams()` in `Recipe.h`. Unlisted values used to render as the default: `"downward"` where `dynamic_eq` expected `"down"` made every planned dynamic EQ static. |
+| A `dynamic_eq` band that is a notch, lowpass or highpass, or has a negative `range_db` | The node renders the first three as a bell and clamps the last to a static band. |
+| A `seed` that is negative, fractional or past 2^53 | Converting it to an integer was undefined behaviour. |
 | Duplicate `id` | A refinement could not name one node unambiguously. |
 | `mix` outside 0…1 | |
 | `true_peak_limiter` or `dither` in `nodes[]` | Only correct after the output conversion. |
 | `dither` not last in `master[]` | Anything after it re-correlates the quantisation error. |
 | More than one `dither` | |
 | Any node after the limiter except `dither` | The ceiling the limiter established no longer holds. |
-| `internal_sample_rate` or `output.sample_rate` out of range | |
+| `internal_sample_rate`, `output.sample_rate` or the input file's rate outside 8 kHz…768 kHz | An absurd rate in a WAV header was undefined behaviour in the resampler. |
+| A float input sample that is NaN or infinite | The resampler spread one into a 239-sample dropout, written as silence. |
 | An output format we cannot write | |
 
 ## Rendering

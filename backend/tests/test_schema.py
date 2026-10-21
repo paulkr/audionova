@@ -308,6 +308,47 @@ def test_range_repair() -> None:
     R.check(abs(final - validator.TOTAL_BOOST_BUDGET_DB) < 0.1,
             f"leaving {validator.TOTAL_BOOST_BUDGET_DB:g} dB, got {final}")
 
+    # ZERO-PHASE EQ IS HEARD AT TWICE ITS BAND DB, and the budget is about what
+    # is heard. Two 4 dB zero-phase bands are 16 dB of boost; counted at face
+    # value they were 8, and the budget let them through untouched.
+    zero = G.EffectGraph(nodes=[G.GraphNode(id="z", type="zero_phase_eq", params={
+        "bands": [band(200.0, 4.0), band(5000.0, 4.0)]})])
+    scaled = validator.validate(zero)
+    R.check(any("budget" in r for r in scaled.repairs),
+            f"two 4 dB zero-phase bands exceed the budget, repairs {scaled.repairs}")
+    heard = 2.0 * sum(b["gain_db"] for b in bands_of(scaled, "z"))
+    R.check(abs(heard - validator.TOTAL_BOOST_BUDGET_DB) < 0.1,
+            f"and are scaled to {validator.TOTAL_BOOST_BUDGET_DB:g} dB as heard, got {heard}")
+    # The same bands on a parametric EQ are 8 dB, inside the budget — so the
+    # repair above is the multiplier, not a budget that fires on everything.
+    plain = validator.validate(G.EffectGraph(nodes=[eq("e", band(200.0, 4.0),
+                                                        band(5000.0, 4.0))]))
+    R.check(not any("budget" in r for r in plain.repairs),
+            "the same bands on a parametric EQ stay within it")
+
+    # Gain staging projected only parametric and dynamic EQ, so a phase-linear
+    # boost added nothing to the projected level. Measured as the difference a
+    # node makes, against the same chain without it. The check needs a measured
+    # starting level and skips without one, so the report supplies a p95.
+    hot_report = {"dynamics": {"short_term_rms_percentiles": {"p95_dbfs": -10.0}}}
+
+    def projected(nodes) -> float | None:
+        for f in validator.validate(G.EffectGraph(nodes=nodes), hot_report).findings:
+            if f.code == "gain_staging":
+                return float(f.message.split("about ")[1].split(" dBFS")[0])
+        return None
+    base = [node("gain", "g", gain_db=24.0), node("gain", "g2", gain_db=-0.5)]
+    # Stated here rather than read from the validator's table, so a wrong
+    # table cannot also make the test agree with it.
+    for eq_type, expected in (("linear_phase_eq", 3.0), ("zero_phase_eq", 6.0)):
+        boost = G.GraphNode(id="x", type=eq_type,
+                            params={"bands": [band(1000.0, 3.0)]})
+        without, with_eq = projected(base), projected([*base, boost])
+        R.check(without is not None and with_eq is not None
+                and abs((with_eq - without) - expected) < 0.05,
+                f"a 3 dB {eq_type} band adds {expected:g} dB to the projected "
+                f"level, got {without} -> {with_eq}")
+
     nan_graph = G.EffectGraph(nodes=[node("gain", "g", gain_db=3.0)])
     nan_graph.nodes[0].params["gain_db"] = float("nan")
     nan_result = validator.validate(nan_graph)

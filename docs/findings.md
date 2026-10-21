@@ -2401,3 +2401,129 @@ Kept for completeness; the hero animation predates the engine work.
   near-uniform, so the displacement map shifts rather than warps.
 - Chrome would not resize past 500 px via automation and `window.resizeTo` is
   blocked, so the desktop layout was never verified in-session.
+
+---
+
+## Findings from the pre-release review
+
+**20 October 2026.** Three rounds of review ahead of open-sourcing, read end to
+end by people who had not written the code. Every backend and engine fix below
+has a test, and each of those tests was checked by reverting its fix and
+watching it fail. The studio fixes and the upload change have no automated test
+— there is no frontend test harness — and were verified by driving the real UI.
+
+**The shape most of them share: a guard that existed on four paths and not the
+fifth.** Edit, match, chat and import each refused a graph that failed
+validation; refine called `validate()` and stored the result regardless. Every
+other endpoint treated an unknown enum as an error; refine's quantifier and chat's
+direction, size and word fell back to a default. The fifth path is the one nobody
+re-reads, because the pattern is "obviously" already applied.
+
+### A refinement could store a graph that failed validation
+
+`/refine` validated and never checked `ok`. Two "much louder" steps on a hot
+chain pushed the projection past the gain-staging limit, and the fatal graph
+became head, was rendered, and could be downloaded. Now 422, nothing stored.
+
+### A refinement past a schema bound was a 500
+
+`apply_patches` re-ran Pydantic once at the end, under a comment saying bounds
+were "clamped by the semantic validator afterwards". The schema refuses an
+out-of-range value before that validator runs, so "louder" on a gain at 23 dB
+(→ 24.5, bound 24) raised `ValidationError` through the endpoint. The schema is
+now checked per patch; the offending one is rejected with its bound in words,
+and rolled back without touching the others. It is refused, not clamped — a
+clamp would store a number nobody asked for and say nothing.
+
+### Unknown words were applied as defaults
+
+- `/refine` with `quantifier: "hugely"` applied one step labelled "hugely".
+  The ladder's one-step fallback is deliberate for free text; this endpoint's
+  vocabulary is closed and published by `/api/intents`, so it is now a 400.
+- Chat read any `direction` but `"decrease"` as `"increase"`, a missing size as
+  `"slightly"`, and a missing number as 0 — a no-op reported as applied. Each is
+  now a refusal checked against the chat schema's own enums, so the two cannot
+  drift. `chat.parse` had no tests at all before this.
+
+### The deterministic planner crashed on quiet sources
+
+`rules.choose_compressor` copied the 75th-percentile short-term RMS into
+`threshold_dbfs`, whose floor is −60. A source quieter than that was a
+`ValidationError` from the one planner that exists to always produce something.
+The move is now declined with the reason and the floor, which is read from the
+schema rather than restated.
+
+### Zero-phase EQ was counted at half its gain
+
+Forward-backward filtering squares the response, so a band's dB is heard twice
+over — the schema says so. The boost budget counted it once, so its 12 dB
+admitted 24, and gain staging ignored linear- and zero-phase EQ entirely.
+
+### Dynamic EQ never ran dynamically
+
+The worst one, and the oldest. The schema spelled a dynamic band's direction
+`"downward"` / `"upward"`; `DynamicEQ.h` compared against `"down"` / `"up"` and
+fell back to static on anything else. `to_recipe` passed the schema's word
+straight through, so **every dynamic EQ the planner or the API ever produced
+rendered bit-identically to a static band**. The schema also described the
+range as signed ("negative compresses") while the node takes a magnitude and
+clamps a negative one to zero — static again, by a second route. And
+`validateRecipe` accepted notch, lowpass and highpass on dynamic bands, which
+the node renders as a bell.
+
+Nothing caught it because nothing looked at both spellings at once: the engine's
+tests used the engine's words, the schema's tests used the schema's, and the
+audio was plausible. It is the documented `filter_type` fallback, back in a
+second node — which is why the fix is a table rather than a patch. Every string
+parameter every node reads is now listed in `knownStringParams()` with the values
+it acts on, and `validateRecipe` rejects anything else, including an enum sent
+as a number. The schema keeps its words and translates them in `to_recipe`, by
+indexing rather than `.get()`, so an untranslatable one is an error. A bridge
+test renders a schema-built band through the real engine and requires
+`downward < static < upward` in loudness.
+
+### Smaller ones
+
+- **One NaN in a float WAV became a 239-sample dropout** in a render that
+  exited 0: the resampler spread it across its taps and the writer wrote those
+  as silence. Both readers now refuse non-finite samples in an input file. The
+  Python reader still accepts them when it reads back the engine's own float
+  render, because corruption there is the safety gate's job to report — the
+  first version of this fix refused it too, and turned the gate's refusal into
+  a 500.
+- **The measurement report crashed on 27 frames or fewer**, because zero-phase
+  band-splitting needs more than its pad length. Those bands are now missing,
+  and a band that cannot be measured reads null rather than a crest of 0 dB.
+- **`side_to_mid_db` read a polarity-inverted pair as mono** (−60, the wrong end).
+- **The seed, the input sample rate and `--block`**: converting a negative seed
+  was undefined behaviour; an absurd input rate was undefined behaviour in the
+  resampler's ratio arithmetic, and 1 Hz "rendered successfully"; `--block 12abc`
+  was silently 12.
+- **The studio compared a 20-second render against the whole file's report**,
+  so every delta folded in the difference between the excerpt and the track:
+  loudness range "fell" 3.8 LU under a 2.2:1 compressor, where the chain's own
+  effect is about 1 LU. Renders now carry a null-render baseline of the same window.
+- **A fresh install could not pass CI.** Floating `>=` pins resolved newer
+  releases with dependencies the licence lock had never seen. Installs are now
+  pinned to the lock through `backend/constraints.txt`, and the gate checks the
+  two agree.
+- **A truncated WAV decoded at 24 bits and was a 500 at every other depth.**
+  Only the 24-bit path trimmed a trailing partial sample; `np.frombuffer` raises
+  a bare `ValueError` on the rest.
+- **A null metric reached `float()`** in `correlate_proxies` as a `TypeError`.
+  A null is a missing measurement and is now refused the same way.
+- **Real-audio test guards checked `vocals.wav` and then read five other
+  stems**, so a partial set crashed rather than skipped. Worse, in
+  `test_rules.py` section 3 the guard returned before the air-shelf gates, which
+  build their own reports — those checks had never run on any machine without
+  the gitignored stems, CI included.
+- **The studio**: after undo or a jump back in the session, the inspector
+  still showed the previous graph's nodes, so an edit was computed from numbers
+  the playing graph did not have. A reload lost the session from view. A
+  FastAPI 422 displayed as `[object Object]`. The plan stream outlived the page.
+  The play button said Pause over silence after every re-render.
+- **The upload cap bounded nothing in memory**: the body was read in full, then
+  measured. It is now read in chunks against the cap. Disk is still unbounded,
+  because Starlette spools the multipart body before the handler runs; that is
+  an open question, not a fix.
+- **The frontend was never linted by CI**, and had a lint error.

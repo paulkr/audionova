@@ -1,6 +1,6 @@
 """The local API: upload, measure, plan, render, refine.
 
-    ./.venv/bin/uvicorn backend.api.server:app --reload --port 8000
+    ./.venv/bin/uvicorn backend.api.server:app --reload --port 8787
 
 This is the product's shape without the platform. Everything the plan schedules
 for Phase 1 that is genuinely about audio lives here; everything that is about
@@ -50,7 +50,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from fastapi import FastAPI, HTTPException, UploadFile  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -118,6 +118,9 @@ class Project:
     graphs: dict[str, dict[str, Any]] = field(default_factory=dict)
     head: str | None = None
     renders: dict[str, str] = field(default_factory=dict)
+    # The measurement of a null render, per window ("excerpt" or "full"). It
+    # does not depend on the chain, so it is computed once per window.
+    baselines: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # A reference track reduced to a spectral curve. NO AUDIO, NO FILENAME, AND
     # DELIBERATELY NO CONTENT HASH. A reference is somebody else's master, very
@@ -181,6 +184,24 @@ class RefineRequest(BaseModel):
     quantifier: str = "slightly"
 
 
+async def _read_bounded(file: UploadFile) -> bytes:
+    """The upload's bytes in memory, refusing at the cap as they are read.
+
+    This bounds MEMORY only. By the time the handler runs, Starlette has already
+    parsed the multipart body and spooled the file to disk, so neither the
+    network transfer nor the disk is bounded here — see open-questions.md. What
+    it fixes is the old `await file.read()` then a length check, which held the
+    whole body in memory before deciding it was too big.
+    """
+    chunks, total = [], 0
+    while chunk := await file.read(1 << 20):
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "file too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -195,9 +216,7 @@ def health() -> dict[str, Any]:
 
 @app.post("/api/projects")
 async def create_project(file: UploadFile) -> dict[str, Any]:
-    raw = await file.read()
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "file too large")
+    raw = await _read_bounded(file)
 
     samples, rate = _decode_upload(raw, file.filename or "upload.wav")
 
@@ -434,7 +453,8 @@ def plan_project(project_id: str, body: PlanRequest) -> dict[str, Any]:
 
 
 @app.get("/api/projects/{project_id}/plan/stream")
-def plan_stream(project_id: str, request: str = "",
+def plan_stream(project_id: str,
+                request: str = Query(default="", max_length=2000),
                 planner: str = "model") -> StreamingResponse:
     """Plan, streaming stage 1's reasoning as it is written.
 
@@ -545,6 +565,15 @@ def refine_graph(project_id: str, graph_id: str,
     if entry is None:
         raise HTTPException(404, "no such graph")
 
+    # A HARD ERROR, NOT THE LADDER'S ONE-STEP FALLBACK. `steps_for` treats an
+    # unrecognised word as one step on purpose, for free text. This endpoint's
+    # vocabulary is closed and published by /api/intents, so a word outside it
+    # is a caller bug — and applying one step labelled "hugely" would hide it.
+    if body.quantifier not in ladder.QUANTIFIERS:
+        raise HTTPException(
+            400, f"unknown quantifier {body.quantifier!r}; expected one of "
+                 f"{', '.join(ladder.QUANTIFIERS)}")
+
     try:
         patches = ladder.patch_from_intent(entry["graph"], body.intent,
                                            body.quantifier)
@@ -557,15 +586,48 @@ def refine_graph(project_id: str, graph_id: str,
                         "add the effect first"}
 
     result = ladder.apply_patches(entry["graph"], patches)
+    if not result.applied:
+        # Every patch was refused — most often a parameter already at its
+        # bound. Storing the unchanged graph as a new step would show the user
+        # a refinement that did nothing, labelled as if it had.
+        raise HTTPException(422, "; ".join(result.rejected))
     validated = validate(result.graph, project.excerpt_report)
+    # Every other path that mints a graph refuses a fatal result, and this one
+    # stored it as head and rendered it: two "much louder" steps on a hot chain
+    # could push the projected level past the gain-staging limit, and nothing
+    # said so.
+    if not validated.ok:
+        raise HTTPException(422, "; ".join(str(f) for f in validated.fatal))
 
     new_id = _store_graph(project, validated.graph,
                           f"{body.quantifier} {body.intent}".replace("_", " "),
-                          graph_id)
-    return {"graph_id": new_id, "parent": graph_id,
+                          graph_id, origin="refine")
+    return {"graph_id": new_id, "parent": graph_id, "origin": "refine",
             "applied": result.applied, "rejected": result.rejected,
             "diff": ladder.describe(patches),
             "repairs": validated.repairs, "nodes": _describe(validated.graph)}
+
+
+def _baseline(project: Project, source: np.ndarray, window: str,
+              recipe: dict[str, Any]) -> dict[str, Any]:
+    """What the chain is compared against: a null render of the same audio.
+
+    NOT THE UPLOAD'S REPORT. The studio compared the render of a 20-second
+    excerpt against the measurement of the whole file, so every delta folded
+    in the difference between twenty seconds and four minutes — on the demo
+    guitar, loudness range "fell" 3.8 LU under a 2.2:1 compressor. Nor the raw
+    excerpt: the resampling round trip has its own 0.12 dB of K-weighted
+    loudness, and an empty chain through the same conversion is the only
+    reference that isolates what the nodes did.
+    """
+    cached = project.baselines.get(window)
+    if cached is not None:
+        return cached
+    null = {**recipe, "nodes": [], "master": []}
+    measured = measure(render_array(source, project.sample_rate, null),
+                       project.sample_rate).to_dict()
+    project.baselines[window] = measured
+    return measured
 
 
 @app.post("/api/projects/{project_id}/graphs/{graph_id}/render")
@@ -629,6 +691,12 @@ def render_graph(project_id: str, graph_id: str,
                 "failures": [{"code": f.code, "message": f.user_message or f.message}
                              for f in verdict.failures]}
 
+    # The baseline costs a second render, so it is paid only for a render that
+    # passed the gate, and only for the excerpt — the window the studio
+    # compares. A full render is a download; doubling its cost for numbers
+    # nobody displays would be the wrong trade, so it reports none.
+    before = None if full else _baseline(project, source, "excerpt", recipe)
+
     # Loudness-matched, because an unmatched A/B compares levels rather than
     # processing. Louder wins regardless of whether it is better.
     source_lufs = loudness.integrated_lufs(source, project.sample_rate)
@@ -671,6 +739,7 @@ def render_graph(project_id: str, graph_id: str,
         "elapsed_s": round(time.time() - started, 1),
         "match_offset_db": round(offset, 2),
         "gate": {"passed": True, "checked": verdict.checked},
+        "before": before,
         "after": measure(rendered, project.sample_rate).to_dict(),
     }
     # Only successful renders are cached. A gate failure returns before this
@@ -846,10 +915,8 @@ async def set_reference(project_id: str, file: UploadFile) -> dict[str, Any]:
     The filename is not stored either. It is used once, in an error message, if
     the file will not decode.
     """
-    raw = await file.read()
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "file too large")
     project = project_or_404(project_id)
+    raw = await _read_bounded(file)
 
     samples, rate = _decode_upload(raw, file.filename or "reference.wav")
 

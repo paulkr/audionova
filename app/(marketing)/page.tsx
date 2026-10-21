@@ -1,8 +1,22 @@
 import FluxField from "../flux-field";
 import UploadPanel from "../upload-panel";
 
-const NAV = ["PROCESS", "MODELS", "STUDIO", "PRICING", "CONTACT"];
-const FORMATS = ["WAV", "MP3", "FLAC", "M4A"];
+const REPO = "https://github.com/paulkr/audionova";
+
+// Every link goes somewhere real. The first version of this page was a design
+// comp with five nav items pointing at "#", which in a public repository reads
+// as features that do not exist.
+const NAV = [
+  { label: "HOW IT WORKS", href: `${REPO}/blob/main/docs/architecture.md` },
+  { label: "ENGINE", href: `${REPO}/blob/main/docs/engine.md` },
+  { label: "FINDINGS", href: `${REPO}/blob/main/docs/findings.md` },
+  { label: "GITHUB", href: REPO },
+];
+
+// The pipeline, not a format switcher. The old row read WAV / MP3 / FLAC / M4A
+// and the API rejects everything but WAV, because other decoders need the
+// ingest sandbox that is not built.
+const STAGES = ["MEASURE", "PLAN", "RENDER", "VERIFY"];
 
 export default function Home() {
   return (
@@ -20,22 +34,20 @@ export default function Home() {
         </a>
 
         <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-5 pt-1 md:flex">
-          {FORMATS.map((f, i) => (
+          {STAGES.map((stage) => (
             <span
-              key={f}
-              className={`text-[11px] uppercase leading-[1.58] tracking-[0.06em] ${
-                i === 0 ? "text-frost" : "text-white/45"
-              }`}
+              key={stage}
+              className="text-[11px] uppercase leading-[1.58] tracking-[0.06em] text-white/45"
             >
-              {f}
+              {stage}
             </span>
           ))}
         </nav>
 
         <nav className="flex flex-col items-end gap-[3px]">
           {NAV.map((item) => (
-            <a key={item} href="#" className="nav-link">
-              {item}
+            <a key={item.label} href={item.href} className="nav-link">
+              {item.label}
             </a>
           ))}
         </nav>
@@ -116,14 +128,14 @@ export default function Home() {
       {/* ---- Utility chip, bottom-right ---- */}
       <div className="absolute bottom-10 right-8 z-10 hidden items-center gap-3 sm:right-12 sm:flex">
         <span className="text-[11px] uppercase leading-[1.58] tracking-[0.06em] text-white/45">
-          Engine v2 · 48 kHz
+          Engine v0.1 · 96 kHz float64
         </span>
-        <button
-          type="button"
+        <a
+          href={`${REPO}/tree/main/docs`}
           className="pill-ghost px-[18px] py-[7px] text-[11px] uppercase leading-[1.58] tracking-[0.06em]"
         >
           Docs
-        </button>
+        </a>
       </div>
     </div>
   );

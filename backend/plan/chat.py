@@ -176,6 +176,28 @@ SCHEMA: dict[str, Any] = {
 }
 
 
+def _unreadable(edit: dict[str, Any]) -> str:
+    """Why one edit cannot be applied as written, or "" if it can.
+
+    Checked against SCHEMA's own enums, so the two cannot drift: structured
+    output is not guaranteed to honour an enum, and this is where that lands.
+    """
+    if not isinstance(edit, dict):
+        return f"an edit is {type(edit).__name__}, not an object"
+    fields = SCHEMA["properties"]["edits"]["items"]["properties"]
+    for name in ("direction", "size_kind"):
+        if edit.get(name) not in fields[name]["enum"]:
+            return f"{name} is {edit.get(name)!r}, not one of {fields[name]['enum']}"
+    kind = edit["size_kind"]
+    if kind == "word" and edit.get("word") not in fields["word"]["enum"]:
+        return f"word is {edit.get('word')!r}, not one of {fields['word']['enum']}"
+    if kind in ("percent", "amount"):
+        value = edit.get(kind)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return f"size_kind is {kind!r} but {kind} is {value!r}"
+    return ""
+
+
 def parse(client: Any, *, message: str, graph: EffectGraph) -> ChatResult:
     """One sentence and a chain in; patches out."""
     prompt = (
@@ -199,22 +221,30 @@ def parse(client: Any, *, message: str, graph: EffectGraph) -> ChatResult:
 
     patches: list[Patch] = []
     for edit in parsed.get("edits", []) or []:
-        kind = edit.get("size_kind")
+        problem = _unreadable(edit)
+        if problem:
+            # A REFUSAL, NOT A DEFAULT. This used to read any direction but
+            # "decrease" as "increase", a missing size as "slightly" and a
+            # missing number as 0 — each a guess at what the model meant,
+            # applied and reported as done. The caller is a language model, so
+            # a value outside the schema is a malformed reply, and the user is
+            # better served by "say that again" than by the opposite change.
+            return ChatResult(refused=f"could not read the reply: {problem}")
+        kind = edit["size_kind"]
         patch = Patch(
             op="adjust_param",
             node_id=str(edit.get("node_id", "")),
             param=str(edit.get("param", "")),
-            direction=("decrease" if edit.get("direction") == "decrease"
-                       else "increase"),
+            direction=edit["direction"],
             band_index=edit.get("band_index"),
             reason=str(edit.get("reason", ""))[:200],
         )
         if kind == "percent":
-            patch.percent = float(edit.get("percent", 0.0))
+            patch.percent = float(edit["percent"])
         elif kind == "amount":
-            patch.delta = abs(float(edit.get("amount", 0.0)))
+            patch.delta = abs(float(edit["amount"]))
         else:
-            patch.quantifier = edit.get("word") or "slightly"
+            patch.quantifier = edit["word"]
         patches.append(patch)
 
     if not patches:

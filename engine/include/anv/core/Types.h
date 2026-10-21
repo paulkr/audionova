@@ -15,9 +15,10 @@ using Sample = double;
 
 // All processing happens at one canonical internal rate. Resample exactly once
 // on ingest and once on export, never mid-chain. 96 kHz specifically because
-// several vendored character processors adapt their behaviour to the sample
-// rate by design, so a single canonical rate is the only way renders stay
-// reproducible across whatever the user happened to upload.
+// sample-rate-dependent character processors (the Airwindows family is the
+// usual example) adapt their behaviour to the rate by design, so a single
+// canonical rate is the only way renders stay reproducible across whatever the
+// user happened to upload. None is vendored; see docs/licensing.md.
 inline constexpr double kCanonicalSampleRate = 96000.0;
 
 // Same-binary properties (determinism, block-size invariance, reset

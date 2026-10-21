@@ -1357,6 +1357,12 @@ def test_correlate_proxies() -> None:
     R.raises(correlate.CorrelationError,
              lambda: correlate.correlate_proxies(human, {"partial": partial}),
              "a metric missing an item is refused, not correlated on the overlap")
+    # A null is the same as a gap. The report layer writes null for anything
+    # it could not measure, and that used to reach float() as a TypeError.
+    R.raises(correlate.CorrelationError,
+             lambda: correlate.correlate_proxies(
+                 human, {"null": {**metrics["follows"], "i05": None}}),
+             "and so is a metric whose value for an item is null")
     R.raises(correlate.CorrelationError,
              lambda: correlate.correlate_proxies(
                  human, {"extra": {**metrics["follows"], "i99": 1.0}}),

@@ -21,6 +21,7 @@ it rises long before quality visibly drops. Targets from the plan are repair und
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -383,21 +384,39 @@ class ScriptedClient:
         return self.emissions.pop(0)
 
 
+# ONE DEFINITION OF WHICH MODELS THE PRODUCT RUNS. The canary, the planner CLI
+# and the API each used to carry their own copy of these strings, and the canary
+# read environment overrides the API ignored — so setting ANTHROPIC_PLAN_MODEL
+# made the canary test a model the product did not use.
+DEFAULT_PLAN_MODEL = "claude-opus-5"
+DEFAULT_EMIT_MODEL = "claude-sonnet-5"
+
+
+def configured_models() -> tuple[str, str]:
+    """The plan and emit models: the environment if set, otherwise the defaults.
+
+    Read at call time rather than import time, because the server imports this
+    module before `load_env()` has read `.env.local`.
+    """
+    return (os.environ.get("ANTHROPIC_PLAN_MODEL") or DEFAULT_PLAN_MODEL,
+            os.environ.get("ANTHROPIC_EMIT_MODEL") or DEFAULT_EMIT_MODEL)
+
+
 class AnthropicClient:
     """The real client.
 
-    UNTESTED AGAINST THE LIVE API — nothing in this repository has ever made a
-    model call. The shape follows the documented API, and the first thing to do
-    when a key is available is to check the two things this cannot verify
-    offline: that `cache_read_input_tokens` exceeds 15000 on a repeated request,
-    and that the structured output actually honours the schema's enums.
+    Verified against the live API (see docs/progress/), but by nothing in CI:
+    the suites only ever use ScriptedClient, so they need no key. `canary.py`
+    is the live check, and the two things it exists for are the ones that
+    cannot be verified offline — that `cache_read_input_tokens` is non-zero on
+    a repeated request, and that structured output honours the schema's enums.
 
     The SDK import is deliberately lazy so that neither the tests nor the
     evaluation harnesses need the dependency installed.
     """
 
-    def __init__(self, *, plan_model: str = "claude-opus-5",
-                 emit_model: str = "claude-sonnet-5",
+    def __init__(self, *, plan_model: str | None = None,
+                 emit_model: str | None = None,
                  max_tokens: int = 8192,
                  plan_max_tokens: int = 32000,
                  plan_effort: str | None = None) -> None:
@@ -429,8 +448,9 @@ class AnthropicClient:
         # difference on the product's slowest step, decided by the only
         # instrument that can decide it.
         self.plan_effort = plan_effort
-        self.plan_model = plan_model
-        self.emit_model = emit_model
+        default_plan, default_emit = configured_models()
+        self.plan_model = plan_model or default_plan
+        self.emit_model = emit_model or default_emit
         self.max_tokens = max_tokens
         # PLAN NEEDS ITS OWN, MUCH LARGER BUDGET. Reasoning models spend output
         # tokens on thinking and thinking counts against max_tokens, so a budget

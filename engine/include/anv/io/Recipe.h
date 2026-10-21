@@ -33,6 +33,7 @@
 // `validateRecipe` rejects a recipe that puts those nodes in the wrong one.
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -115,6 +116,65 @@ inline std::unique_ptr<Node> makeNode(const std::string& type) {
 inline bool isKnownFilterShape(const std::string& shape) {
   return shape == "bell" || shape == "lowshelf" || shape == "highshelf" ||
          shape == "notch" || shape == "lowpass" || shape == "highpass";
+}
+
+// Every string-valued parameter a node reads, with every value it acts on.
+//
+// Nodes read these with a fallback, so a value missing from this table — a
+// typo, a newer schema's spelling — renders as the default and says nothing.
+// That shipped: the Python schema spelled dynamic EQ's modes "downward" and
+// "upward", the node compared against "down" and "up", and every dynamic EQ
+// the planner ever wrote rendered as a static one. A node that adds a string
+// parameter must add it here, for the same reason band lists are named below.
+struct KnownStrings {
+  const char* type;
+  const char* param;
+  std::vector<std::string> values;
+};
+
+inline const std::vector<KnownStrings>& knownStringParams() {
+  static const std::vector<KnownStrings> table = {
+      {"compressor", "detector", {"peak", "rms"}},
+      {"compressor", "release_mode", {"fixed", "program"}},
+      {"compressor", "makeup_mode", {"manual", "auto"}},
+      {"gate_expander", "detector", {"peak", "rms"}},
+      {"mid_side", "mode", {"encode", "decode"}},
+      {"drive", "curve", {"soft_clip", "hard_clip"}},
+      {"drive", "os_profile", {"wideband", "audio"}},
+      {"delay", "time_note_division",
+       {"", "sixteenth", "eighth", "dotted_eighth", "triplet_eighth", "quarter"}},
+      {"delay", "stereo_mode", {"mono", "stereo_offset", "ping_pong"}},
+      {"dither", "noise_shaping", {"none", "first_order"}},
+      // Band-level, for the one node whose bands carry their own enums.
+      {"dynamic_eq.band", "mode", {"static", "down", "up"}},
+      // A dynamic band only distinguishes shelf from not-shelf, so notch,
+      // lowpass and highpass would render as a bell.
+      {"dynamic_eq.band", "filter_type", {"bell", "lowshelf", "highshelf"}},
+  };
+  return table;
+}
+
+inline void checkStringParams(const ParamSet& p, const std::string& type,
+                              const std::string& where) {
+  for (const KnownStrings& k : knownStringParams()) {
+    if (type != k.type) continue;
+    if (p.hasNum(k.param))
+      throw RecipeError(where + ": " + k.param + " must be a string, not a "
+                        "number — as a number it would read as the default");
+    if (!p.hasStr(k.param)) continue;
+    const std::string value = p.str(k.param, "");
+    bool known = false;
+    std::string expected;
+    for (const std::string& v : k.values) {
+      known = known || v == value;
+      expected += (expected.empty() ? "\"" : ", \"") + v + "\"";
+    }
+    if (!known)
+      throw RecipeError(where + ": " + k.param + " \"" + value +
+                        "\" is not one of " + expected +
+                        " — an unrecognised value would silently become the "
+                        "default");
+  }
 }
 
 // Node types that are only correct after the output sample-rate conversion.
@@ -236,7 +296,13 @@ inline Recipe parseRecipe(const std::string& text) {
   Recipe r;
   r.engineVersion = root.stringOr("engine_version", "");
   r.internalSampleRate = root.numberOr("internal_sample_rate", kCanonicalSampleRate);
-  r.seed = static_cast<uint64_t>(root.numberOr("seed", 0.0));
+  // JSON numbers are doubles, and converting a negative or oversized one to
+  // uint64_t is undefined behaviour. 2^53 is where doubles stop representing
+  // every integer, so a seed past it would silently be a different seed.
+  const double seed = root.numberOr("seed", 0.0);
+  if (!(seed >= 0.0 && seed <= 9007199254740992.0) || seed != std::floor(seed))
+    throw RecipeError("seed must be a whole number from 0 to 2^53");
+  r.seed = static_cast<uint64_t>(seed);
 
   if (const JsonValue* out = root.find("output")) {
     if (!out->isObject()) throw RecipeError("\"output\" must be an object");
@@ -288,6 +354,19 @@ inline void validateRecipe(const Recipe& r) {
           n.type == "zero_phase_eq" || n.type == "linear_phase_eq") {
         const auto& bands = n.params.items();
         for (size_t b = 0; b < bands.size(); ++b) {
+          if (bands[b].hasNum("filter_type"))
+            throw RecipeError(here + ": band " + std::to_string(b) +
+                              " has a numeric filter_type, which would "
+                              "silently become a bell");
+          if (n.type == "dynamic_eq") {
+            const std::string where = here + ": band " + std::to_string(b);
+            checkStringParams(bands[b], "dynamic_eq.band", where);
+            // The node takes a magnitude and clamps a negative one to zero,
+            // which renders as a static band. Direction is `mode`'s job.
+            if (bands[b].num("range_db", 0.0) < 0.0)
+              throw RecipeError(where + ": range_db is negative — it is a "
+                                "magnitude, and `mode` sets the direction");
+          }
           const std::string shape = bands[b].str("filter_type", "bell");
           if (!isKnownFilterShape(shape))
             throw RecipeError(here + ": band " + std::to_string(b) +
@@ -297,6 +376,8 @@ inline void validateRecipe(const Recipe& r) {
                               "would silently become a bell");
         }
       }
+
+      checkStringParams(n.params, n.type, here);
 
       if (isMasterOnly(n.type) && !isMaster)
         throw RecipeError(here + ": \"" + n.type +

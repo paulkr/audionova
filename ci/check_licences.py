@@ -31,6 +31,7 @@ from importlib import metadata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCK_PATH = os.path.join(ROOT, "ci", "licences.lock.json")
+CONSTRAINTS_PATH = os.path.join(ROOT, "backend", "constraints.txt")
 
 ALLOWED = {
     "MIT", "MIT License",
@@ -124,6 +125,33 @@ def acceptable(expression: str) -> bool:
     return bool(cleaned) and all(term in ALLOWED for term in cleaned)
 
 
+def constraint_drift(locked: dict) -> list[str]:
+    """The install pins and the lock must name the same versions.
+
+    The constraints file is what makes a fresh install resolve to what the lock
+    approved. If the two disagree, a newcomer installs something nobody
+    reviewed and this gate fails them on their first run — which is how the
+    constraints file came to exist.
+    """
+    if not os.path.exists(CONSTRAINTS_PATH):
+        return [f"{os.path.relpath(CONSTRAINTS_PATH, ROOT)} is missing"]
+    pinned: dict[str, str] = {}
+    with open(CONSTRAINTS_PATH) as handle:
+        for line in handle:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                name, _, version = line.partition("==")
+                pinned[name.strip().lower()] = version.strip()
+    found = []
+    for name in sorted(set(locked) | set(pinned)):
+        want = locked.get(name, {}).get("version")
+        have = pinned.get(name)
+        if want != have:
+            found.append(f"{name}: the lock records {want!r} and "
+                         f"backend/constraints.txt pins {have!r} — they must agree")
+    return found
+
+
 def main() -> int:
     installed = {}
     for dist in metadata.distributions():
@@ -177,6 +205,8 @@ def main() -> int:
 
         for name in sorted(set(locked) - set(installed)):
             print(f"  note: {name} is locked but not installed")
+
+        problems.extend(constraint_drift(locked))
 
     if problems:
         print("LICENCE GATE FAILED\n")

@@ -232,9 +232,10 @@ PARAMS: dict[str, tuple[str, float, float, float, str]] = {
                    "and weakest fully-effective choice"),
     # dynamic_eq bands
     "static_gain_db": ("dB", -18.0, 18.0, 0.0, "Always-applied band gain"),
-    "dynamic_range_db": ("dB", -18.0, 18.0, 12.0,
-                         "Maximum dynamic movement. Negative compresses the "
-                         "band, positive expands it"),
+    "dynamic_range_db": ("dB", 0.0, 18.0, 12.0,
+                         "How far the band may move, as a magnitude. `mode` "
+                         "sets the direction: downward cuts the band when it "
+                         "is loud, upward lifts it"),
 }
 
 
@@ -282,8 +283,21 @@ class EqBand(_Strict):
         return self
 
 
+# A dynamic band distinguishes only shelf from not-shelf in the engine, so a
+# notch, lowpass or highpass here would have rendered as a bell.
+DynamicFilterType = Literal["bell", "lowshelf", "highshelf"]
+
+# The schema's words for a dynamic band's direction, and the engine's. They
+# differed, and nothing translated: "downward" reached a node that compared
+# against "down", fell back to static, and every planned dynamic EQ rendered as
+# a static one. The engine now rejects an unknown mode; this is the translation.
+DYNAMIC_MODE_TO_ENGINE: dict[str, str] = {
+    "static": "static", "downward": "down", "upward": "up",
+}
+
+
 class DynamicEqBand(_Strict):
-    filter_type: FilterType = "bell"
+    filter_type: DynamicFilterType = "bell"
     mode: Literal["static", "downward", "upward"] = "static"
     center_freq_hz: float = _field("center_freq_hz")
     q_factor: float = _field("q_factor", default=1.0)
@@ -685,8 +699,15 @@ class EffectGraph(_Strict):
         24-bit master without being regenerated.
         """
         def node(entry: GraphNode) -> dict[str, Any]:
+            params = entry.params
+            if entry.type == "dynamic_eq":
+                # Indexed, not .get(): a mode with no engine spelling is a
+                # KeyError here rather than a static band in the render.
+                params = {**params, "bands": [
+                    {**band, "mode": DYNAMIC_MODE_TO_ENGINE[band.get("mode", "static")]}
+                    for band in params.get("bands", [])]}
             out: dict[str, Any] = {"id": entry.id, "type": entry.type,
-                                   "params": entry.params}
+                                   "params": params}
             if entry.mix != 1.0:
                 out["mix"] = entry.mix
             if entry.bypass:

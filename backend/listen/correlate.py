@@ -249,7 +249,9 @@ def correlate_proxies(
     out: dict[str, Correlation] = {}
     for metric_name in sorted(metrics):
         series = metrics[metric_name]
-        missing = [name for name in names if name not in series]
+        # A null is a missing measurement, and is refused the same way. It
+        # used to reach float() and raise TypeError, which no caller expects.
+        missing = [name for name in names if series.get(name) is None]
         if missing:
             raise CorrelationError(
                 f"metric {metric_name!r} has no value for {missing[:3]} "
